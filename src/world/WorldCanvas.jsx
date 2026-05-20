@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { useStore } from '@/store'
 import Avatar3D from './Avatar3D'
 import CityMap from './CityMap'
+import { Car3D, Bike3D } from './Vehicle3D'
 
 // ── Collision system ──────────────────────────────────────────────────────────
 // Character and NPC radii in world units
@@ -89,20 +90,46 @@ const CIRCLE_COLLIDERS = [
   { x: -8, z:-20, r:0.54 }, { x:  8, z:-20, r:0.54 },
 ]
 
+// ── Vehicle physics configs ───────────────────────────────────────────────
+const CAR_CFG = {
+  maxSpeed:   14,   // m/s forward
+  maxReverse:  5,
+  accel:       7,
+  brake:      20,
+  friction:    5,   // deceleration m/s when no input
+  turnSpeed:   1.6, // rad/s at full speed
+  boostMult:   1.7,
+  collRadius:  1.3,
+  wheelRadius: 0.37,
+}
+const BIKE_CFG = {
+  maxSpeed:   22,
+  maxReverse:  4,
+  accel:      12,
+  brake:      18,
+  friction:    6,
+  turnSpeed:   2.6,
+  boostMult:   2.0,
+  leanAngle:   0.38,
+  collRadius:  0.65,
+  wheelRadius: 0.38,
+}
+
 // Live NPC positions — each entry is { x, z }, mutated by Avatar3D each frame
 const npcLivePositions = []
 
 // Push-out collision resolution. Handles boxes (buildings) + circles (trees/fountain/NPCs).
 // Two iterations resolve corner contacts without jitter.
-function resolveCollisions(nx, nz) {
+// r = mover radius (CHAR_R for walking, larger for vehicles)
+function resolveCollisions(nx, nz, r = CHAR_R) {
   let x = nx, z = nz
 
   for (let iter = 0; iter < 2; iter++) {
     // AABB box colliders
     for (let i = 0; i < BOX_COLLIDERS.length; i++) {
       const b  = BOX_COLLIDERS[i]
-      const ex = b.hw + CHAR_R
-      const ez = b.hd + CHAR_R
+      const ex = b.hw + r
+      const ez = b.hd + r
       const dx = x - b.x
       const dz = z - b.z
       if (Math.abs(dx) < ex && Math.abs(dz) < ez) {
@@ -120,7 +147,7 @@ function resolveCollisions(nx, nz) {
       const dx  = x - c.x
       const dz  = z - c.z
       const d2  = dx * dx + dz * dz
-      const min = c.r + CHAR_R
+      const min = c.r + r
       if (d2 < min * min && d2 > 1e-6) {
         const d    = Math.sqrt(d2)
         const push = (min - d) / d
@@ -135,7 +162,7 @@ function resolveCollisions(nx, nz) {
       const dx  = x - c.x
       const dz  = z - c.z
       const d2  = dx * dx + dz * dz
-      const min = NPC_R + CHAR_R
+      const min = NPC_R + r
       if (d2 < min * min && d2 > 1e-6) {
         const d    = Math.sqrt(d2)
         const push = (min - d) / d
@@ -148,33 +175,59 @@ function resolveCollisions(nx, nz) {
   return [x, z]
 }
 
+// ── Speedometer overlay (DOM, lives outside Canvas) ──────────────────────
+function Speedometer({ kmh }) {
+  return (
+    <div style={{
+      position: 'absolute', bottom: 24, right: 24,
+      width: 80, height: 80, borderRadius: '50%',
+      background: 'rgba(0,0,0,0.7)', border: '3px solid #facc15',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'monospace', pointerEvents: 'none',
+    }}>
+      <span style={{ fontSize: 22, fontWeight: 'bold', color: '#facc15', lineHeight: 1 }}>
+        {Math.round(kmh)}
+      </span>
+      <span style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>km/h</span>
+    </div>
+  )
+}
+
 // ── Place marker (clickable zone) ─────────────────────────────────────────
 function PlaceMarker({ position, emoji, label, color, onClick }) {
-  const mesh = useRef()
-  const [hovered, setHovered] = useState(false)
+  const badgeRef = useRef()
+  const ringRef  = useRef()
+  const hovered  = useRef(false)
 
   useFrame(({ clock }) => {
-    if (mesh.current) {
-      mesh.current.position.y = position[1] + 3.8 + Math.sin(clock.elapsedTime * 2) * 0.12
-      mesh.current.scale.setScalar(hovered ? 1.18 : 1)
+    if (badgeRef.current) {
+      badgeRef.current.position.y = 3.8 + Math.sin(clock.elapsedTime * 2) * 0.12
+      const ts = hovered.current ? 1.18 : 1
+      badgeRef.current.scale.x += (ts - badgeRef.current.scale.x) * 0.15
+      badgeRef.current.scale.y = badgeRef.current.scale.z = badgeRef.current.scale.x
+    }
+    if (ringRef.current) {
+      const to = hovered.current ? 0.55 : 0.28
+      ringRef.current.material.opacity += (to - ringRef.current.material.opacity) * 0.12
     }
   })
 
   return (
     <group position={position}>
       {/* Ground glow ring */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
         <ringGeometry args={[1.5, 1.9, 24]} />
-        <meshBasicMaterial color={color} transparent opacity={hovered ? 0.55 : 0.28} />
+        <meshBasicMaterial color={color} transparent opacity={0.28} />
       </mesh>
 
       {/* Floating badge */}
       <group
-        ref={mesh}
+        ref={badgeRef}
         position={[0, 3.8, 0]}
         onClick={onClick}
-        onPointerOver={() => { setHovered(true); document.body.style.cursor = 'pointer' }}
-        onPointerOut={() => { setHovered(false); document.body.style.cursor = 'default' }}
+        onPointerOver={() => { hovered.current = true; document.body.style.cursor = 'pointer' }}
+        onPointerOut={() => { hovered.current = false; document.body.style.cursor = 'default' }}
       >
         <mesh>
           <capsuleGeometry args={[0.35, 0.55, 4, 8]} />
@@ -243,8 +296,8 @@ function NPC({ startPos, skin, hair, outfit, name, color, onChat }) {
 }
 
 // ── Player controller ─────────────────────────────────────────────────────
-// Custom camera: right-click drag = orbit, scroll = zoom, WASD = move character
-function PlayerController({ avatar }) {
+// Custom camera: left-click drag = orbit, scroll = zoom, WASD = move character
+function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChange }) {
   const { camera, gl } = useThree()
   const setPlayerPos = useStore(s => s.setPlayerPos)
 
@@ -252,23 +305,45 @@ function PlayerController({ avatar }) {
   const charPos    = useRef(new THREE.Vector3(0, 0, 6))
   const charFacing = useRef(0)
 
-  // Camera spherical coords around character
-  const camYaw   = useRef(0)    // horizontal angle (radians); 0 = camera behind char at +Z
-  const camPitch = useRef(0.5)  // vertical angle (radians); clamped [0.08, 1.3]
-  const camDist  = useRef(12)   // distance from character; clamped [3, 45]
+  // Camera spherical coords around character/vehicle
+  const camYaw   = useRef(0)
+  const camPitch = useRef(0.5)
+  const camDist  = useRef(12)
 
-  // Input state — all in refs so useFrame reads without closures
+  // Input state
   const keys  = useRef(new Set())
   const mouse = useRef({ down: false, lastX: 0, lastY: 0 })
 
-  // Player group ref — position/rotation set imperatively each frame
+  // Player group ref
   const playerGroupRef = useRef()
 
-  // Walk state — only triggers re-render on walk/idle transition, never every frame
+  // Walk state
   const isWalkingRef = useRef(false)
   const [isWalking, setIsWalking] = useState(false)
-  // throttle store updates — only when position moves > 0.5 units
   const lastSentPos = useRef(new THREE.Vector3(0, 0, 6))
+
+  // ── Vehicle refs ──────────────────────────────────────────────────────
+  const carGroupRef   = useRef()
+  const bikeGroupRef  = useRef()
+  const carWheels     = useRef([null, null, null, null])
+  const bikeWheels    = useRef([null, null])
+  const bikeLeanRef   = useRef()
+  const carDustRefs   = useRef([null, null])
+  const bikeDustRef   = useRef()
+
+  // Vehicle physics state — pos is world Vector3, facing in radians, speed in m/s
+  const carState  = useRef({ pos: new THREE.Vector3(8, 0, 20),  facing: 0, speed: 0 })
+  const bikeState = useRef({ pos: new THREE.Vector3(-18, 0, 6), facing: 0, speed: 0 })
+
+  const activeVeh      = useRef(null)  // null | 'car' | 'bike'
+  const vehLean        = useRef(0)
+  const nearVehRef     = useRef(null)
+  const vehDetectTick  = useRef(0)
+  const speedThrottle  = useRef(0)
+  const speedKmhRef    = useRef(0)
+
+  // Visibility state (re-renders only on enter/exit)
+  const [inVehicle, setInVehicle] = useState(false)
 
   useEffect(() => {
     const el = gl.domElement
@@ -277,6 +352,45 @@ function PlayerController({ avatar }) {
       if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
         e.preventDefault()
       keys.current.add(e.code)
+
+      // ── E: enter or exit vehicle ──
+      if (e.code === 'KeyE') {
+        if (activeVeh.current) {
+          // Exit — place player beside vehicle, perpendicular to its facing
+          const vst   = activeVeh.current === 'car' ? carState.current : bikeState.current
+          const perpX =  Math.cos(vst.facing)
+          const perpZ = -Math.sin(vst.facing)
+          charPos.current.set(vst.pos.x + perpX * 2.5, 0, vst.pos.z + perpZ * 2.5)
+          charFacing.current = vst.facing
+          activeVeh.current  = null
+          nearVehRef.current = null
+          setInVehicle(false)
+          onDrivingChange(null)
+          onNearVehicle(null)
+          onSpeedChange(0)
+        } else {
+          const ENTER_R = 3.5
+          const cDist = charPos.current.distanceTo(carState.current.pos)
+          const bDist = charPos.current.distanceTo(bikeState.current.pos)
+          if (cDist < ENTER_R && cDist <= bDist) {
+            activeVeh.current = 'car'
+            // Snap camera behind vehicle
+            let snap = carState.current.facing + Math.PI
+            camYaw.current = snap
+            setInVehicle(true)
+            onDrivingChange('car')
+            onNearVehicle(null)
+          } else if (bDist < ENTER_R) {
+            activeVeh.current = 'bike'
+            let snap = bikeState.current.facing + Math.PI
+            camYaw.current = snap
+            vehLean.current = 0
+            setInVehicle(true)
+            onDrivingChange('bike')
+            onNearVehicle(null)
+          }
+        }
+      }
     }
     const onKeyUp = (e) => keys.current.delete(e.code)
 
@@ -322,16 +436,142 @@ function PlayerController({ avatar }) {
   const _move = useRef(new THREE.Vector3())
 
   useFrame((_, delta) => {
-    const SPEED  = 8
-    const BOUNDS = 53          // half of 120-unit map minus a small margin
-    let moving = false
+    const BOUNDS = 53
+
+    // ══════════════════════════════════════════════════════════════════════
+    // VEHICLE MODE
+    // ══════════════════════════════════════════════════════════════════════
+    if (activeVeh.current) {
+      const isCar  = activeVeh.current === 'car'
+      const vst    = isCar ? carState.current : bikeState.current
+      const cfg    = isCar ? CAR_CFG : BIKE_CFG
+      const vGroup = isCar ? carGroupRef.current : bikeGroupRef.current
+      const wRefs  = isCar ? carWheels.current : bikeWheels.current
+
+      const fwd   = keys.current.has('KeyW') || keys.current.has('ArrowUp')
+      const bwd   = keys.current.has('KeyS') || keys.current.has('ArrowDown')
+      const left  = keys.current.has('KeyA') || keys.current.has('ArrowLeft')
+      const right = keys.current.has('KeyD') || keys.current.has('ArrowRight')
+      const boost = keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')
+      const maxSpd = cfg.maxSpeed * (boost ? cfg.boostMult : 1)
+
+      // Acceleration / braking / friction
+      if (fwd) {
+        vst.speed = Math.min(vst.speed + cfg.accel * delta, maxSpd)
+      } else if (bwd) {
+        if (vst.speed > 0.15) {
+          vst.speed = Math.max(vst.speed - cfg.brake * delta, 0)
+        } else {
+          vst.speed = Math.max(vst.speed - cfg.accel * 0.5 * delta, -cfg.maxReverse)
+        }
+      } else {
+        const fric = cfg.friction * delta
+        vst.speed = Math.abs(vst.speed) < fric ? 0 : vst.speed - Math.sign(vst.speed) * fric
+      }
+
+      // Steering (speed-weighted — cannot spin in place)
+      const absSpd = Math.abs(vst.speed)
+      if (absSpd > 0.08) {
+        const steer     = left ? 1 : right ? -1 : 0
+        const speedFrac = Math.min(absSpd / cfg.maxSpeed, 1)
+        vst.facing += steer * cfg.turnSpeed * speedFrac * delta * (vst.speed >= 0 ? 1 : -1)
+      }
+
+      // Move along facing direction
+      vst.pos.x += Math.sin(vst.facing) * vst.speed * delta
+      vst.pos.z += Math.cos(vst.facing) * vst.speed * delta
+
+      // Collision (hard stop on impact)
+      const [vx, vz] = resolveCollisions(vst.pos.x, vst.pos.z, cfg.collRadius)
+      if (Math.abs(vx - vst.pos.x) > 0.002 || Math.abs(vz - vst.pos.z) > 0.002) vst.speed *= 0.05
+      vst.pos.x = THREE.MathUtils.clamp(vx, -BOUNDS, BOUNDS)
+      vst.pos.z = THREE.MathUtils.clamp(vz, -BOUNDS, BOUNDS)
+
+      // Update visual group
+      if (vGroup) {
+        vGroup.position.set(vst.pos.x, 0, vst.pos.z)
+        vGroup.rotation.y = vst.facing
+      }
+
+      // Wheel spin
+      const spin = (vst.speed * delta) / cfg.wheelRadius
+      for (let i = 0; i < wRefs.length; i++) {
+        if (wRefs[i]) wRefs[i].rotation.x -= spin
+      }
+
+      // Bike lean
+      if (!isCar && bikeLeanRef.current) {
+        const steer     = left ? 1 : right ? -1 : 0
+        const speedFrac = Math.min(absSpd / cfg.maxSpeed, 1)
+        const target    = -steer * cfg.leanAngle * speedFrac
+        vehLean.current += (target - vehLean.current) * Math.min(1, delta * 6)
+        bikeLeanRef.current.rotation.z = vehLean.current
+      }
+
+      // Dust particles
+      const dustOpacity = (fwd && absSpd > 2) ? Math.min(0.6, absSpd * 0.04) : 0
+      if (isCar) {
+        for (let i = 0; i < carDustRefs.current.length; i++) {
+          const dm = carDustRefs.current[i]
+          if (dm) {
+            dm.material.opacity = dustOpacity > 0
+              ? dustOpacity * (0.7 + Math.random() * 0.3)
+              : dm.material.opacity * 0.8
+            if (dustOpacity > 0) dm.scale.setScalar(0.8 + absSpd * 0.04)
+          }
+        }
+      } else if (bikeDustRef.current) {
+        const dm = bikeDustRef.current
+        dm.material.opacity = dustOpacity > 0
+          ? dustOpacity * (0.7 + Math.random() * 0.3)
+          : dm.material.opacity * 0.8
+      }
+
+      // Camera auto-follows behind vehicle (smooth, overrideable by drag)
+      if (!mouse.current.down) {
+        const targetYaw = vst.facing + Math.PI
+        let diff = targetYaw - camYaw.current
+        while (diff >  Math.PI) diff -= 2 * Math.PI
+        while (diff < -Math.PI) diff += 2 * Math.PI
+        camYaw.current += diff * Math.min(1, delta * 2.5)
+      }
+
+      const px = vst.pos.x, pz = vst.pos.z
+      const d  = camDist.current, p = camPitch.current, y = camYaw.current
+      camera.position.set(
+        px + d * Math.sin(y) * Math.cos(p),
+             d * Math.sin(p),
+        pz + d * Math.cos(y) * Math.cos(p),
+      )
+      camera.lookAt(px, 0.9, pz)
+
+      // Keep charPos synced for exit placement
+      charPos.current.copy(vst.pos)
+
+      // Throttle speedometer
+      speedThrottle.current += delta
+      if (speedThrottle.current > 0.08) {
+        speedThrottle.current = 0
+        const kmh = absSpd * 3.6
+        if (Math.abs(kmh - speedKmhRef.current) > 0.5) {
+          speedKmhRef.current = kmh
+          onSpeedChange(kmh)
+        }
+      }
+
+      return  // skip walking logic
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // WALKING MODE
+    // ══════════════════════════════════════════════════════════════════════
+    const SPEED = 8
+    let moving  = false
     _move.current.set(0, 0, 0)
 
-    // Camera yaw trig — computed once per frame
     const sy = Math.sin(camYaw.current)
     const cy = Math.cos(camYaw.current)
 
-    // WASD: forward/back/left/right in camera-relative XZ space
     if (keys.current.has('KeyW') || keys.current.has('ArrowUp'))    { _move.current.x -= sy; _move.current.z -= cy; moving = true }
     if (keys.current.has('KeyS') || keys.current.has('ArrowDown'))  { _move.current.x += sy; _move.current.z += cy; moving = true }
     if (keys.current.has('KeyA') || keys.current.has('ArrowLeft'))  { _move.current.x -= cy; _move.current.z += sy; moving = true }
@@ -343,54 +583,53 @@ function PlayerController({ avatar }) {
       charFacing.current = Math.atan2(_move.current.x, _move.current.z)
     }
 
-    // ── Collision resolution (buildings, trees, NPCs) ────────────────────
     const [cx, cz] = resolveCollisions(charPos.current.x, charPos.current.z)
-    charPos.current.x = cx
-    charPos.current.z = cz
+    charPos.current.x = THREE.MathUtils.clamp(cx, -BOUNDS, BOUNDS)
+    charPos.current.z = THREE.MathUtils.clamp(cz, -BOUNDS, BOUNDS)
+    charPos.current.y = 0
 
-    // ── Clamp to map bounds (invisible walls) ────────────────────────────
-    charPos.current.x = THREE.MathUtils.clamp(charPos.current.x, -BOUNDS, BOUNDS)
-    charPos.current.z = THREE.MathUtils.clamp(charPos.current.z, -BOUNDS, BOUNDS)
-    charPos.current.y = 0  // never float off ground
-
-    // Walk animation state — re-renders only on walk ↔ idle transition
     if (moving !== isWalkingRef.current) {
       isWalkingRef.current = moving
       setIsWalking(moving)
     }
 
-    // Move player group imperatively — zero React state, zero re-renders
     if (playerGroupRef.current) {
       playerGroupRef.current.position.set(charPos.current.x, 0, charPos.current.z)
       playerGroupRef.current.rotation.y = charFacing.current
     }
 
-    // ── Camera orbit around character ────────────────────────────────────
-    const px = charPos.current.x
-    const pz = charPos.current.z
-    const d  = camDist.current
-    const p  = camPitch.current
-    const y  = camYaw.current
-
+    const px = charPos.current.x, pz = charPos.current.z
+    const d  = camDist.current,   p  = camPitch.current, y = camYaw.current
     camera.position.set(
       px + d * Math.sin(y) * Math.cos(p),
-           d * Math.sin(p),              // camera height (character is always y=0)
+           d * Math.sin(p),
       pz + d * Math.cos(y) * Math.cos(p),
     )
-    camera.lookAt(px, 0.9, pz)           // look at roughly avatar chest height
-    // ─────────────────────────────────────────────────────────────────────
+    camera.lookAt(px, 0.9, pz)
 
-    // Throttle store update — only when moved > 0.5 units to cut re-renders
     if (charPos.current.distanceTo(lastSentPos.current) > 0.5) {
       lastSentPos.current.copy(charPos.current)
       setPlayerPos([charPos.current.x, 0, charPos.current.z])
+    }
+
+    // Near-vehicle detection (throttled)
+    vehDetectTick.current += delta
+    if (vehDetectTick.current > 0.2) {
+      vehDetectTick.current = 0
+      const cDist = charPos.current.distanceTo(carState.current.pos)
+      const bDist = charPos.current.distanceTo(bikeState.current.pos)
+      const near  = cDist < 3.5 ? 'Car' : bDist < 3.5 ? 'Bike' : null
+      if (near !== nearVehRef.current) {
+        nearVehRef.current = near
+        onNearVehicle(near)
+      }
     }
   })
 
   return (
     <>
-      {/* Player avatar — position/rotation driven imperatively via playerGroupRef */}
-      <group ref={playerGroupRef} position={[0, 0, 6]}>
+      {/* Player avatar — hidden while in vehicle */}
+      <group ref={playerGroupRef} position={[0, 0, 6]} visible={!inVehicle}>
         <Avatar3D
           skin={avatar.skin} hair={avatar.hair}
           outfit={avatar.outfit} expression={avatar.expression}
@@ -404,6 +643,26 @@ function PlayerController({ avatar }) {
         </Billboard>
       </group>
 
+      {/* Car — parked near restaurant area */}
+      <group ref={carGroupRef} position={[8, 0, 20]}>
+        <Car3D wheelRefs={carWheels} dustRefs={carDustRefs} />
+        {/* Parked label */}
+        {!inVehicle && (
+          <Billboard position={[0, 2.2, 0]}>
+            <Text fontSize={0.16} color="#facc15" anchorX="center">🚗 Car</Text>
+          </Billboard>
+        )}
+      </group>
+
+      {/* Bike — parked near the park area */}
+      <group ref={bikeGroupRef} position={[-18, 0, 6]}>
+        <Bike3D wheelRefs={bikeWheels} leanRef={bikeLeanRef} dustRef={bikeDustRef} />
+        {!inVehicle && (
+          <Billboard position={[0, 2.0, 0]}>
+            <Text fontSize={0.16} color="#facc15" anchorX="center">🏍 Bike</Text>
+          </Billboard>
+        )}
+      </group>
     </>
   )
 }
@@ -466,7 +725,7 @@ function WorldScene({ onPlaceClick, onNPCChat }) {
     <>
       {/* Lighting */}
       <ambientLight intensity={0.65} />
-      <directionalLight position={[12, 18, 8]} intensity={1.3} castShadow color="#FFF8DC" />
+      <directionalLight position={[12, 18, 8]} intensity={1.3} color="#FFF8DC" />
       <directionalLight position={[-10, 10, -8]} intensity={0.5} color="#b0c4de" />
       <hemisphereLight skyColor="#87ceeb" groundColor="#2d5a27" intensity={0.4} />
 
@@ -506,18 +765,56 @@ function WorldScene({ onPlaceClick, onNPCChat }) {
 export default function WorldCanvas({ onPlaceClick, onNPCChat }) {
   const avatar = useStore(s => s.avatar)
 
+  const [nearVeh,     setNearVeh]     = useState(null)   // 'Car' | 'Bike' | null
+  const [drivingType, setDrivingType] = useState(null)   // 'car' | 'bike' | null
+  const [speedKmh,    setSpeedKmh]    = useState(0)
+
   return (
     <div className="canvas-wrap">
       <Canvas
-        shadows
-        camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 300 }}
+        dpr={[1, 1.5]}
+        camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 150 }}
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
         <Suspense fallback={null}>
           <WorldScene onPlaceClick={onPlaceClick} onNPCChat={onNPCChat} />
-          <PlayerController avatar={avatar} />
+          <PlayerController
+            avatar={avatar}
+            onNearVehicle={setNearVeh}
+            onDrivingChange={setDrivingType}
+            onSpeedChange={setSpeedKmh}
+          />
         </Suspense>
       </Canvas>
+
+      {/* E-to-enter prompt */}
+      {nearVeh && !drivingType && (
+        <div style={{
+          position: 'absolute', bottom: '22%', left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.7)', color: '#facc15', padding: '8px 20px',
+          borderRadius: 8, fontFamily: 'monospace', fontSize: 15, pointerEvents: 'none',
+          border: '1px solid #facc15',
+        }}>
+          Press <strong>E</strong> to enter {nearVeh}
+        </div>
+      )}
+
+      {/* E-to-exit hint + speedometer while driving */}
+      {drivingType && (
+        <>
+          <div style={{
+            position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.65)', color: '#fff', padding: '6px 16px',
+            borderRadius: 8, fontFamily: 'monospace', fontSize: 13, pointerEvents: 'none',
+          }}>
+            <strong>E</strong> — Exit vehicle &nbsp;|&nbsp;
+            <strong>W/S</strong> Accel/Brake &nbsp;|&nbsp;
+            <strong>A/D</strong> Steer &nbsp;|&nbsp;
+            <strong>Shift</strong> Boost
+          </div>
+          <Speedometer kmh={speedKmh} />
+        </>
+      )}
     </div>
   )
 }

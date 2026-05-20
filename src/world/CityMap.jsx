@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
@@ -163,87 +163,155 @@ function House({ pos, color = '#E8D5B7', roofColor = '#C0392B', rotate = 0 }) {
   )
 }
 
-// ── Tree ──────────────────────────────────────────────────────────────────
-function Tree({ pos, scale = 1 }) {
+// ── Instanced Trees — 63 instances → 4 draw calls ────────────────────────
+const TREE_DATA = [
+  // Inner ring (scale=1)
+  [-4,-4,1],[-4,4,1],[4,-4,1],[4,4,1],[-8,8,1],[8,8,1],[-8,-8,1],[8,-8,1],[-12,-2,1],[12,-2,1],
+  // E-W road z=-4.5 (scale=0.88)
+  [-48,-4.5,.88],[-38,-4.5,.88],[-28,-4.5,.88],[-22,-4.5,.88],[-8,-4.5,.88],
+  [8,-4.5,.88],[22,-4.5,.88],[28,-4.5,.88],[38,-4.5,.88],[48,-4.5,.88],
+  // E-W road z=+4.5 (scale=0.88)
+  [-48,4.5,.88],[-38,4.5,.88],[-28,4.5,.88],[-22,4.5,.88],[-8,4.5,.88],
+  [8,4.5,.88],[22,4.5,.88],[28,4.5,.88],[38,4.5,.88],[48,4.5,.88],
+  // N/S road x=-4.5 (scale=0.85)
+  [-4.5,-45,.85],[-4.5,-35,.85],[-4.5,-24,.85],[-4.5,-14,.85],
+  [-4.5,14,.85],[-4.5,24,.85],[-4.5,35,.85],[-4.5,45,.85],
+  // Residential (scale=0.8)
+  [20,20,.8],[30,20,.8],[40,20,.8],[50,20,.8],[20,30,.8],[30,30,.8],[40,30,.8],[50,30,.8],
+  [20,40,.8],[30,40,.8],[40,40,.8],[50,40,.8],[20,50,.8],[30,50,.8],[40,50,.8],[50,50,.8],
+  // Church area (scale=0.85)
+  [-16,24,.85],[-18,24,.85],[-20,24,.85],[-22,24,.85],[-24,24,.85],
+  // North district (scale=0.82)
+  [-8,-20,.82],[-5,-20,.82],[5,-20,.82],[8,-20,.82],
+]
+
+function InstancedTrees() {
+  const trunkRef = useRef(), c1Ref = useRef(), c2Ref = useRef(), c3Ref = useRef()
+  const N = TREE_DATA.length
+
+  useEffect(() => {
+    const d = new THREE.Object3D()
+    ;[
+      { ref: trunkRef, yOff: 0.6  },
+      { ref: c1Ref,    yOff: 1.8  },
+      { ref: c2Ref,    yOff: 2.65 },
+      { ref: c3Ref,    yOff: 3.3  },
+    ].forEach(({ ref, yOff }) => {
+      TREE_DATA.forEach(([x, z, s], i) => {
+        d.position.set(x, yOff * s, z); d.scale.setScalar(s); d.updateMatrix()
+        ref.current.setMatrixAt(i, d.matrix)
+      })
+      ref.current.instanceMatrix.needsUpdate = true
+    })
+  }, [])
+
   return (
-    <group position={pos} scale={scale}>
-      <mesh position={[0, 0.6, 0]}>
-        <cylinderGeometry args={[0.12, 0.16, 1.2, 6]} />
-        <meshToonMaterial color="#7C3F10" />
-      </mesh>
-      <mesh position={[0, 1.8, 0]}>
-        <coneGeometry args={[0.72, 1.4, 7]} />
-        <meshToonMaterial color="#15803d" />
-      </mesh>
-      <mesh position={[0, 2.65, 0]}>
-        <coneGeometry args={[0.52, 1.1, 7]} />
-        <meshToonMaterial color="#16a34a" />
-      </mesh>
-      <mesh position={[0, 3.3, 0]}>
-        <coneGeometry args={[0.32, 0.85, 7]} />
-        <meshToonMaterial color="#22c55e" />
-      </mesh>
-    </group>
+    <>
+      <instancedMesh ref={trunkRef} args={[null, null, N]}>
+        <cylinderGeometry args={[0.12, 0.16, 1.2, 6]} /><meshToonMaterial color="#7C3F10" />
+      </instancedMesh>
+      <instancedMesh ref={c1Ref} args={[null, null, N]}>
+        <coneGeometry args={[0.72, 1.4, 7]} /><meshToonMaterial color="#15803d" />
+      </instancedMesh>
+      <instancedMesh ref={c2Ref} args={[null, null, N]}>
+        <coneGeometry args={[0.52, 1.1, 7]} /><meshToonMaterial color="#16a34a" />
+      </instancedMesh>
+      <instancedMesh ref={c3Ref} args={[null, null, N]}>
+        <coneGeometry args={[0.32, 0.85, 7]} /><meshToonMaterial color="#22c55e" />
+      </instancedMesh>
+    </>
   )
 }
 
-// ── Street Lamp ───────────────────────────────────────────────────────────
-function Lamp({ pos }) {
+// ── Instanced Lamps — 45 instances → 3 draw calls ────────────────────────
+const LAMP_DATA = [
+  [-2,-2],[-2,2],[2,-2],[2,2],[-2,-8],[2,-8],[-2,8],[2,8],
+  [-8,-20],[8,-20],[-20,-22],[20,-22],[-8,-30],[8,-30],[-30,-28],[30,-28],
+  [22,-8],[22,5],[22,18],[22,27],[36,-2],[36,10],[36,22],
+  [-22,-8],[-22,5],[-22,18],[-22,27],[-36,-2],[-36,-16],[-36,10],
+  [-8,22],[8,22],[-8,32],[8,32],[-22,32],[22,32],[0,32],
+  [23,22],[33,22],[43,22],[23,32],[33,32],[43,32],[23,42],[33,42],
+]
+
+function InstancedLamps() {
+  const poleRef = useRef(), armRef = useRef(), globeRef = useRef()
+  const N = LAMP_DATA.length
+
+  useEffect(() => {
+    const d = new THREE.Object3D()
+    LAMP_DATA.forEach(([x, z], i) => {
+      d.position.set(x,      1.5, z); d.updateMatrix(); poleRef.current.setMatrixAt(i, d.matrix)
+      d.position.set(x + .3, 3.1, z); d.updateMatrix(); armRef.current.setMatrixAt(i, d.matrix)
+      d.position.set(x + .3, 3.4, z); d.updateMatrix(); globeRef.current.setMatrixAt(i, d.matrix)
+    })
+    poleRef.current.instanceMatrix.needsUpdate  = true
+    armRef.current.instanceMatrix.needsUpdate   = true
+    globeRef.current.instanceMatrix.needsUpdate = true
+  }, [])
+
   return (
-    <group position={pos}>
-      <mesh position={[0, 1.5, 0]}>
-        <cylinderGeometry args={[0.05, 0.07, 3, 6]} />
-        <meshToonMaterial color="#475569" />
-      </mesh>
-      <mesh position={[0.3, 3.1, 0]}>
-        <cylinderGeometry args={[0.04, 0.04, 0.6, 6]} />
-        <meshToonMaterial color="#475569" />
-      </mesh>
-      <mesh position={[0.3, 3.4, 0]}>
-        <sphereGeometry args={[0.14, 8, 6]} />
-        <meshBasicMaterial color="#FEF9C3" />
-      </mesh>
-    </group>
+    <>
+      <instancedMesh ref={poleRef} args={[null, null, N]}>
+        <cylinderGeometry args={[0.05, 0.07, 3, 6]} /><meshToonMaterial color="#475569" />
+      </instancedMesh>
+      <instancedMesh ref={armRef} args={[null, null, N]}>
+        <cylinderGeometry args={[0.04, 0.04, 0.6, 6]} /><meshToonMaterial color="#475569" />
+      </instancedMesh>
+      <instancedMesh ref={globeRef} args={[null, null, N]}>
+        <sphereGeometry args={[0.14, 8, 6]} /><meshBasicMaterial color="#FEF9C3" />
+      </instancedMesh>
+    </>
   )
 }
 
-// ── Traffic Light ─────────────────────────────────────────────────────────
-function TrafficLight({ pos }) {
-  const phaseRef = useRef(0)
-  const timerRef = useRef(Math.random() * 3) // stagger start
-  const lightsRef = useRef([])
-  const PHASES = [3, 0.6, 3]
-  const ON  = ['#ef4444', '#facc15', '#22c55e']
-  const OFF = ['#3a0000', '#3a2e00', '#003a0f']
+// ── Traffic Lights — single useFrame for all 10 lights ───────────────────
+const TL_POS = [
+  [ 2.5,0,-2.5],[-2.5,0, 2.5],[22,0,-2.5],[-22,0, 2.5],
+  [ 2.5,0,-20 ],[-2.5,0, 20 ],[ 2.5,0,-36],[-2.5,0, 36],
+  [42,  0, -2 ],[-42, 0,  2 ],
+]
+const TL_ON  = ['#ef4444','#facc15','#22c55e']
+const TL_OFF = ['#3a0000','#3a2e00','#003a0f']
+const TL_DUR = [3, 0.6, 3]
+
+function TrafficLights() {
+  const lRefs  = useRef([])
+  const phases = useRef(TL_POS.map(() => 0))
+  const timers = useRef(TL_POS.map(() => Math.random() * 3))
 
   useFrame((_, delta) => {
-    timerRef.current += delta
-    if (timerRef.current >= PHASES[phaseRef.current]) {
-      timerRef.current = 0
-      phaseRef.current = (phaseRef.current + 1) % 3
-      lightsRef.current.forEach((m, i) => {
-        if (m) m.material.color.set(i === phaseRef.current ? ON[i] : OFF[i])
-      })
+    for (let li = 0; li < TL_POS.length; li++) {
+      timers.current[li] += delta
+      if (timers.current[li] >= TL_DUR[phases.current[li]]) {
+        timers.current[li] = 0
+        phases.current[li] = (phases.current[li] + 1) % 3
+        const p = phases.current[li]
+        for (let ci = 0; ci < 3; ci++) {
+          const m = lRefs.current[li * 3 + ci]
+          if (m) m.material.color.set(ci === p ? TL_ON[ci] : TL_OFF[ci])
+        }
+      }
     }
   })
 
   return (
-    <group position={pos}>
-      <mesh position={[0, 1.6, 0]}>
-        <cylinderGeometry args={[0.06, 0.07, 3.2, 6]} />
-        <meshToonMaterial color="#475569" />
-      </mesh>
-      <mesh position={[0, 3.4, 0]}>
-        <boxGeometry args={[0.32, 0.88, 0.28]} />
-        <meshToonMaterial color="#1e293b" />
-      </mesh>
-      {[3.7, 3.4, 3.1].map((y, i) => (
-        <mesh key={i} ref={el => lightsRef.current[i] = el} position={[0, y, 0.15]}>
-          <circleGeometry args={[0.09, 8]} />
-          <meshBasicMaterial color={i === 0 ? ON[0] : OFF[i]} />
-        </mesh>
+    <>
+      {TL_POS.map((pos, li) => (
+        <group key={li} position={pos}>
+          <mesh position={[0, 1.6, 0]}>
+            <cylinderGeometry args={[0.06, 0.07, 3.2, 6]} /><meshToonMaterial color="#475569" />
+          </mesh>
+          <mesh position={[0, 3.4, 0]}>
+            <boxGeometry args={[0.32, 0.88, 0.28]} /><meshToonMaterial color="#1e293b" />
+          </mesh>
+          {[3.7, 3.4, 3.1].map((y, ci) => (
+            <mesh key={ci} ref={el => { lRefs.current[li * 3 + ci] = el }} position={[0, y, 0.15]}>
+              <circleGeometry args={[0.09, 8]} /><meshBasicMaterial color={ci === 0 ? TL_ON[0] : TL_OFF[ci]} />
+            </mesh>
+          ))}
+        </group>
       ))}
-    </group>
+    </>
   )
 }
 
@@ -1134,72 +1202,14 @@ export default function CityMap() {
       <House pos={[26, 0, 44]} color="#fee2e2" roofColor="#dc2626" rotate={-0.04} />
       <House pos={[36, 0, 44]} color="#ecfdf5" roofColor="#059669" />
 
-      {/* ── Traffic Lights ── */}
-      <TrafficLight pos={[ 2.5, 0, -2.5]} />
-      <TrafficLight pos={[-2.5, 0,  2.5]} />
-      <TrafficLight pos={[22,   0, -2.5]} />
-      <TrafficLight pos={[-22,  0,  2.5]} />
-      <TrafficLight pos={[ 2.5, 0,-20]}  />
-      <TrafficLight pos={[-2.5, 0, 20]}  />
-      <TrafficLight pos={[ 2.5, 0, -36]} />
-      <TrafficLight pos={[-2.5, 0,  36]} />
-      <TrafficLight pos={[42,   0,  -2]} />
-      <TrafficLight pos={[-42,  0,   2]} />
+      {/* ── Traffic Lights (single useFrame) ── */}
+      <TrafficLights />
 
-      {/* ── Trees throughout city ── */}
-      {/* Inner ring */}
-      {[[-4,-4],[-4,4],[4,-4],[4,4],[-8,8],[8,8],[-8,-8],[8,-8],[-12,-2],[12,-2]].map(([x,z],i)=>(
-        <Tree key={`ti${i}`} pos={[x, 0, z]} />
-      ))}
-      {/* Along main E-W road (both sides) */}
-      {[-48,-38,-28,-22,-8,8,22,28,38,48].map((x,i)=>(
-        <Tree key={`tew1${i}`} pos={[x, 0, -4.5]} scale={0.88} />
-      ))}
-      {[-48,-38,-28,-22,-8,8,22,28,38,48].map((x,i)=>(
-        <Tree key={`tew2${i}`} pos={[x, 0,  4.5]} scale={0.88} />
-      ))}
-      {/* N/S road sides */}
-      {[-45,-35,-24,-14,14,24,35,45].map((z,i)=>(
-        <Tree key={`tns1${i}`} pos={[-4.5, 0, z]} scale={0.85} />
-      ))}
-      {/* Residential area */}
-      {[20,30,40,50].flatMap((x,i)=>[20,30,40,50].map((z,j)=>(
-        <Tree key={`tr${i}${j}`} pos={[x, 0, z]} scale={0.8} />
-      )))}
-      {/* Church area */}
-      {[-16,-18,-20,-22,-24].map((x,i)=>(
-        <Tree key={`tc${i}`} pos={[x, 0, 24]} scale={0.85} />
-      ))}
-      {/* North district decoration */}
-      {[-8,-5,5,8].map((x,i)=>(
-        <Tree key={`tn${i}`} pos={[x, 0, -20]} scale={0.82} />
-      ))}
+      {/* ── Trees (instanced — 63 trees, 4 draw calls) ── */}
+      <InstancedTrees />
 
-      {/* ── Street Lamps throughout city ── */}
-      {/* Core */}
-      {[[-2,-2],[-2,2],[2,-2],[2,2],[-2,-8],[2,-8],[-2,8],[2,8]].map(([x,z],i)=>(
-        <Lamp key={`lc${i}`} pos={[x, 0, z]} />
-      ))}
-      {/* North district */}
-      {[[-8,-20],[8,-20],[-20,-22],[20,-22],[-8,-30],[8,-30],[-30,-28],[30,-28]].map(([x,z],i)=>(
-        <Lamp key={`ln${i}`} pos={[x, 0, z]} />
-      ))}
-      {/* East district */}
-      {[[22,-8],[22,5],[22,18],[22,27],[36,-2],[36,10],[36,22]].map(([x,z],i)=>(
-        <Lamp key={`le${i}`} pos={[x, 0, z]} />
-      ))}
-      {/* West district */}
-      {[[-22,-8],[-22,5],[-22,18],[-22,27],[-36,-2],[-36,-16],[-36,10]].map(([x,z],i)=>(
-        <Lamp key={`lw${i}`} pos={[x, 0, z]} />
-      ))}
-      {/* South district */}
-      {[[-8,22],[8,22],[-8,32],[8,32],[-22,32],[22,32],[0,32]].map(([x,z],i)=>(
-        <Lamp key={`ls${i}`} pos={[x, 0, z]} />
-      ))}
-      {/* Residential street lamps */}
-      {[[23,22],[33,22],[43,22],[23,32],[33,32],[43,32],[23,42],[33,42]].map(([x,z],i)=>(
-        <Lamp key={`lr${i}`} pos={[x, 0, z]} />
-      ))}
+      {/* ── Street Lamps (instanced — 45 lamps, 3 draw calls) ── */}
+      <InstancedLamps />
 
       {/* ── Fountain plaza benches ── */}
       {[[0,-2.6,0],[0,0,2.6,Math.PI/2],[2.6,0,0,Math.PI/2],[-2.6,0,0,Math.PI/2]].map(([x,y,z,ry=0],i)=>(

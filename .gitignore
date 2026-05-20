@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+
+# build files
+.next/
+dist/
+build/
+out/
+
+# env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# vscode
+.vscode/
+
+# misc
+coverage/
+.cache/
+.tmp/
+
+# package managers
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# generated
+*.log
+*.tsbuildinfo
