@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+  body { font-family: 'Nunito', sans-serif; background: #07040F; color: #fff; }
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: #7C3AED; border-radius: 2px; }
+}
+
+@layer components {
+  .btn { @apply font-display rounded-2xl px-4 py-2 text-sm border-2 border-black/20 shadow-cartoon active:translate-y-0.5 active:shadow-none transition-all duration-100 cursor-pointer select-none text-white; }
+  .glass { @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl; }
+  .glass-dark { @apply bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl; }
+  .chat-bubble-ai  { @apply bg-purple-600/80 backdrop-blur-sm rounded-2xl rounded-tl-none px-4 py-2.5 text-sm text-white max-w-[78%] shadow-cartoon; }
+  .chat-bubble-me  { @apply bg-pink-600/80 backdrop-blur-sm rounded-2xl rounded-tr-none px-4 py-2.5 text-sm text-white max-w-[78%] ml-auto shadow-cartoon; }
+}
+
+.canvas-wrap { position: absolute; inset: 0; }
+
+/* Joystick */
+.joystick-zone { position: fixed; bottom: 110px; left: 20px; width: 110px; height: 110px; z-index: 40; }
+.joystick-base { width: 100%; height: 100%; border-radius: 50%; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; }
+.joystick-thumb { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #7C3AED, #EC4899); border: 2px solid rgba(255,255,255,0.3); cursor: grab; transition: transform 0.05s; box-shadow: 0 4px 12px rgba(124,58,237,0.5); }
