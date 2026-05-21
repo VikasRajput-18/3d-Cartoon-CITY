@@ -78,13 +78,6 @@ export default function HUD() {
         })}
       </div>
 
-      {/* Controls hint */}
-      <div className="fixed bottom-20 right-3 z-40 glass-dark px-3 py-2 rounded-2xl">
-        <p className="text-white/30 text-[10px] font-bold">CLICK TO MOVE</p>
-        <p className="text-white/30 text-[10px]">Click NPC to chat</p>
-        <p className="text-white/30 text-[10px]">Click 📍 to enter</p>
-      </div>
-
       {/* Toasts */}
       <div className="fixed top-24 left-3 right-3 z-50 max-w-xs mx-auto space-y-2 pointer-events-none">
         <AnimatePresence>

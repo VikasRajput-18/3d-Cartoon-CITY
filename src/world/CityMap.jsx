@@ -1,6 +1,11 @@
 import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { timeWeatherState } from '@/lib/timeWeatherState'
+
+// Shared materials updated dynamically by DynamicLighting (same instance → one GPU call)
+const windowMat    = new THREE.MeshBasicMaterial({ color: '#1e293b', transparent: true, opacity: 0.65 })
+const lampGlobeMat = new THREE.MeshBasicMaterial({ color: '#1e293b' })
 
 // deterministic window-light pattern for apartments
 const APT_WIN = [
@@ -122,7 +127,7 @@ function Building({ pos, w = 2, d = 2, h = 4, color = '#334155', roof = '#7C3AED
       {windows && winOffsetsX.flatMap(wx => winOffsetsY.map(wy => [wx, wy])).map(([wx, wy], i) => (
         <mesh key={i} position={[wx, wy, d / 2 + 0.01]}>
           <planeGeometry args={[0.3, 0.38]} />
-          <meshBasicMaterial color="#FEF9C3" transparent opacity={0.9} />
+          <primitive object={windowMat} />
         </mesh>
       ))}
     </group>
@@ -173,14 +178,14 @@ const TREE_DATA = [
   // E-W road z=+4.5 (scale=0.88)
   [-48,4.5,.88],[-38,4.5,.88],[-28,4.5,.88],[-22,4.5,.88],[-8,4.5,.88],
   [8,4.5,.88],[22,4.5,.88],[28,4.5,.88],[38,4.5,.88],[48,4.5,.88],
-  // N/S road x=-4.5 (scale=0.85)
-  [-4.5,-45,.85],[-4.5,-35,.85],[-4.5,-24,.85],[-4.5,-14,.85],
-  [-4.5,14,.85],[-4.5,24,.85],[-4.5,35,.85],[-4.5,45,.85],
-  // Residential (scale=0.8)
-  [20,20,.8],[30,20,.8],[40,20,.8],[50,20,.8],[20,30,.8],[30,30,.8],[40,30,.8],[50,30,.8],
-  [20,40,.8],[30,40,.8],[40,40,.8],[50,40,.8],[20,50,.8],[30,50,.8],[40,50,.8],[50,50,.8],
-  // Church area (scale=0.85)
-  [-16,24,.85],[-18,24,.85],[-20,24,.85],[-22,24,.85],[-24,24,.85],
+  // N/S road x=-4.5 (scale=0.85) — z=-36.5/36.5 moved off far roads
+  [-4.5,-45,.85],[-4.5,-36.5,.85],[-4.5,-24,.85],[-4.5,-14,.85],
+  [-4.5,14,.85],[-4.5,24,.85],[-4.5,36.5,.85],[-4.5,45,.85],
+  // Residential (scale=0.8) — x=22/37 moved off arterial/far-east roads
+  [22,20,.8],[30,20,.8],[37,20,.8],[50,20,.8],[22,30,.8],[30,30,.8],[37,30,.8],[50,30,.8],
+  [22,40,.8],[30,40,.8],[37,40,.8],[50,40,.8],[22,50,.8],[30,50,.8],[37,50,.8],[50,50,.8],
+  // Church area (scale=0.85) — x=-17 moved off arterial, x=-20 removed
+  [-16,24,.85],[-17,24,.85],[-22,24,.85],[-24,24,.85],
   // North district (scale=0.82)
   [-8,-20,.82],[-5,-20,.82],[5,-20,.82],[8,-20,.82],
 ]
@@ -207,17 +212,17 @@ function InstancedTrees() {
 
   return (
     <>
-      <instancedMesh ref={trunkRef} args={[null, null, N]}>
+      <instancedMesh ref={trunkRef} args={[null, null, N]} frustumCulled={false}>
         <cylinderGeometry args={[0.12, 0.16, 1.2, 6]} /><meshToonMaterial color="#7C3F10" />
       </instancedMesh>
-      <instancedMesh ref={c1Ref} args={[null, null, N]}>
-        <coneGeometry args={[0.72, 1.4, 7]} /><meshToonMaterial color="#15803d" />
+      <instancedMesh ref={c1Ref} args={[null, null, N]} frustumCulled={false}>
+        <coneGeometry args={[0.72, 1.4, 7]} /><meshToonMaterial color="#15803d" side={THREE.DoubleSide} />
       </instancedMesh>
-      <instancedMesh ref={c2Ref} args={[null, null, N]}>
-        <coneGeometry args={[0.52, 1.1, 7]} /><meshToonMaterial color="#16a34a" />
+      <instancedMesh ref={c2Ref} args={[null, null, N]} frustumCulled={false}>
+        <coneGeometry args={[0.52, 1.1, 7]} /><meshToonMaterial color="#16a34a" side={THREE.DoubleSide} />
       </instancedMesh>
-      <instancedMesh ref={c3Ref} args={[null, null, N]}>
-        <coneGeometry args={[0.32, 0.85, 7]} /><meshToonMaterial color="#22c55e" />
+      <instancedMesh ref={c3Ref} args={[null, null, N]} frustumCulled={false}>
+        <coneGeometry args={[0.32, 0.85, 7]} /><meshToonMaterial color="#22c55e" side={THREE.DoubleSide} />
       </instancedMesh>
     </>
   )
@@ -225,11 +230,15 @@ function InstancedTrees() {
 
 // ── Instanced Lamps — 45 instances → 3 draw calls ────────────────────────
 const LAMP_DATA = [
-  [-2,-2],[-2,2],[2,-2],[2,2],[-2,-8],[2,-8],[-2,8],[2,8],
-  [-8,-20],[8,-20],[-20,-22],[20,-22],[-8,-30],[8,-30],[-30,-28],[30,-28],
-  [22,-8],[22,5],[22,18],[22,27],[36,-2],[36,10],[36,22],
-  [-22,-8],[-22,5],[-22,18],[-22,27],[-36,-2],[-36,-16],[-36,10],
-  [-8,22],[8,22],[-8,32],[8,32],[-22,32],[22,32],[0,32],
+  // Intersection + N-S road lamps shifted to x=±2.8, off main roads
+  [-2.8,-2.8],[-2.8,2.8],[2.8,-2.8],[2.8,2.8],[-2.8,-8],[2.8,-8],[-2.8,8],[2.8,8],
+  [-8,-20],[8,-20],[-22,-22],[22,-22],[-8,-30],[8,-30],[-30,-28],[30,-28],
+  // East arterial z=20 (was 18, on south ring), x=36 z=-3 (was -2, on main E-W)
+  [22,-8],[22,5],[22,20],[22,27],[36,-3],[36,10],[36,22],
+  // West arterial z=20 (was 18), x=-36 z=-3 (was -2)
+  [-22,-8],[-22,5],[-22,20],[-22,27],[-36,-3],[-36,-16],[-36,10],
+  // x=2.8 (was 0, on main N-S)
+  [-8,22],[8,22],[-8,32],[8,32],[-22,32],[22,32],[2.8,32],
   [23,22],[33,22],[43,22],[23,32],[33,32],[43,32],[23,42],[33,42],
 ]
 
@@ -251,14 +260,14 @@ function InstancedLamps() {
 
   return (
     <>
-      <instancedMesh ref={poleRef} args={[null, null, N]}>
+      <instancedMesh ref={poleRef} args={[null, null, N]} frustumCulled={false}>
         <cylinderGeometry args={[0.05, 0.07, 3, 6]} /><meshToonMaterial color="#475569" />
       </instancedMesh>
-      <instancedMesh ref={armRef} args={[null, null, N]}>
+      <instancedMesh ref={armRef} args={[null, null, N]} frustumCulled={false}>
         <cylinderGeometry args={[0.04, 0.04, 0.6, 6]} /><meshToonMaterial color="#475569" />
       </instancedMesh>
-      <instancedMesh ref={globeRef} args={[null, null, N]}>
-        <sphereGeometry args={[0.14, 8, 6]} /><meshBasicMaterial color="#FEF9C3" />
+      <instancedMesh ref={globeRef} args={[null, null, N]} frustumCulled={false}>
+        <sphereGeometry args={[0.14, 8, 6]} /><primitive object={lampGlobeMat} />
       </instancedMesh>
     </>
   )
@@ -1141,13 +1150,25 @@ function ParkArea() {
   )
 }
 
+// ── Dynamic window + lamp lighting ───────────────────────────────────────
+// Runs every frame; updates the two shared materials from timeWeatherState.lampOn
+function DynamicLighting() {
+  useFrame(() => {
+    const on = timeWeatherState.lampOn
+    windowMat.color.setStyle(on ? '#FEF9C3' : '#1e293b')
+    windowMat.opacity = on ? 0.95 : 0.55
+    lampGlobeMat.color.setStyle(on ? '#FEF9C3' : '#1e293b')
+  })
+  return null
+}
+
 // ── Main CityMap ──────────────────────────────────────────────────────────
 export default function CityMap() {
   return (
     <group>
+      <DynamicLighting />
       <Ground />
       <Roads />
-      <Clouds />
 
       {/* ── Town Centre ── */}
       <Fountain pos={[0, 0, 0]} />

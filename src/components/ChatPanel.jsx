@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Send, Loader2 } from 'lucide-react'
 import { useStore } from '@/store'
 import { gameControls } from '@/lib/gameControls'
+import { audioSystem } from '@/lib/audioSystem'
 
 const NPC_PERSONAS = {
   Anaya: {
@@ -113,6 +114,7 @@ Rules:
 
       if (reply) {
         addMessage(npc.name, { role: 'assistant', text: reply })
+        audioSystem.playNotification()
       } else {
         throw new Error('No reply')
       }
@@ -127,6 +129,7 @@ Rules:
       }
       const f = fallbacks[npc.name] || fallbacks.Anaya
       addMessage(npc.name, { role: 'assistant', text: f[Math.floor(Math.random() * f.length)] })
+      audioSystem.playNotification()
       // Only toast if it's not an auth issue (expected without API key)
     } finally {
       setLoading(false)
@@ -216,7 +219,7 @@ Rules:
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+            onKeyDown={e => { if (e.key === 'Enter') sendMessage(); else audioSystem.playTyping() }}
             placeholder={`Message ${npc.name}...`}
             className="flex-1 bg-white/8 border border-white/10 rounded-2xl px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-white/30 focus:bg-white/12 transition-all"
           />

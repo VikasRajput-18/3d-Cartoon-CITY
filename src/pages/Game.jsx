@@ -6,9 +6,16 @@ import InteriorScene, { INTERIOR_DEFS } from '@/world/InteriorScene'
 import HUD from '@/components/HUD'
 import ChatPanel from '@/components/ChatPanel'
 import AIChat from '@/components/AIChat'
+import Minimap from '@/components/Minimap'
+import TimeWeatherHUD from '@/components/TimeWeatherHUD'
+import MobileControls from '@/components/MobileControls'
+import VolumeControl from '@/components/VolumeControl'
+import { useMobile } from '@/lib/useMobile'
+import { audioSystem } from '@/lib/audioSystem'
 
 export default function Game() {
-  const avatar = useStore(s => s.avatar)
+  const avatar    = useStore(s => s.avatar)
+  const isMobile  = useMobile()
 
   // City NPC chat (wandering NPCs)
   const [activeNPC, setActiveNPC] = useState(null)
@@ -21,17 +28,20 @@ export default function Game() {
 
   function enterBuilding(id) {
     if (!INTERIOR_DEFS[id]) return
+    audioSystem.playTransition()
+    audioSystem.startIndoor()
     setFading(true)
     setTimeout(() => {
       setMode('interior')
       setActiveBuilding(id)
-      // Double-rAF so the new scene renders before fade-in starts
       requestAnimationFrame(() => requestAnimationFrame(() => setFading(false)))
     }, 350)
   }
 
   function exitBuilding() {
     setChatNpc(null)
+    audioSystem.playTransition()
+    audioSystem.stopIndoor()
     setFading(true)
     setTimeout(() => {
       setMode('city')
@@ -41,7 +51,10 @@ export default function Game() {
   }
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-night-950">
+    <div
+      className="fixed inset-0 overflow-hidden bg-night-950"
+      onPointerDown={() => audioSystem.unlock()}
+    >
 
       {/* 3D World */}
       {mode === 'city' && (
@@ -61,8 +74,17 @@ export default function Game() {
         />
       )}
 
-      {/* HUD overlay (minimap etc.) */}
+      {/* HUD overlay */}
       <HUD />
+
+      {/* Volume control — always visible */}
+      <VolumeControl />
+
+      {/* Time + weather indicator */}
+      <TimeWeatherHUD />
+
+      {/* Minimap — city mode only */}
+      {mode === 'city' && <Minimap isMobile={isMobile} />}
 
       {/* City wandering NPC chat */}
       <AnimatePresence>
@@ -85,6 +107,9 @@ export default function Game() {
           />
         )}
       </AnimatePresence>
+
+      {/* Mobile touch controls — joystick + action buttons */}
+      {isMobile && mode === 'city' && <MobileControls />}
 
       {/* Fade overlay */}
       <div style={{

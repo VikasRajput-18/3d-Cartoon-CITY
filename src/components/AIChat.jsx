@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { gameControls } from '@/lib/gameControls'
+import { audioSystem } from '@/lib/audioSystem'
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_KEY = import.meta.env.VITE_APP_GROQ_SECRET_KEY
@@ -40,7 +41,7 @@ export default function AIChat({ npc, onClose }) {
     inputRef.current?.focus()
     setLoading(true)
     groqChat([], npc.systemPrompt + ' Greet the player in one short friendly sentence as they approach.')
-      .then(g => { setMsgs([{ role: 'assistant', content: g }]); setLoading(false) })
+      .then(g => { setMsgs([{ role: 'assistant', content: g }]); setLoading(false); audioSystem.playNotification() })
       .catch(() => setLoading(false))
   }, [npc])
 
@@ -60,6 +61,7 @@ export default function AIChat({ npc, onClose }) {
     try {
       const reply = await groqChat(next, npc.systemPrompt)
       setMsgs(m => [...m, { role: 'assistant', content: reply }])
+      audioSystem.playNotification()
     } catch {
       setMsgs(m => [...m, { role: 'assistant', content: "Sorry, didn't catch that!" }])
     }
@@ -123,7 +125,7 @@ export default function AIChat({ npc, onClose }) {
       <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', gap: 8 }}>
         <input ref={inputRef} value={input}
           onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && send()}
+          onKeyDown={e => { if (e.key === 'Enter') send(); else audioSystem.playTyping() }}
           placeholder="Type anything..."
           style={{
             flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',

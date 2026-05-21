@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { timeWeatherState } from '@/lib/timeWeatherState'
 
 const SKIN_MAP = {
   '#FDDBB4': '#FDDBB4', '#F4C08A': '#F4C08A',
@@ -77,7 +78,7 @@ export default function Avatar3D({
       const dist = currentPos.current.distanceTo(_target.current)
 
       if (dist > 0.05) {
-        const speed = 2.5
+        const speed = 2.5 * timeWeatherState.rainSpeedMult
         _dir.current.copy(_target.current).sub(currentPos.current).normalize()
         currentPos.current.addScaledVector(_dir.current, Math.min(speed * delta, dist))
         group.current.position.copy(currentPos.current)

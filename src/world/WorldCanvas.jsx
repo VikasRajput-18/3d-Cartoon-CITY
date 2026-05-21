@@ -1,94 +1,99 @@
 import { useRef, useState, useEffect, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Stars, Text, Billboard } from '@react-three/drei'
+import { Text, Billboard } from '@react-three/drei'
 import * as THREE from 'three'
+import DayNightCycle from './DayNightCycle'
+import WeatherSystem from './WeatherSystem'
 import { useStore } from '@/store'
 import { gameControls } from '@/lib/gameControls'
+import { mobileInput } from '@/lib/mobileInput'
+import { audioSystem } from '@/lib/audioSystem'
+import { minimapState, npcLivePositions } from '@/lib/minimapState'
 import Avatar3D from './Avatar3D'
 import CityMap from './CityMap'
 import { Car3D, Bike3D } from './Vehicle3D'
 
 // ── Collision system ──────────────────────────────────────────────────────────
-// Character and NPC radii in world units
-const CHAR_R = 0.45
-const NPC_R  = 0.50
+// Character and NPC radii — kept tight to match visual body size
+const CHAR_R = 0.28
+const NPC_R  = 0.32
 
 // AABB box colliders for all buildings: { x, z, hw (half-width X), hd (half-depth Z) }
 const BOX_COLLIDERS = [
   // Major buildings
-  { x:   0, z: -22, hw: 5.2, hd: 3.2 }, // City Hall      (10×6)
-  { x: -16, z: -28, hw: 7.2, hd: 4.2 }, // Mall           (14×8)
-  { x:  16, z: -28, hw: 5.2, hd: 3.7 }, // Cinema         (10×7)
-  { x: -28, z: -18, hw: 5.2, hd: 3.2 }, // Supermarket    (10×6)
-  { x:  28, z: -18, hw: 3.7, hd: 2.7 }, // Bank           (7×5)
-  { x:  34, z:  -5, hw: 3.7, hd: 3.2 }, // Hospital       (7×6)
-  { x:  34, z:  10, hw: 2.7, hd: 2.7 }, // Police Station (5×5)
-  { x:  34, z:  22, hw: 3.7, hd: 2.7 }, // Fire Station   (7×5)
-  { x: -34, z:  -5, hw: 4.7, hd: 3.2 }, // School         (9×6)
-  { x: -34, z: -20, hw: 3.7, hd: 2.7 }, // Library        (7×5)
-  { x: -34, z:  10, hw: 3.2, hd: 2.7 }, // Gym            (6×5)
-  { x:  12, z:  28, hw: 2.7, hd: 2.2 }, // Restaurant     (5×4)
-  { x: -12, z:26.5, hw: 2.2, hd: 1.7 }, // Gas Station    (4×3)
-  { x: -25, z:  18, hw: 3.2, hd: 3.7 }, // Church         (6×7)
-  { x:  12, z:  18, hw: 2.7, hd: 2.2 }, // Post Office    (5×4)
-  { x: -26, z:  30, hw: 2.7, hd: 2.2 }, // Apartments     (5×4)
+  { x:   0, z: -22, hw: 5.0, hd: 3.0 }, // City Hall      (10×6)
+  { x: -16, z: -28, hw: 7.0, hd: 4.0 }, // Mall           (14×8)
+  { x:  16, z: -28, hw: 5.0, hd: 3.5 }, // Cinema         (10×7)
+  { x: -28, z: -18, hw: 5.0, hd: 3.0 }, // Supermarket    (10×6)
+  { x:  28, z: -18, hw: 3.5, hd: 2.5 }, // Bank           (7×5)
+  { x:  34, z:  -5, hw: 3.5, hd: 3.0 }, // Hospital       (7×6)
+  { x:  34, z:  10, hw: 2.5, hd: 2.5 }, // Police Station (5×5)
+  { x:  34, z:  22, hw: 3.5, hd: 2.5 }, // Fire Station   (7×5)
+  { x: -34, z:  -5, hw: 4.5, hd: 3.0 }, // School         (9×6)
+  { x: -34, z: -20, hw: 3.5, hd: 2.5 }, // Library        (7×5)
+  { x: -34, z:  10, hw: 3.0, hd: 2.5 }, // Gym            (6×5)
+  { x:  12, z:  28, hw: 2.5, hd: 2.0 }, // Restaurant     (5×4)
+  { x: -12, z:26.5, hw: 2.0, hd: 1.5 }, // Gas Station    (4×3)
+  { x: -25, z:  18, hw: 3.0, hd: 3.5 }, // Church         (6×7)
+  { x:  12, z:  18, hw: 2.5, hd: 2.0 }, // Post Office    (5×4)
+  { x: -26, z:  30, hw: 2.5, hd: 2.0 }, // Apartments     (5×4)
   // Generic Building() instances
-  { x: -10, z:  -6, hw: 2.7, hd: 2.2 }, // (5×4)
-  { x:  10, z:  -6, hw: 2.7, hd: 2.2 }, // (5×4)
-  { x:   0, z: -14, hw: 4.2, hd: 2.2 }, // (8×4)
-  { x: -14, z:   4, hw: 2.2, hd: 2.2 }, // (4×4)
-  { x:  14, z:   4, hw: 2.2, hd: 2.7 }, // (4×5)
-  { x:   0, z:  14, hw: 3.7, hd: 2.7 }, // (7×5)
-  { x:  -6, z: -10, hw: 1.2, hd: 1.2 }, // (2×2)
-  { x:   6, z: -10, hw: 1.2, hd: 1.2 }, // (2×2)
-  { x:  -7, z:  10, hw: 1.2, hd: 1.2 }, // (2×2)
-  { x:   7, z:  10, hw: 1.2, hd: 1.2 }, // (2×2)
-  { x:  -5, z: -28, hw: 2.2, hd: 1.7 }, // (4×3)
-  { x:   5, z: -28, hw: 2.2, hd: 1.7 }, // (4×3)
+  { x: -10, z:  -6, hw: 2.5, hd: 2.0 }, // (5×4)
+  { x:  10, z:  -6, hw: 2.5, hd: 2.0 }, // (5×4)
+  { x:   0, z: -14, hw: 4.0, hd: 2.0 }, // (8×4)
+  { x: -14, z:   4, hw: 2.0, hd: 2.0 }, // (4×4)
+  { x:  14, z:   4, hw: 2.0, hd: 2.5 }, // (4×5)
+  { x:   0, z:  14, hw: 3.5, hd: 2.5 }, // (7×5)
+  { x:  -6, z: -10, hw: 1.0, hd: 1.0 }, // (2×2)
+  { x:   6, z: -10, hw: 1.0, hd: 1.0 }, // (2×2)
+  { x:  -7, z:  10, hw: 1.0, hd: 1.0 }, // (2×2)
+  { x:   7, z:  10, hw: 1.0, hd: 1.0 }, // (2×2)
+  { x:  -5, z: -28, hw: 2.0, hd: 1.5 }, // (4×3)
+  { x:   5, z: -28, hw: 2.0, hd: 1.5 }, // (4×3)
   // Houses (3×3 each)
-  { x: 26, z: 24, hw: 1.7, hd: 1.7 },
-  { x: 36, z: 24, hw: 1.7, hd: 1.7 },
-  { x: 26, z: 34, hw: 1.7, hd: 1.7 },
-  { x: 36, z: 34, hw: 1.7, hd: 1.7 },
-  { x: 46, z: 24, hw: 1.7, hd: 1.7 },
-  { x: 46, z: 34, hw: 1.7, hd: 1.7 },
-  { x: 26, z: 44, hw: 1.7, hd: 1.7 },
-  { x: 36, z: 44, hw: 1.7, hd: 1.7 },
+  { x: 26, z: 24, hw: 1.5, hd: 1.5 },
+  { x: 36, z: 24, hw: 1.5, hd: 1.5 },
+  { x: 26, z: 34, hw: 1.5, hd: 1.5 },
+  { x: 36, z: 34, hw: 1.5, hd: 1.5 },
+  { x: 46, z: 24, hw: 1.5, hd: 1.5 },
+  { x: 46, z: 34, hw: 1.5, hd: 1.5 },
+  { x: 26, z: 44, hw: 1.5, hd: 1.5 },
+  { x: 36, z: 44, hw: 1.5, hd: 1.5 },
 ]
 
 // Circle colliders for trees and fountain: { x, z, r }
 const CIRCLE_COLLIDERS = [
-  { x:  0,    z:    0, r: 1.8  }, // Fountain
+  { x:  0,    z:    0, r: 1.55 }, // Fountain
   // Inner ring trees (scale=1)
-  { x: -4,   z:  -4,  r: 0.65 }, { x: -4,   z:   4,  r: 0.65 },
-  { x:  4,   z:  -4,  r: 0.65 }, { x:  4,   z:   4,  r: 0.65 },
-  { x: -8,   z:   8,  r: 0.65 }, { x:  8,   z:   8,  r: 0.65 },
-  { x: -8,   z:  -8,  r: 0.65 }, { x:  8,   z:  -8,  r: 0.65 },
-  { x:-12,   z:  -2,  r: 0.65 }, { x: 12,   z:  -2,  r: 0.65 },
+  { x: -4,   z:  -4,  r: 0.38 }, { x: -4,   z:   4,  r: 0.38 },
+  { x:  4,   z:  -4,  r: 0.38 }, { x:  4,   z:   4,  r: 0.38 },
+  { x: -8,   z:   8,  r: 0.38 }, { x:  8,   z:   8,  r: 0.38 },
+  { x: -8,   z:  -8,  r: 0.38 }, { x:  8,   z:  -8,  r: 0.38 },
+  { x:-12,   z:  -2,  r: 0.38 }, { x: 12,   z:  -2,  r: 0.38 },
   // E-W road side trees z=-4.5 (scale=0.88)
-  { x:-48, z:-4.5, r:0.58 }, { x:-38, z:-4.5, r:0.58 }, { x:-28, z:-4.5, r:0.58 },
-  { x:-22, z:-4.5, r:0.58 }, { x: -8, z:-4.5, r:0.58 }, { x:  8, z:-4.5, r:0.58 },
-  { x: 22, z:-4.5, r:0.58 }, { x: 28, z:-4.5, r:0.58 }, { x: 38, z:-4.5, r:0.58 },
-  { x: 48, z:-4.5, r:0.58 },
+  { x:-48, z:-4.5, r:0.33 }, { x:-38, z:-4.5, r:0.33 }, { x:-28, z:-4.5, r:0.33 },
+  { x:-22, z:-4.5, r:0.33 }, { x: -8, z:-4.5, r:0.33 }, { x:  8, z:-4.5, r:0.33 },
+  { x: 22, z:-4.5, r:0.33 }, { x: 28, z:-4.5, r:0.33 }, { x: 38, z:-4.5, r:0.33 },
+  { x: 48, z:-4.5, r:0.33 },
   // E-W road side trees z=+4.5 (scale=0.88)
-  { x:-48, z: 4.5, r:0.58 }, { x:-38, z: 4.5, r:0.58 }, { x:-28, z: 4.5, r:0.58 },
-  { x:-22, z: 4.5, r:0.58 }, { x: -8, z: 4.5, r:0.58 }, { x:  8, z: 4.5, r:0.58 },
-  { x: 22, z: 4.5, r:0.58 }, { x: 28, z: 4.5, r:0.58 }, { x: 38, z: 4.5, r:0.58 },
-  { x: 48, z: 4.5, r:0.58 },
-  // N-S road side trees x=-4.5 (scale=0.85)
-  { x:-4.5, z:-45, r:0.56 }, { x:-4.5, z:-35, r:0.56 }, { x:-4.5, z:-24, r:0.56 },
-  { x:-4.5, z:-14, r:0.56 }, { x:-4.5, z: 14, r:0.56 }, { x:-4.5, z: 24, r:0.56 },
-  { x:-4.5, z: 35, r:0.56 }, { x:-4.5, z: 45, r:0.56 },
-  // Residential trees (scale=0.8)
-  { x:20, z:20, r:0.52 }, { x:30, z:20, r:0.52 }, { x:40, z:20, r:0.52 }, { x:50, z:20, r:0.52 },
-  { x:20, z:30, r:0.52 }, { x:30, z:30, r:0.52 }, { x:40, z:30, r:0.52 }, { x:50, z:30, r:0.52 },
-  { x:20, z:40, r:0.52 }, { x:30, z:40, r:0.52 }, { x:40, z:40, r:0.52 }, { x:50, z:40, r:0.52 },
-  { x:20, z:50, r:0.52 }, { x:30, z:50, r:0.52 }, { x:40, z:50, r:0.52 }, { x:50, z:50, r:0.52 },
-  // Church area trees (scale=0.85)
-  { x:-16, z:24, r:0.56 }, { x:-18, z:24, r:0.56 }, { x:-20, z:24, r:0.56 },
-  { x:-22, z:24, r:0.56 }, { x:-24, z:24, r:0.56 },
+  { x:-48, z: 4.5, r:0.33 }, { x:-38, z: 4.5, r:0.33 }, { x:-28, z: 4.5, r:0.33 },
+  { x:-22, z: 4.5, r:0.33 }, { x: -8, z: 4.5, r:0.33 }, { x:  8, z: 4.5, r:0.33 },
+  { x: 22, z: 4.5, r:0.33 }, { x: 28, z: 4.5, r:0.33 }, { x: 38, z: 4.5, r:0.33 },
+  { x: 48, z: 4.5, r:0.33 },
+  // N-S road side trees x=-4.5 (scale=0.85) — z=-36.5/36.5 moved off far roads
+  { x:-4.5, z:-45,   r:0.32 }, { x:-4.5, z:-36.5, r:0.32 }, { x:-4.5, z:-24, r:0.32 },
+  { x:-4.5, z:-14,   r:0.32 }, { x:-4.5, z:  14,  r:0.32 }, { x:-4.5, z: 24, r:0.32 },
+  { x:-4.5, z: 36.5, r:0.32 }, { x:-4.5, z: 45,   r:0.32 },
+  // Residential trees (scale=0.8) — x=22/37 moved off arterial/far-east roads
+  { x:22, z:20, r:0.30 }, { x:30, z:20, r:0.30 }, { x:37, z:20, r:0.30 }, { x:50, z:20, r:0.30 },
+  { x:22, z:30, r:0.30 }, { x:30, z:30, r:0.30 }, { x:37, z:30, r:0.30 }, { x:50, z:30, r:0.30 },
+  { x:22, z:40, r:0.30 }, { x:30, z:40, r:0.30 }, { x:37, z:40, r:0.30 }, { x:50, z:40, r:0.30 },
+  { x:22, z:50, r:0.30 }, { x:30, z:50, r:0.30 }, { x:37, z:50, r:0.30 }, { x:50, z:50, r:0.30 },
+  // Church area trees (scale=0.85) — x=-17 moved off arterial, x=-20 removed
+  { x:-16, z:24, r:0.32 }, { x:-17, z:24, r:0.32 },
+  { x:-22, z:24, r:0.32 }, { x:-24, z:24, r:0.32 },
   // North district trees — only outer ones (inner overlap City Hall)
-  { x: -8, z:-20, r:0.54 }, { x:  8, z:-20, r:0.54 },
+  { x: -8, z:-20, r:0.31 }, { x:  8, z:-20, r:0.31 },
 ]
 
 // ── Vehicle physics configs ───────────────────────────────────────────────
@@ -116,8 +121,7 @@ const BIKE_CFG = {
   wheelRadius: 0.38,
 }
 
-// Live NPC positions — each entry is { x, z }, mutated by Avatar3D each frame
-const npcLivePositions = []
+// npcLivePositions is imported from @/lib/minimapState (shared with Minimap)
 
 // Push-out collision resolution. Handles boxes (buildings) + circles (trees/fountain/NPCs).
 // Two iterations resolve corner contacts without jitter.
@@ -251,8 +255,8 @@ function PlaceMarker({ position, emoji, label, color, onClick }) {
 function NPC({ startPos, skin, hair, outfit, name, color, onChat }) {
   const [target, setTarget] = useState(startPos)
 
-  // Shared position object written by Avatar3D each frame, read by resolveCollisions
-  const posEntry = useRef({ x: startPos[0], z: startPos[2] })
+  // Shared position object written by Avatar3D each frame; color used by minimap
+  const posEntry = useRef({ x: startPos[0], z: startPos[2], color })
 
   useEffect(() => {
     npcLivePositions.push(posEntry.current)
@@ -320,7 +324,11 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
 
   // Input state
   const keys  = useRef(new Set())
-  const mouse = useRef({ down: false, lastX: 0, lastY: 0 })
+  const mouse = useRef({ down: false, lastX: 0, lastY: 0, pointerId: -1 })
+
+  // Pinch-zoom refs (mobile two-finger)
+  const lastPinch   = useRef(0)
+  const pinchActive = useRef(false)
 
   // Player group ref
   const playerGroupRef = useRef()
@@ -358,15 +366,19 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     const el = gl.domElement
 
     const onKeyDown = (e) => {
+      audioSystem.unlock()
       if (!gameControls.enabled) return
       if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
         e.preventDefault()
       keys.current.add(e.code)
 
-      // ── E: enter or exit vehicle ──
+      // ── F: interact ──
+      if (e.code === 'KeyF') audioSystem.playInteract()
+
+      // ── E: enter or exit vehicle / building ──
       if (e.code === 'KeyE') {
         if (activeVeh.current) {
-          // Exit — place player beside vehicle, perpendicular to its facing
+          // Exit vehicle
           const vst   = activeVeh.current === 'car' ? carState.current : bikeState.current
           const perpX =  Math.cos(vst.facing)
           const perpZ = -Math.sin(vst.facing)
@@ -378,26 +390,29 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
           onDrivingChange(null)
           onNearVehicle(null)
           onSpeedChange(0)
+          audioSystem.stopEngine()
+          audioSystem.playEnter()
         } else {
           const ENTER_R = 3.5
           const cDist = charPos.current.distanceTo(carState.current.pos)
           const bDist = charPos.current.distanceTo(bikeState.current.pos)
           if (cDist < ENTER_R && cDist <= bDist) {
             activeVeh.current = 'car'
-            // Snap camera behind vehicle
-            let snap = carState.current.facing + Math.PI
-            camYaw.current = snap
+            camYaw.current = carState.current.facing + Math.PI
             setInVehicle(true)
             onDrivingChange('car')
             onNearVehicle(null)
+            audioSystem.startEngine('car')
+            audioSystem.playEnter()
           } else if (bDist < ENTER_R) {
             activeVeh.current = 'bike'
-            let snap = bikeState.current.facing + Math.PI
-            camYaw.current = snap
+            camYaw.current = bikeState.current.facing + Math.PI
             vehLean.current = 0
             setInVehicle(true)
             onDrivingChange('bike')
             onNearVehicle(null)
+            audioSystem.startEngine('bike')
+            audioSystem.playEnter()
           } else if (nearBldRef.current) {
             onEnterBuilding?.(nearBldRef.current.id)
           }
@@ -408,14 +423,16 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
 
     // Use pointerdown on WINDOW so R3F canvas interception can't block it
     const onPointerDown = (e) => {
-      if (e.button === 0) {
-        mouse.current.down  = true
-        mouse.current.lastX = e.clientX
-        mouse.current.lastY = e.clientY
+      audioSystem.unlock()
+      if (e.button === 0 && mouse.current.pointerId === -1) {
+        mouse.current.down      = true
+        mouse.current.lastX     = e.clientX
+        mouse.current.lastY     = e.clientY
+        mouse.current.pointerId = e.pointerId
       }
     }
     const onPointerMove = (e) => {
-      if (!mouse.current.down) return
+      if (!mouse.current.down || e.pointerId !== mouse.current.pointerId) return
       const dx = e.clientX - mouse.current.lastX
       const dy = e.clientY - mouse.current.lastY
       mouse.current.lastX = e.clientX
@@ -423,7 +440,12 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
       camYaw.current  -= dx * 0.005
       camPitch.current = THREE.MathUtils.clamp(camPitch.current + dy * 0.004, 0.1, 1.25)
     }
-    const onPointerUp   = (e) => { if (e.button === 0) mouse.current.down = false }
+    const onPointerUp = (e) => {
+      if (e.pointerId === mouse.current.pointerId) {
+        mouse.current.down      = false
+        mouse.current.pointerId = -1
+      }
+    }
     const onWheel       = (e) => {
       camDist.current = THREE.MathUtils.clamp(camDist.current + e.deltaY * 0.025, 3, 45)
     }
@@ -435,13 +457,44 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     window.addEventListener('pointerup',    onPointerUp)
     el.addEventListener('wheel',            onWheel, { passive: true })
 
+    // Pinch-to-zoom (mobile two-finger gesture)
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        lastPinch.current   = Math.sqrt(dx * dx + dy * dy)
+        pinchActive.current = true
+        // Cancel camera rotation so it doesn't fight with pinch
+        mouse.current.down      = false
+        mouse.current.pointerId = -1
+      }
+    }
+    const onTouchMove = (e) => {
+      if (!pinchActive.current || e.touches.length !== 2) return
+      const dx   = e.touches[0].clientX - e.touches[1].clientX
+      const dy   = e.touches[0].clientY - e.touches[1].clientY
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      camDist.current = THREE.MathUtils.clamp(
+        camDist.current + (lastPinch.current - dist) * 0.05, 3, 45,
+      )
+      lastPinch.current = dist
+    }
+    const onTouchEnd = () => { pinchActive.current = false }
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove',  onTouchMove,  { passive: true })
+    window.addEventListener('touchend',   onTouchEnd)
+
     return () => {
-      window.removeEventListener('keydown',     onKeyDown)
-      window.removeEventListener('keyup',       onKeyUp)
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup',   onPointerUp)
-      el.removeEventListener('wheel',           onWheel)
+      window.removeEventListener('keydown',      onKeyDown)
+      window.removeEventListener('keyup',        onKeyUp)
+      window.removeEventListener('pointerdown',  onPointerDown)
+      window.removeEventListener('pointermove',  onPointerMove)
+      window.removeEventListener('pointerup',    onPointerUp)
+      el.removeEventListener('wheel',            onWheel)
+      window.removeEventListener('touchstart',   onTouchStart)
+      window.removeEventListener('touchmove',    onTouchMove)
+      window.removeEventListener('touchend',     onTouchEnd)
     }
   }, [gl])
 
@@ -559,6 +612,13 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
 
       // Keep charPos synced for exit placement
       charPos.current.copy(vst.pos)
+      minimapState.playerX = vst.pos.x
+      minimapState.playerZ = vst.pos.z
+      minimapState.playerFacing = vst.facing
+      minimapState.drivingType = activeVeh.current
+
+      // Engine sound update
+      audioSystem.updateEngine(vst.speed, cfg.maxSpeed)
 
       // Throttle speedometer
       speedThrottle.current += delta
@@ -578,29 +638,57 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     // WALKING MODE
     // ══════════════════════════════════════════════════════════════════════
     const SPEED = 8
-    let moving  = false
+    let moving   = false
+    let moveSpeed = 1
     _move.current.set(0, 0, 0)
 
-    if (gameControls.enabled) {
-      const sy = Math.sin(camYaw.current)
-      const cy = Math.cos(camYaw.current)
+    const sy = Math.sin(camYaw.current)
+    const cy = Math.cos(camYaw.current)
 
+    if (gameControls.enabled) {
       if (keys.current.has('KeyW') || keys.current.has('ArrowUp'))    { _move.current.x -= sy; _move.current.z -= cy; moving = true }
       if (keys.current.has('KeyS') || keys.current.has('ArrowDown'))  { _move.current.x += sy; _move.current.z += cy; moving = true }
       if (keys.current.has('KeyA') || keys.current.has('ArrowLeft'))  { _move.current.x -= cy; _move.current.z += sy; moving = true }
       if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) { _move.current.x += cy; _move.current.z -= sy; moving = true }
     }
 
-    if (moving) {
-      _move.current.normalize()
-      charPos.current.addScaledVector(_move.current, SPEED * delta)
-      charFacing.current = Math.atan2(_move.current.x, _move.current.z)
+    // Joystick input (mobile) — camera-relative movement
+    if (mobileInput.joyActive) {
+      const jx  = mobileInput.joyX
+      const jy  = mobileInput.joyY
+      const mag = Math.sqrt(jx * jx + jy * jy)
+      if (mag > 0.1) {
+        const jfwd = -jy
+        const jrgt = jx
+        _move.current.x += jfwd * (-sy) + jrgt * cy
+        _move.current.z += jfwd * (-cy) + jrgt * (-sy)
+        moveSpeed = mag
+        moving    = true
+      }
     }
 
-    const [cx, cz] = resolveCollisions(charPos.current.x, charPos.current.z)
-    charPos.current.x = THREE.MathUtils.clamp(cx, -BOUNDS, BOUNDS)
-    charPos.current.z = THREE.MathUtils.clamp(cz, -BOUNDS, BOUNDS)
+    if (moving) {
+      _move.current.normalize()
+      const step = SPEED * moveSpeed * delta
+      charFacing.current = Math.atan2(_move.current.x, _move.current.z)
+      // Split-axis resolution: try X then Z independently so walls produce sliding
+      const ox = charPos.current.x, oz = charPos.current.z
+      const [rx] = resolveCollisions(ox + _move.current.x * step, oz)
+      charPos.current.x = THREE.MathUtils.clamp(rx, -BOUNDS, BOUNDS)
+      const [, rz] = resolveCollisions(charPos.current.x, oz + _move.current.z * step)
+      charPos.current.z = THREE.MathUtils.clamp(rz, -BOUNDS, BOUNDS)
+    } else {
+      const [cx, cz] = resolveCollisions(charPos.current.x, charPos.current.z)
+      charPos.current.x = THREE.MathUtils.clamp(cx, -BOUNDS, BOUNDS)
+      charPos.current.z = THREE.MathUtils.clamp(cz, -BOUNDS, BOUNDS)
+    }
     charPos.current.y = 0
+    minimapState.playerX = charPos.current.x
+    minimapState.playerZ = charPos.current.z
+    minimapState.playerFacing = charFacing.current
+    minimapState.drivingType = null
+
+    if (moving) audioSystem.playFootstep()
 
     if (moving !== isWalkingRef.current) {
       isWalkingRef.current = moving
@@ -749,14 +837,10 @@ const NPCS = [
 function WorldScene({ onNPCChat }) {
   return (
     <>
-      {/* Lighting */}
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[12, 18, 8]} intensity={1.3} color="#FFF8DC" />
-      <directionalLight position={[-10, 10, -8]} intensity={0.5} color="#b0c4de" />
-      <hemisphereLight skyColor="#87ceeb" groundColor="#2d5a27" intensity={0.4} />
-
-      {/* Sky */}
-      <Stars radius={90} depth={50} count={1200} factor={3} fade />
+      {/* Dynamic day/night lighting + stars */}
+      <DayNightCycle />
+      {/* Dynamic weather: rain, clouds, fog */}
+      <WeatherSystem />
 
       {/* Full city geometry */}
       <CityMap />
