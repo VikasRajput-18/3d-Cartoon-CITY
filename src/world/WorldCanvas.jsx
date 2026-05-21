@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stars, Text, Billboard } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore } from '@/store'
+import { gameControls } from '@/lib/gameControls'
 import Avatar3D from './Avatar3D'
 import CityMap from './CityMap'
 import { Car3D, Bike3D } from './Vehicle3D'
@@ -295,9 +296,16 @@ function NPC({ startPos, skin, hair, outfit, name, color, onChat }) {
   )
 }
 
+// Building IDs that have interiors (park/playground are outdoor, no interior)
+const INTERIOR_IDS = new Set([
+  'beach','cafe','arcade','rooftop','musicroom','cityhall','mall','cinema',
+  'supermarket','bank','hospital','police','firestation','school','library',
+  'gym','restaurant','gasstation','church','postoffice','apartments','house1','house2',
+])
+
 // ── Player controller ─────────────────────────────────────────────────────
 // Custom camera: left-click drag = orbit, scroll = zoom, WASD = move character
-function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChange }) {
+function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChange, onNearBuilding, onEnterBuilding }) {
   const { camera, gl } = useThree()
   const setPlayerPos = useStore(s => s.setPlayerPos)
 
@@ -338,6 +346,7 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
   const activeVeh      = useRef(null)  // null | 'car' | 'bike'
   const vehLean        = useRef(0)
   const nearVehRef     = useRef(null)
+  const nearBldRef     = useRef(null)
   const vehDetectTick  = useRef(0)
   const speedThrottle  = useRef(0)
   const speedKmhRef    = useRef(0)
@@ -349,6 +358,7 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     const el = gl.domElement
 
     const onKeyDown = (e) => {
+      if (!gameControls.enabled) return
       if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
         e.preventDefault()
       keys.current.add(e.code)
@@ -388,6 +398,8 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
             setInVehicle(true)
             onDrivingChange('bike')
             onNearVehicle(null)
+          } else if (nearBldRef.current) {
+            onEnterBuilding?.(nearBldRef.current.id)
           }
         }
       }
@@ -569,13 +581,15 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     let moving  = false
     _move.current.set(0, 0, 0)
 
-    const sy = Math.sin(camYaw.current)
-    const cy = Math.cos(camYaw.current)
+    if (gameControls.enabled) {
+      const sy = Math.sin(camYaw.current)
+      const cy = Math.cos(camYaw.current)
 
-    if (keys.current.has('KeyW') || keys.current.has('ArrowUp'))    { _move.current.x -= sy; _move.current.z -= cy; moving = true }
-    if (keys.current.has('KeyS') || keys.current.has('ArrowDown'))  { _move.current.x += sy; _move.current.z += cy; moving = true }
-    if (keys.current.has('KeyA') || keys.current.has('ArrowLeft'))  { _move.current.x -= cy; _move.current.z += sy; moving = true }
-    if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) { _move.current.x += cy; _move.current.z -= sy; moving = true }
+      if (keys.current.has('KeyW') || keys.current.has('ArrowUp'))    { _move.current.x -= sy; _move.current.z -= cy; moving = true }
+      if (keys.current.has('KeyS') || keys.current.has('ArrowDown'))  { _move.current.x += sy; _move.current.z += cy; moving = true }
+      if (keys.current.has('KeyA') || keys.current.has('ArrowLeft'))  { _move.current.x -= cy; _move.current.z += sy; moving = true }
+      if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) { _move.current.x += cy; _move.current.z -= sy; moving = true }
+    }
 
     if (moving) {
       _move.current.normalize()
@@ -612,7 +626,7 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
       setPlayerPos([charPos.current.x, 0, charPos.current.z])
     }
 
-    // Near-vehicle detection (throttled)
+    // Near-vehicle + building detection (throttled)
     vehDetectTick.current += delta
     if (vehDetectTick.current > 0.2) {
       vehDetectTick.current = 0
@@ -622,6 +636,18 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
       if (near !== nearVehRef.current) {
         nearVehRef.current = near
         onNearVehicle(near)
+      }
+
+      let nearBld = null
+      for (const p of PLACES) {
+        if (!INTERIOR_IDS.has(p.id)) continue
+        const dx = charPos.current.x - p.pos[0]
+        const dz = charPos.current.z - p.pos[2]
+        if (dx * dx + dz * dz < 30) { nearBld = p; break }
+      }
+      if (nearBld?.id !== nearBldRef.current?.id) {
+        nearBldRef.current = nearBld
+        onNearBuilding?.(nearBld)
       }
     }
   })
@@ -720,7 +746,7 @@ const NPCS = [
 ]
 
 // ── Full world scene ──────────────────────────────────────────────────────
-function WorldScene({ onPlaceClick, onNPCChat }) {
+function WorldScene({ onNPCChat }) {
   return (
     <>
       {/* Lighting */}
@@ -735,7 +761,7 @@ function WorldScene({ onPlaceClick, onNPCChat }) {
       {/* Full city geometry */}
       <CityMap />
 
-      {/* Interactive place markers */}
+      {/* Interactive place markers — visual only, entry via E key */}
       {PLACES.map(p => (
         <PlaceMarker
           key={p.id}
@@ -743,7 +769,6 @@ function WorldScene({ onPlaceClick, onNPCChat }) {
           emoji={p.emoji}
           label={p.label}
           color={p.color}
-          onClick={(e) => { e.stopPropagation(); onPlaceClick(p) }}
         />
       ))}
 
@@ -762,12 +787,13 @@ function WorldScene({ onPlaceClick, onNPCChat }) {
 }
 
 // ── Canvas wrapper ────────────────────────────────────────────────────────
-export default function WorldCanvas({ onPlaceClick, onNPCChat }) {
+export default function WorldCanvas({ onNPCChat, onEnterBuilding }) {
   const avatar = useStore(s => s.avatar)
 
   const [nearVeh,     setNearVeh]     = useState(null)   // 'Car' | 'Bike' | null
   const [drivingType, setDrivingType] = useState(null)   // 'car' | 'bike' | null
   const [speedKmh,    setSpeedKmh]    = useState(0)
+  const [nearBuilding, setNearBuilding] = useState(null) // place object | null
 
   return (
     <div className="canvas-wrap">
@@ -777,17 +803,31 @@ export default function WorldCanvas({ onPlaceClick, onNPCChat }) {
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
         <Suspense fallback={null}>
-          <WorldScene onPlaceClick={onPlaceClick} onNPCChat={onNPCChat} />
+          <WorldScene onNPCChat={onNPCChat} />
           <PlayerController
             avatar={avatar}
             onNearVehicle={setNearVeh}
             onDrivingChange={setDrivingType}
             onSpeedChange={setSpeedKmh}
+            onNearBuilding={setNearBuilding}
+            onEnterBuilding={onEnterBuilding}
           />
         </Suspense>
       </Canvas>
 
-      {/* E-to-enter prompt */}
+      {/* Building enter prompt */}
+      {nearBuilding && !drivingType && !nearVeh && (
+        <div style={{
+          position: 'absolute', bottom: '22%', left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.75)', color: '#a78bfa', padding: '8px 22px',
+          borderRadius: 8, fontFamily: 'monospace', fontSize: 15, pointerEvents: 'none',
+          border: '1px solid #7c3aed',
+        }}>
+          Press <strong>E</strong> to enter {nearBuilding.label}
+        </div>
+      )}
+
+      {/* Vehicle enter prompt */}
       {nearVeh && !drivingType && (
         <div style={{
           position: 'absolute', bottom: '22%', left: '50%', transform: 'translateX(-50%)',

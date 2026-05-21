@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Send, Loader2 } from 'lucide-react'
 import { useStore } from '@/store'
+import { gameControls } from '@/lib/gameControls'
 
 const NPC_PERSONAS = {
   Anaya: {
@@ -46,6 +47,12 @@ export default function ChatPanel({ npc, onClose }) {
   const [input, setInput]   = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef()
+
+  // Disable game controls while this panel is mounted
+  useEffect(() => {
+    gameControls.enabled = false
+    return () => { gameControls.enabled = true }
+  }, [])
 
   // Auto-intro on first open
   useEffect(() => {
