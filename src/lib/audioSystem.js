@@ -1,21 +1,30 @@
 // Singleton Web-Audio engine — all sounds generated programmatically, no external files.
 // Call audioSystem.unlock() on first user interaction (browsers block audio before that).
 
+// Road zone detector — used by WorldCanvas to pick footstep variant
+export function isOnRoad(x, z) {
+  if (Math.abs(z) < 3.2) return true   // main E-W road
+  if (Math.abs(x) < 3.2) return true   // main N-S road
+  if (Math.abs(Math.abs(x) - 20) < 2.5) return true  // arterial E/W
+  if (Math.abs(Math.abs(z) - 20) < 2.5) return true  // arterial N/S
+  return false
+}
+
 class AudioSystem {
   constructor() {
-    this.ctx   = null
+    this.ctx    = null
     this.master = null
-    this._vol  = parseFloat(localStorage.getItem('game_sfx_vol') ?? '0.4')
+    this._vol   = parseFloat(localStorage.getItem('game_sfx_vol') ?? '0.4')
     this._muted = false
     this._ready = false
 
     // Persistent looping nodes
-    this._engineOsc   = null
-    this._engineGain  = null
-    this._engineLfo   = null
-    this._engineBase  = 60
-    this._birdsGain   = null
-    this._birdTimer   = null
+    this._engineOsc    = null
+    this._engineGain   = null
+    this._engineLfo    = null
+    this._engineBase   = 60
+    this._birdsGain    = null
+    this._birdTimer    = null
     this._cricketsGain = null
     this._cricketTimer = null
     this._cityHumGain  = null
@@ -25,6 +34,13 @@ class AudioSystem {
     this._windGain     = null
     this._rainSrc      = null
     this._rainGain     = null
+
+    // Crowd ambient (separate mute)
+    this._crowdSrc   = null
+    this._crowdGain  = null
+    this._crowdLfo   = null
+    this._crowdMuted = localStorage.getItem('crowd_muted') === '1'
+    this._crowdBaseVol = 0.038
 
     // Footstep debounce (ctx.currentTime based)
     this._lastStep = -1
@@ -96,7 +112,7 @@ class AudioSystem {
   }
 
   // ── Footstep ──────────────────────────────────────────────────────────────
-  playFootstep() {
+  playFootstep(isRoad = false) {
     if (!this._ready) return
     const now = this.ctx.currentTime
     if (now - this._lastStep < 0.34) return
@@ -110,11 +126,13 @@ class AudioSystem {
 
     const bp = this.ctx.createBiquadFilter()
     bp.type = 'bandpass'
-    bp.frequency.value = 180 + Math.random() * 80
-    bp.Q.value = 3.5
+    // Road: hard surface → higher pitch; grass/ground → lower pitch
+    bp.frequency.value = isRoad ? 340 + Math.random() * 80 : 150 + Math.random() * 60
+    bp.Q.value = isRoad ? 4.5 : 3.0
 
+    const vol = isRoad ? 0.18 : 0.24
     const g = this.ctx.createGain()
-    g.gain.setValueAtTime(0.2, now)
+    g.gain.setValueAtTime(vol, now)
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.09)
 
     src.connect(bp); bp.connect(g); g.connect(this.master)
@@ -229,6 +247,7 @@ class AudioSystem {
     this._startCityHum()
     this._initBirds()
     this._initCrickets()
+    this.startCrowd()
   }
 
   _startCityHum() {
@@ -405,6 +424,52 @@ class AudioSystem {
     this._windGain?.gain.setTargetAtTime(0, t, 1.5)
     try { this._windSrc.stop(t + 5) } catch (_) {}
     this._windSrc = null; this._windGain = null
+  }
+
+  // ── Crowd ambient ─────────────────────────────────────────────────────────
+  get crowdMuted() { return this._crowdMuted }
+
+  startCrowd() {
+    if (!this._ready || this._crowdSrc) return
+    const ctx = this.ctx; const t = ctx.currentTime
+
+    const g = ctx.createGain()
+    g.gain.value = this._crowdMuted ? 0 : this._crowdBaseVol
+    g.connect(this.master)
+    this._crowdGain = g
+
+    const src = ctx.createBufferSource()
+    src.buffer = this._noiseBuf; src.loop = true
+    const bp = ctx.createBiquadFilter()
+    bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 0.6
+    src.connect(bp); bp.connect(g)
+    src.start(t)
+    this._crowdSrc = src
+
+    // Slow LFO to give it a murmur feel
+    const lfo = ctx.createOscillator()
+    lfo.frequency.value = 0.22
+    const lfog = ctx.createGain()
+    lfog.gain.value = this._crowdBaseVol * 0.4
+    lfo.connect(lfog); lfog.connect(g.gain)
+    lfo.start(t)
+    this._crowdLfo = lfo
+  }
+
+  toggleCrowdMute() {
+    this._crowdMuted = !this._crowdMuted
+    localStorage.setItem('crowd_muted', this._crowdMuted ? '1' : '0')
+    if (this._crowdGain)
+      this._crowdGain.gain.setTargetAtTime(
+        this._crowdMuted ? 0 : this._crowdBaseVol, this.ctx.currentTime, 0.3,
+      )
+    return this._crowdMuted
+  }
+
+  setCrowdIndoor(isIndoor) {
+    if (!this._crowdGain || this._crowdMuted) return
+    const target = isIndoor ? this._crowdBaseVol * 1.6 : this._crowdBaseVol
+    this._crowdGain.gain.setTargetAtTime(target, this.ctx.currentTime, 1.5)
   }
 }
 

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, Suspense } from 'react'
+import { useRef, useState, useEffect, useMemo, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Text, Billboard } from '@react-three/drei'
 import * as THREE from 'three'
@@ -7,9 +7,10 @@ import WeatherSystem from './WeatherSystem'
 import { useStore } from '@/store'
 import { gameControls } from '@/lib/gameControls'
 import { mobileInput } from '@/lib/mobileInput'
-import { audioSystem } from '@/lib/audioSystem'
+import { audioSystem, isOnRoad } from '@/lib/audioSystem'
 import { minimapState, npcLivePositions } from '@/lib/minimapState'
-import Avatar3D from './Avatar3D'
+import PlayerModel from './PlayerModel'
+import NPCModel from './NPCModel'
 import CityMap from './CityMap'
 import { Car3D, Bike3D } from './Vehicle3D'
 
@@ -252,10 +253,22 @@ function PlaceMarker({ position, emoji, label, color, onClick }) {
 }
 
 // ── NPC character wandering around ────────────────────────────────────────
-function NPC({ startPos, skin, hair, outfit, name, color, onChat }) {
-  const [target, setTarget] = useState(startPos)
+// Scale varies per NPC (0.009–0.011) using a stable name-based hash.
+function npcScaleFor(name) {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
+  return 0.009 + (h % 21) / 10000
+}
 
-  // Shared position object written by Avatar3D each frame; color used by minimap
+function NPC({ startPos, skin, outfit, name, color, onChat }) {
+  const [target, setTarget]   = useState(startPos)
+  const groupRef              = useRef()
+  const currentPos            = useRef(new THREE.Vector3(...startPos))
+  const targetVec             = useRef(new THREE.Vector3(...startPos))
+  const isWalkingRef          = useRef(false)
+  const [isWalking, setIsWalking] = useState(false)
+
+  // Shared position object for collision + minimap
   const posEntry = useRef({ x: startPos[0], z: startPos[2], color })
 
   useEffect(() => {
@@ -266,10 +279,11 @@ function NPC({ startPos, skin, hair, outfit, name, color, onChat }) {
     }
   }, [])
 
+  // Wander: pick a new random target every 4-7 seconds
   useEffect(() => {
     const wander = () => {
       const angle = Math.random() * Math.PI * 2
-      const r = 2 + Math.random() * 5
+      const r     = 2 + Math.random() * 5
       setTarget([
         startPos[0] + Math.cos(angle) * r,
         0,
@@ -281,21 +295,46 @@ function NPC({ startPos, skin, hair, outfit, name, color, onChat }) {
     return () => clearInterval(id)
   }, [])
 
+  // Move toward current target each frame
+  useFrame((_, delta) => {
+    if (!groupRef.current) return
+    targetVec.current.set(target[0], 0, target[2])
+    const dist   = currentPos.current.distanceTo(targetVec.current)
+    const moving = dist > 0.15
+
+    if (moving !== isWalkingRef.current) {
+      isWalkingRef.current = moving
+      setIsWalking(moving)
+    }
+
+    if (moving) {
+      const dx    = targetVec.current.x - currentPos.current.x
+      const dz    = targetVec.current.z - currentPos.current.z
+      const len   = Math.sqrt(dx * dx + dz * dz)
+      const step  = Math.min(2.5 * delta, dist)
+      currentPos.current.x += (dx / len) * step
+      currentPos.current.z += (dz / len) * step
+      groupRef.current.position.set(currentPos.current.x, 0, currentPos.current.z)
+      groupRef.current.rotation.y = Math.atan2(dx, dz)
+    }
+
+    posEntry.current.x = currentPos.current.x
+    posEntry.current.z = currentPos.current.z
+  })
+
+  const npcScale = useMemo(() => npcScaleFor(name), [name])
+
   return (
-    <group>
-      <Avatar3D
-        skin={skin} hair={hair} outfit={outfit}
-        position={startPos} targetPos={target}
-        name={name} expression="happy"
-        onClick={onChat}
-        scale={0.85}
-        positionRef={posEntry.current}
+    <group ref={groupRef} position={startPos}>
+      <NPCModel
+        outfit={outfit}
+        skin={skin}
+        walking={isWalking}
+        name={name}
+        labelColor={color}
+        npcScale={npcScale}
+        onClick={onChat ? (e) => { e.stopPropagation(); onChat(e) } : null}
       />
-      <Billboard position={[startPos[0], 2.5, startPos[2]]}>
-        <Text fontSize={0.18} color={color} anchorX="center">
-          {name}
-        </Text>
-      </Billboard>
     </group>
   )
 }
@@ -333,9 +372,11 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
   // Player group ref
   const playerGroupRef = useRef()
 
-  // Walk state
+  // Walk / run state
   const isWalkingRef = useRef(false)
   const [isWalking, setIsWalking] = useState(false)
+  const isRunningRef = useRef(false)
+  const [isRunning, setIsRunning] = useState(false)
   const lastSentPos = useRef(new THREE.Vector3(0, 0, 6))
 
   // ── Vehicle refs ──────────────────────────────────────────────────────
@@ -645,6 +686,8 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     const sy = Math.sin(camYaw.current)
     const cy = Math.cos(camYaw.current)
 
+    const boost = keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')
+
     if (gameControls.enabled) {
       if (keys.current.has('KeyW') || keys.current.has('ArrowUp'))    { _move.current.x -= sy; _move.current.z -= cy; moving = true }
       if (keys.current.has('KeyS') || keys.current.has('ArrowDown'))  { _move.current.x += sy; _move.current.z += cy; moving = true }
@@ -667,9 +710,11 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
       }
     }
 
+    const isRunNow = moving && boost
+
     if (moving) {
       _move.current.normalize()
-      const step = SPEED * moveSpeed * delta
+      const step = SPEED * moveSpeed * (isRunNow ? 1.6 : 1) * delta
       charFacing.current = Math.atan2(_move.current.x, _move.current.z)
       // Split-axis resolution: try X then Z independently so walls produce sliding
       const ox = charPos.current.x, oz = charPos.current.z
@@ -688,11 +733,16 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     minimapState.playerFacing = charFacing.current
     minimapState.drivingType = null
 
-    if (moving) audioSystem.playFootstep()
+    if (moving) audioSystem.playFootstep(isOnRoad(charPos.current.x, charPos.current.z))
 
     if (moving !== isWalkingRef.current) {
       isWalkingRef.current = moving
       setIsWalking(moving)
+    }
+
+    if (isRunNow !== isRunningRef.current) {
+      isRunningRef.current = isRunNow
+      setIsRunning(isRunNow)
     }
 
     if (playerGroupRef.current) {
@@ -742,19 +792,9 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
 
   return (
     <>
-      {/* Player avatar — hidden while in vehicle */}
+      {/* Player avatar (Mixamo FBX) — hidden while in vehicle */}
       <group ref={playerGroupRef} position={[0, 0, 6]} visible={!inVehicle}>
-        <Avatar3D
-          skin={avatar.skin} hair={avatar.hair}
-          outfit={avatar.outfit} expression={avatar.expression}
-          position={[0, 0, 0]} isPlayer name={avatar.name} scale={1}
-          externalControl walking={isWalking}
-        />
-        <Billboard position={[0, 2.8, 0]}>
-          <Text fontSize={0.2} color="#facc15" anchorX="center">
-            ★ {avatar.name}
-          </Text>
-        </Billboard>
+        <PlayerModel walking={isWalking} running={isRunning} name={avatar.name} outfit={avatar.outfit} skin={avatar.skin} />
       </group>
 
       {/* Car — parked near restaurant area */}
@@ -861,9 +901,9 @@ function WorldScene({ onNPCChat }) {
         <NPC
           key={npc.name}
           startPos={npc.pos}
-          skin={npc.skin} hair={npc.hair} outfit={npc.outfit}
+          skin={npc.skin} outfit={npc.outfit}
           name={npc.name} color={npc.color}
-          onChat={(e) => { e.stopPropagation(); onNPCChat(npc) }}
+          onChat={() => onNPCChat(npc)}
         />
       ))}
     </>

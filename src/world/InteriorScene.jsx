@@ -1,9 +1,10 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
-import Avatar3D from './Avatar3D'
+import PlayerModel from './PlayerModel'
 import { gameControls } from '@/lib/gameControls'
+import { audioSystem } from '@/lib/audioSystem'
 
 // ── Primitive furniture helpers ───────────────────────────────────────────
 function Box({ pos, w=1, h=1, d=1, color='#334155', outline=true }) {
@@ -1265,6 +1266,7 @@ function InteriorController({ building, onExit, onInteract, avatar, onNearExit, 
     camera.position.set(px + d*Math.sin(y)*Math.cos(p), d*Math.sin(p), pz + d*Math.cos(y)*Math.cos(p))
     camera.lookAt(px, 0.9, pz)
 
+    if (moving) audioSystem.playFootstep(false)
     if (moving !== isWalkingRef.current) { isWalkingRef.current = moving; setIsWalking(moving) }
 
     // Throttled proximity checks
@@ -1288,12 +1290,14 @@ function InteriorController({ building, onExit, onInteract, avatar, onNearExit, 
 
   return (
     <>
-      {/* Player avatar */}
+      {/* Player avatar — same Mixamo model as the city world */}
       <group ref={playerGroupRef} position={[0, 0, building.hd - 1.5]}>
-        <Avatar3D
-          skin={avatar?.skin || '#F4C08A'} hair={avatar?.hair || '#2C1810'}
-          outfit={avatar?.outfit || 'casual'} position={[0,0,0]}
-          isPlayer name="" scale={1} externalControl walking={isWalking}
+        <PlayerModel
+          walking={isWalking}
+          running={false}
+          name=""
+          outfit={avatar?.outfit || 'casual'}
+          skin={avatar?.skin   || '#F4C08A'}
         />
       </group>
 
@@ -1340,6 +1344,10 @@ export function InteriorHUD({ nearExit, nearInteract, buildingName }) {
 
 // ── Main export ───────────────────────────────────────────────────────────
 export default function InteriorScene({ buildingId, avatar, onExit, onInteract }) {
+  useEffect(() => {
+    audioSystem.setCrowdIndoor(true)
+    return () => audioSystem.setCrowdIndoor(false)
+  }, [])
   const building = INTERIOR_DEFS[buildingId]
   if (!building) return null
   const BldgComp = building.component
@@ -1355,10 +1363,12 @@ export default function InteriorScene({ buildingId, avatar, onExit, onInteract }
         style={{ width: '100%', height: '100%' }}
       >
         <BldgComp />
-        <InteriorController
-          building={building} onExit={onExit} onInteract={onInteract} avatar={avatar}
-          onNearExit={setNearExit} onNearInteract={setNearInteract}
-        />
+        <Suspense fallback={null}>
+          <InteriorController
+            building={building} onExit={onExit} onInteract={onInteract} avatar={avatar}
+            onNearExit={setNearExit} onNearInteract={setNearInteract}
+          />
+        </Suspense>
       </Canvas>
       <InteriorHUD nearExit={nearExit} nearInteract={nearInteract} buildingName={building.name} />
     </div>

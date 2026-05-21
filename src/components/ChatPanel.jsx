@@ -40,12 +40,12 @@ const NPC_PERSONAS = {
 
 export default function ChatPanel({ npc, onClose }) {
   const persona = NPC_PERSONAS[npc?.name] || NPC_PERSONAS.Anaya
-  const avatar  = useStore(s => s.avatar)
+  const avatar = useStore(s => s.avatar)
   const chatHistory = useStore(s => s.chatHistory)
   const { addMessage, toast } = useStore()
 
-  const msgs     = chatHistory[npc?.name] || []
-  const [input, setInput]   = useState('')
+  const msgs = chatHistory[npc?.name] || []
+  const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef()
 
@@ -123,7 +123,7 @@ Rules:
       const fallbacks = {
         Anaya: ["OMG yaar, that's so interesting! 😱", "Haan haan! Mujhe bhi aisa lagta hai 💕", "Sach mein?? Tell me more babes! 👀"],
         Rahul: ["Bhai seriously? 😂", "Lol that's actually kinda valid ngl", "Chal yaar, let's not overthink it 😎"],
-        Zoya:  ["Hmm, that's a really interesting perspective 🌿", "I think I understand what you mean... 💭", "Have you tried looking at it differently? ✨"],
+        Zoya: ["Hmm, that's a really interesting perspective 🌿", "I think I understand what you mean... 💭", "Have you tried looking at it differently? ✨"],
         Kabir: ["Arre chal yaar! We got this! 💪", "Bhai gym jaate hain tension khatam 😂", "Energy hi sab kuch hai life mein! 🏋️"],
         Meera: ["There's something beautiful in what you said... 🌸", "Feelings are like paintings — never quite finished 🎨", "I hear you... 🌙"],
       }
@@ -221,7 +221,7 @@ Rules:
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') sendMessage(); else audioSystem.playTyping() }}
             placeholder={`Message ${npc.name}...`}
-            className="flex-1 bg-white/8 border border-white/10 rounded-2xl px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-white/30 focus:bg-white/12 transition-all"
+            className="flex-1 bg-white/8 border text-black border-white/10 rounded-2xl px-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-white/30 focus:bg-white/12 transition-all"
           />
           <button
             onClick={sendMessage}
