@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AnimatePresence } from 'framer-motion'
+import { useUser } from '@clerk/clerk-react'
 import { useStore } from '@/store'
 import WorldCanvas from '@/world/WorldCanvas'
 import InteriorScene, { INTERIOR_DEFS } from '@/world/InteriorScene'
@@ -11,6 +12,12 @@ import TimeWeatherHUD from '@/components/TimeWeatherHUD'
 import MobileControls from '@/components/MobileControls'
 import VolumeControl from '@/components/VolumeControl'
 import CrowdControl from '@/components/CrowdControl'
+import ProfilePanel from '@/components/ProfilePanel'
+import GlobalChat from '@/components/GlobalChat'
+import OnlinePlayersHUD from '@/components/OnlinePlayersHUD'
+import DirectChat from '@/components/DirectChat'
+import { useMultiplayer } from '@/hooks/useMultiplayer'
+import { chatState } from '@/lib/minimapState'
 import GameMenu from '@/games/GameMenu'
 import GameRunner from '@/games/GameRunner'
 import { LOCATION_GAMES } from '@/games/index'
@@ -18,21 +25,38 @@ import { useMobile } from '@/lib/useMobile'
 import { audioSystem } from '@/lib/audioSystem'
 
 export default function Game() {
-  const avatar    = useStore(s => s.avatar)
-  const isMobile  = useMobile()
+  const avatar = useStore(s => s.avatar)
+  const isMobile = useMobile()
+  const { user } = useUser()
+
+  // Multiplayer — remote players, presence, chat
+  const { remotePlayerIds, onlinePlayers, globalMessages, sendGlobalMessage } =
+    useMultiplayer({ userId: user?.id, avatar })
 
   // City NPC chat (wandering NPCs)
   const [activeNPC, setActiveNPC] = useState(null)
+  const [showProfile, setShowProfile] = useState(false)
+  const [directChatTarget, setDirectChatTarget] = useState(null)  // { uid, name }
+
+  // Sync active NPC name to module-level chatState so NPC component can read it each frame
+  useEffect(() => { chatState.activeNpcName = activeNPC?.name ?? null }, [activeNPC])
+
+  // Auto-close NPC chat when player walks away (dispatched by NPC component in WorldCanvas)
+  useEffect(() => {
+    const handler = () => setActiveNPC(null)
+    window.addEventListener('npc-auto-close', handler)
+    return () => window.removeEventListener('npc-auto-close', handler)
+  }, [])
 
   // Interior mode
-  const [mode,           setMode]           = useState('city')      // 'city' | 'interior'
+  const [mode, setMode] = useState('city')      // 'city' | 'interior'
   const [activeBuilding, setActiveBuilding] = useState(null)        // building id string
-  const [fading,         setFading]         = useState(false)
-  const [chatNpc,        setChatNpc]        = useState(null)        // interior NPC object
+  const [fading, setFading] = useState(false)
+  const [chatNpc, setChatNpc] = useState(null)        // interior NPC object
 
   // Mini-games
   const [showGameMenu, setShowGameMenu] = useState(false)
-  const [activeGame,   setActiveGame]   = useState(null)            // game id string | null
+  const [activeGame, setActiveGame] = useState(null)            // game id string | null
   const buildingGames = activeBuilding ? (LOCATION_GAMES[activeBuilding] || []) : []
 
   function enterBuilding(id) {
@@ -72,6 +96,8 @@ export default function Game() {
         <WorldCanvas
           onNPCChat={npc => { setActiveNPC(npc) }}
           onEnterBuilding={enterBuilding}
+          remotePlayerIds={remotePlayerIds}
+          onPlayerClick={(uid, name) => setDirectChatTarget({ uid, name })}
         />
       )}
 
@@ -91,6 +117,28 @@ export default function Game() {
       {/* Volume control — always visible */}
       <VolumeControl />
       <CrowdControl />
+
+      {/* Online players indicator */}
+      <OnlinePlayersHUD onlinePlayers={onlinePlayers} />
+
+      {/* Profile button */}
+      <button
+        onClick={() => setShowProfile(true)}
+        title={avatar.name}
+        style={{
+          position: 'fixed', top: 96, right: 12, zIndex: 40,
+          width: 34, height: 34, borderRadius: '50%',
+          background: user?.imageUrl ? 'transparent' : 'rgba(124,58,237,0.8)',
+          border: '1.5px solid rgba(124,58,237,0.5)',
+          cursor: 'pointer', padding: 0, overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {user?.imageUrl
+          ? <img src={user.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>{avatar.name?.[0]?.toUpperCase() || '?'}</span>
+        }
+      </button>
 
       {/* Time + weather indicator */}
       <TimeWeatherHUD />
@@ -157,8 +205,35 @@ export default function Game() {
         />
       )}
 
-      {/* Mobile touch controls — joystick + action buttons */}
-      {isMobile && mode === 'city' && <MobileControls />}
+      {/* Profile panel */}
+      <AnimatePresence>
+        {showProfile && (
+          <ProfilePanel key="profile" onClose={() => setShowProfile(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Global / nearby multiplayer chat */}
+      {mode === 'city' && (
+        <GlobalChat
+          globalMessages={globalMessages}
+          onSendGlobal={sendGlobalMessage}
+          onlineCount={onlinePlayers.length}
+        />
+      )}
+
+      {/* Direct message panel — opens when clicking another real player */}
+      {directChatTarget && (
+        <DirectChat
+          myId={user?.id}
+          myName={avatar.name}
+          targetId={directChatTarget.uid}
+          targetName={directChatTarget.name}
+          onClose={() => setDirectChatTarget(null)}
+        />
+      )}
+
+      {/* Mobile touch controls — always visible on mobile except inside mini-games */}
+      {isMobile && !activeGame && <MobileControls />}
 
       {/* Fade overlay */}
       <div style={{

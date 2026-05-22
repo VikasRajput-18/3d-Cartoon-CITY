@@ -1,5 +1,6 @@
-import { useRef, useEffect, useMemo } from 'react'
+import React, { useRef, useEffect, useMemo } from 'react'
 import { useFBX, useAnimations, Billboard, Text } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
 import { SkeletonUtils } from 'three-stdlib'
 import * as THREE from 'three'
 
@@ -12,110 +13,124 @@ const OUTFIT_COLORS = {
   sports:      '#DC2626',
 }
 
-function attachToBone(root, search, geo, color, pos) {
-  let bone = null
-  root.traverse(obj => {
-    if (!bone && obj.isBone && obj.name.toLowerCase().includes(search.toLowerCase())) bone = obj
-  })
-  if (!bone) return null
-  const mesh = new THREE.Mesh(geo, new THREE.MeshToonMaterial({ color: new THREE.Color(color) }))
-  mesh.castShadow = true
-  mesh.position.set(...pos)
-  mesh.name = '__clothing__'
-  bone.add(mesh)
-  return { bone, mesh }
+function boneRegion(name) {
+  const n = name.toLowerCase()
+  if (n.includes('toe')    || n.includes('foot'))                               return 'shoe'
+  if (n.includes('upleg')  || n.includes('leg'))                                return 'pants'
+  if (n.includes('hip'))                                                        return 'pants'
+  if (n.includes('forearm')|| n.includes('fore_arm') || n.includes('lowerarm')) return 'skin'
+  if (n.includes('hand')   || n.includes('finger')   || n.includes('thumb')    ||
+      n.includes('index')  || n.includes('middle')   || n.includes('ring')     || n.includes('pinky')) return 'skin'
+  if (n.includes('arm'))                                                        return 'shirt'
+  if (n.includes('head')   || n.includes('neck'))                               return 'skin'
+  return 'shirt'
 }
 
-export default function NPCModel({
-  outfit     = 'casual',
-  skin       = '#F4C08A',
-  walking    = false,
-  name       = '',
-  labelColor = '#facc15',
-  npcScale   = 0.01,
-  onClick    = null,
+const _pantsC = new THREE.Color('#1c1c2e')
+const _shoeC  = new THREE.Color('#120e08')
+
+function paintClothing(mesh, skinHex, outfitHex) {
+  const geo   = mesh.geometry
+  const bones = mesh.skeleton?.bones
+
+  if (!bones || !geo.attributes.skinIndex) {
+    mesh.material = new THREE.MeshToonMaterial({
+      color:    skinHex,
+      emissive: new THREE.Color(0.06, 0.06, 0.08),
+    })
+    mesh.castShadow = true
+    return
+  }
+
+  const si    = geo.attributes.skinIndex
+  const sw    = geo.attributes.skinWeight
+  const count = geo.attributes.position.count
+
+  const skinC   = new THREE.Color(skinHex)
+  const outfitC = new THREE.Color(outfitHex)
+
+  let attr = geo.attributes.color
+  let arr
+  if (attr && attr.count === count) {
+    arr = attr.array
+  } else {
+    arr = new Float32Array(count * 3)
+  }
+
+  for (let i = 0; i < count; i++) {
+    let maxW = -1, domIdx = 0
+    for (let j = 0; j < 4; j++) {
+      const w = sw.getComponent(i, j)
+      if (w > maxW) { maxW = w; domIdx = si.getComponent(i, j) }
+    }
+    const bone   = bones[domIdx]
+    const region = bone ? boneRegion(bone.name) : 'shirt'
+
+    const c =
+      region === 'skin'  ? skinC :
+      region === 'pants' ? _pantsC :
+      region === 'shoe'  ? _shoeC :
+      outfitC
+
+    arr[i * 3]     = c.r
+    arr[i * 3 + 1] = c.g
+    arr[i * 3 + 2] = c.b
+  }
+
+  if (attr && attr.count === count) {
+    attr.needsUpdate = true
+  } else {
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+  }
+
+  if (!mesh.material?.vertexColors) {
+    mesh.material = new THREE.MeshToonMaterial({
+      vertexColors: true,
+      emissive:     new THREE.Color(0.07, 0.07, 0.09),
+    })
+  }
+  mesh.castShadow = true
+}
+
+function NPCModel({
+  outfit        = 'casual',
+  skin          = '#F4C08A',
+  walking       = false,
+  name          = '',
+  labelColor    = '#facc15',
+  sublabel      = '',
+  sublabelColor = '#f59e0b',
+  npcScale      = 0.01,
+  onClick       = null,
+  visibleRef    = null,
 }) {
   const groupRef = useRef()
 
-  // Load cached FBX assets (shared across all NPC instances)
   const rawWalkFBX = useFBX('/models/Walking.fbx')
   const rawIdleFBX = useFBX('/models/Standing_Idle.fbx')
 
-  // Each NPC needs its OWN skeleton clone so animations are independent
-  const walkFBX = useMemo(() => SkeletonUtils.clone(rawWalkFBX), [rawWalkFBX])
+  const walkFBX = useMemo(() => {
+    const clone = SkeletonUtils.clone(rawWalkFBX)
+    clone.traverse(c => { if (c.isSkinnedMesh) c.geometry = c.geometry.clone() })
+    return clone
+  }, [rawWalkFBX])
 
   const outfitColor = OUTFIT_COLORS[outfit] || OUTFIT_COLORS.casual
 
-  // Apply per-NPC skin color and clothing
   useEffect(() => {
-    const skinMat = new THREE.MeshToonMaterial({ color: new THREE.Color(skin) })
     walkFBX.traverse(child => {
-      if (child.isSkinnedMesh || child.isMesh) {
-        child.castShadow = true
-        child.material   = skinMat
-      }
+      if (child.isSkinnedMesh) paintClothing(child, skin, outfitColor)
     })
+  }, [walkFBX, skin, outfitColor])
 
-    const attachments = []
-
-    const shirt = attachToBone(
-      walkFBX, 'Spine2',
-      new THREE.CylinderGeometry(13, 15, 55, 8),
-      outfitColor, [0, -10, 0],
-    ) || attachToBone(
-      walkFBX, 'Spine1',
-      new THREE.CylinderGeometry(13, 15, 55, 8),
-      outfitColor, [0, -8, 0],
-    )
-    if (shirt) attachments.push(shirt)
-
-    const leftPant = attachToBone(
-      walkFBX, 'LeftUpLeg',
-      new THREE.CylinderGeometry(10, 9, 40, 7),
-      '#1a1a2e', [0, -18, 0],
-    )
-    if (leftPant) attachments.push(leftPant)
-
-    const rightPant = attachToBone(
-      walkFBX, 'RightUpLeg',
-      new THREE.CylinderGeometry(10, 9, 40, 7),
-      '#1a1a2e', [0, -18, 0],
-    )
-    if (rightPant) attachments.push(rightPant)
-
-    const leftShoe = attachToBone(
-      walkFBX, 'LeftFoot',
-      new THREE.BoxGeometry(9, 5, 15),
-      '#111111', [0, -2, 8],
-    )
-    if (leftShoe) attachments.push(leftShoe)
-
-    const rightShoe = attachToBone(
-      walkFBX, 'RightFoot',
-      new THREE.BoxGeometry(9, 5, 15),
-      '#111111', [0, -2, 8],
-    )
-    if (rightShoe) attachments.push(rightShoe)
-
-    return () => {
-      attachments.forEach(({ bone, mesh }) => {
-        bone.remove(mesh)
-        mesh.geometry.dispose()
-        if (mesh.material.dispose) mesh.material.dispose()
-      })
-    }
-  }, [walkFBX, outfitColor, skin])
-
-  // Animation clips cloned from the shared cached originals
   const clips = useMemo(() => {
     const result = []
-
     if (rawWalkFBX.animations[0]) {
       const clip = rawWalkFBX.animations[0].clone()
       clip.name  = 'Walking'
       for (const track of clip.tracks) {
-        const lname = track.name.toLowerCase()
-        if ((lname.includes('hips') || lname.includes('hip')) && lname.endsWith('.position')) {
+        const ln = track.name.toLowerCase()
+        if ((ln.includes('hips') || ln.includes('hip')) && ln.endsWith('.position')) {
           for (let i = 0; i < track.values.length; i += 3) {
             track.values[i]     = 0
             track.values[i + 2] = 0
@@ -124,17 +139,20 @@ export default function NPCModel({
       }
       result.push(clip)
     }
-
     if (rawIdleFBX.animations[0]) {
       const clip = rawIdleFBX.animations[0].clone()
       clip.name  = 'Idle'
       result.push(clip)
     }
-
     return result
   }, [rawWalkFBX, rawIdleFBX])
 
-  const { actions } = useAnimations(clips, groupRef)
+  const { actions, mixer } = useAnimations(clips, groupRef)
+
+  // Pause animation mixer when this NPC is distance-culled — saves CPU for invisible NPCs
+  useFrame(() => {
+    if (mixer) mixer.timeScale = (visibleRef && visibleRef.current === false) ? 0 : 1
+  })
 
   useEffect(() => {
     if (actions['Idle']) actions['Idle'].reset().play()
@@ -144,13 +162,8 @@ export default function NPCModel({
     const idle = actions['Idle']
     const walk = actions['Walking']
     if (!idle || !walk) return
-    if (walking) {
-      idle.fadeOut(0.2)
-      walk.reset().fadeIn(0.2).play()
-    } else {
-      walk.fadeOut(0.3)
-      idle.reset().fadeIn(0.3).play()
-    }
+    if (walking) { idle.fadeOut(0.2); walk.reset().fadeIn(0.2).play() }
+    else         { walk.fadeOut(0.3); idle.reset().fadeIn(0.3).play() }
   }, [walking, actions])
 
   return (
@@ -160,7 +173,14 @@ export default function NPCModel({
         <Text fontSize={0.18} color={labelColor} anchorX="center" anchorY="middle">
           {name}
         </Text>
+        {sublabel ? (
+          <Text fontSize={0.11} color={sublabelColor} anchorX="center" anchorY="middle" position={[0, -0.23, 0]}>
+            {sublabel}
+          </Text>
+        ) : null}
       </Billboard>
     </group>
   )
 }
+
+export default React.memo(NPCModel)

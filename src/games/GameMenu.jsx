@@ -16,11 +16,12 @@ export default function GameMenu({ games, buildingName, onSelect, onClose }) {
     >
       <div style={{
         background: 'rgba(15,10,30,0.96)', border: '1.5px solid rgba(124,58,237,0.45)',
-        borderRadius: 20, padding: '24px 28px', minWidth: 320, maxWidth: 420,
+        borderRadius: 20, padding: '20px', width: 'min(90vw, 420px)',
+        maxHeight: '80vh', overflowY: 'auto',
         fontFamily: 'Nunito, sans-serif',
       }}>
-        <div style={{ color: '#a78bfa', fontSize: 12, marginBottom: 4 }}>{buildingName}</div>
-        <div style={{ color: '#fff', fontWeight: 700, fontSize: 18, marginBottom: 18 }}>Play a Game</div>
+        <div style={{ color: '#a78bfa', fontSize: 13, marginBottom: 4 }}>{buildingName}</div>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: 18, marginBottom: 16 }}>Play a Game</div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {games.map(id => {
@@ -31,18 +32,19 @@ export default function GameMenu({ games, buildingName, onSelect, onClose }) {
                 onClick={() => { audioSystem.playClick(); onSelect(id) }}
                 style={{
                   background: `${g.color}22`, border: `1.5px solid ${g.color}55`,
-                  borderRadius: 12, padding: '12px 16px', cursor: 'pointer',
+                  borderRadius: 12, padding: '14px 16px', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-                  transition: 'background 0.15s',
+                  transition: 'background 0.15s', minHeight: 64, width: '100%',
+                  touchAction: 'manipulation',
                 }}
                 onMouseOver={e => e.currentTarget.style.background = `${g.color}44`}
                 onMouseOut={e => e.currentTarget.style.background = `${g.color}22`}
               >
-                <span style={{ fontSize: 26 }}>{g.emoji}</span>
-                <div>
-                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{g.label}</div>
-                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>{g.desc}</div>
-                  <div style={{ color: '#facc15', fontSize: 11, marginTop: 3 }}>Win: +{g.coins} coins</div>
+                <span style={{ fontSize: 28, flexShrink: 0 }}>{g.emoji}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{g.label}</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>{g.desc}</div>
+                  <div style={{ color: '#facc15', fontSize: 12, marginTop: 3 }}>Win: +{g.coins} coins</div>
                 </div>
               </button>
             )
@@ -52,9 +54,10 @@ export default function GameMenu({ games, buildingName, onSelect, onClose }) {
         <button
           onClick={onClose}
           style={{
-            marginTop: 16, width: '100%', background: 'rgba(255,255,255,0.06)',
+            marginTop: 14, width: '100%', background: 'rgba(255,255,255,0.06)',
             border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
-            padding: '9px', color: '#94a3b8', fontSize: 13, cursor: 'pointer',
+            padding: '13px', color: '#94a3b8', fontSize: 14, cursor: 'pointer',
+            minHeight: 48, touchAction: 'manipulation',
           }}
         >
           Cancel

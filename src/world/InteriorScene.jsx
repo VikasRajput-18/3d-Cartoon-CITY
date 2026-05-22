@@ -5,6 +5,8 @@ import * as THREE from 'three'
 import PlayerModel from './PlayerModel'
 import { gameControls } from '@/lib/gameControls'
 import { audioSystem } from '@/lib/audioSystem'
+import { mobileInput } from '@/lib/mobileInput'
+import { useMobile } from '@/lib/useMobile'
 
 // ── Primitive furniture helpers ───────────────────────────────────────────
 function Box({ pos, w=1, h=1, d=1, color='#334155', outline=true }) {
@@ -140,8 +142,11 @@ function Umbrella({ pos, color='#ef4444' }) {
 // ── Room shell ────────────────────────────────────────────────────────────
 function Room({ w=16, depth=14, wallColor='#f1f5f9', floorColor='#e2e8f0', ceilColor='#f8fafc' }) {
   const hw = w/2, hd = depth/2
+  const WT = 0.3 // wall thickness — prevents zero-thickness black walls
   return (
     <>
+      {/* Ceiling fill light so walls are visible from any camera angle */}
+      <pointLight position={[0, 3.4, 0]} intensity={0.5} color="#ffffff" distance={Math.max(w, depth) * 1.5} />
       {/* Floor */}
       <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, 0, 0]}>
         <planeGeometry args={[w, depth]} />
@@ -152,34 +157,35 @@ function Room({ w=16, depth=14, wallColor='#f1f5f9', floorColor='#e2e8f0', ceilC
         <planeGeometry args={[w, depth]} />
         <meshToonMaterial color={ceilColor} />
       </mesh>
-      {/* North */}
+      {/* North wall — thick box, covers corners */}
       <mesh position={[0, 1.8, -hd]}>
-        <planeGeometry args={[w, 3.6]} />
-        <meshToonMaterial color={wallColor} side={THREE.DoubleSide} />
+        <boxGeometry args={[w + WT*2, 3.6, WT]} />
+        <meshToonMaterial color={wallColor} />
       </mesh>
-      {/* South (has door gap) */}
-      <mesh position={[-hw/2 + 1, 1.8, hd]} rotation={[0, Math.PI, 0]}>
-        <planeGeometry args={[hw-2, 3.6]} />
-        <meshToonMaterial color={wallColor} side={THREE.DoubleSide} />
+      {/* South wall — left of door */}
+      <mesh position={[-hw/2 + 1, 1.8, hd]}>
+        <boxGeometry args={[hw-2, 3.6, WT]} />
+        <meshToonMaterial color={wallColor} />
       </mesh>
-      <mesh position={[hw/2 - 1, 1.8, hd]} rotation={[0, Math.PI, 0]}>
-        <planeGeometry args={[hw-2, 3.6]} />
-        <meshToonMaterial color={wallColor} side={THREE.DoubleSide} />
+      {/* South wall — right of door */}
+      <mesh position={[hw/2 - 1, 1.8, hd]}>
+        <boxGeometry args={[hw-2, 3.6, WT]} />
+        <meshToonMaterial color={wallColor} />
       </mesh>
       {/* Door top strip */}
-      <mesh position={[0, 3.1, hd]} rotation={[0, Math.PI, 0]}>
-        <planeGeometry args={[4, 0.5]} />
-        <meshToonMaterial color={wallColor} side={THREE.DoubleSide} />
+      <mesh position={[0, 3.1, hd]}>
+        <boxGeometry args={[4, 0.5, WT]} />
+        <meshToonMaterial color={wallColor} />
       </mesh>
-      {/* West */}
-      <mesh position={[-hw, 1.8, 0]} rotation={[0, Math.PI/2, 0]}>
-        <planeGeometry args={[depth, 3.6]} />
-        <meshToonMaterial color={wallColor} side={THREE.DoubleSide} />
+      {/* West wall */}
+      <mesh position={[-hw, 1.8, 0]}>
+        <boxGeometry args={[WT, 3.6, depth + WT*2]} />
+        <meshToonMaterial color={wallColor} />
       </mesh>
-      {/* East */}
-      <mesh position={[hw, 1.8, 0]} rotation={[0, -Math.PI/2, 0]}>
-        <planeGeometry args={[depth, 3.6]} />
-        <meshToonMaterial color={wallColor} side={THREE.DoubleSide} />
+      {/* East wall */}
+      <mesh position={[hw, 1.8, 0]}>
+        <boxGeometry args={[WT, 3.6, depth + WT*2]} />
+        <meshToonMaterial color={wallColor} />
       </mesh>
     </>
   )
@@ -1191,6 +1197,18 @@ function InteriorController({ building, onExit, onInteract, avatar, onNearExit, 
   const [nearInteract, setNearInteract] = useState(null)
   const detectTick     = useRef(0)
 
+  // Set camera to correct position on first frame (prevents spawning outside south wall)
+  useEffect(() => {
+    const px = charPos.current.x, pz = charPos.current.z
+    const d = camDist.current, p = camPitch.current, y = camYaw.current
+    camera.position.set(
+      px + d * Math.sin(y) * Math.cos(p),
+      d * Math.sin(p),
+      pz + d * Math.cos(y) * Math.cos(p)
+    )
+    camera.lookAt(px, 0.9, pz)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const onKeyDown = (e) => {
       if (!gameControls.enabled) return
@@ -1245,6 +1263,15 @@ function InteriorController({ building, onExit, onInteract, avatar, onNearExit, 
       if (keys.current.has('KeyD') || keys.current.has('ArrowRight')) { _move.current.x += cy; _move.current.z -= sy; moving = true }
     }
 
+    // Mobile joystick — camera-relative, same mapping as the city world
+    if (mobileInput.joyActive) {
+      const sy2 = Math.sin(camYaw.current), cy2 = Math.cos(camYaw.current)
+      const jfwd = -mobileInput.joyY, jrgt = mobileInput.joyX
+      _move.current.x += jfwd * (-sy2) + jrgt * cy2
+      _move.current.z += jfwd * (-cy2) + jrgt * (-sy2)
+      moving = true
+    }
+
     if (moving) {
       _move.current.normalize()
       charPos.current.addScaledVector(_move.current, SPEED * delta)
@@ -1264,6 +1291,13 @@ function InteriorController({ building, onExit, onInteract, avatar, onNearExit, 
     const px = charPos.current.x, pz = charPos.current.z
     const d = camDist.current, p = camPitch.current, y = camYaw.current
     camera.position.set(px + d*Math.sin(y)*Math.cos(p), d*Math.sin(p), pz + d*Math.cos(y)*Math.cos(p))
+
+    // Clamp camera inside room so it never clips through a wall
+    const WALL_M = 0.5
+    camera.position.x = THREE.MathUtils.clamp(camera.position.x, -building.hw + WALL_M, building.hw - WALL_M)
+    camera.position.z = THREE.MathUtils.clamp(camera.position.z, -building.hd + WALL_M, building.hd - WALL_M)
+    camera.position.y = Math.max(0.5, camera.position.y)
+
     camera.lookAt(px, 0.9, pz)
 
     if (moving) audioSystem.playFootstep(false)
@@ -1320,23 +1354,31 @@ function InteriorController({ building, onExit, onInteract, avatar, onNearExit, 
 
 // ── Overlay prompts (DOM, outside Canvas) ─────────────────────────────────
 export function InteriorHUD({ nearExit, nearInteract, buildingName }) {
+  const isMobile = useMobile()
+  // On mobile the joystick occupies the lower ~25% of the screen — push prompts above it
+  const exitBottom  = isMobile ? '44%' : '22%'
+  const talkBottom  = isMobile ? '37%' : '16%'
   return (
     <>
       {nearExit && (
         <div style={{
-          position: 'absolute', bottom: '22%', left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', bottom: exitBottom, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(0,0,0,0.75)', color: '#facc15', padding: '8px 22px',
           borderRadius: 8, fontFamily: 'monospace', fontSize: 15, pointerEvents: 'none',
-          border: '1px solid #facc15', zIndex: 10,
-        }}>Press <strong>E</strong> or <strong>Esc</strong> to exit {buildingName}</div>
+          border: '1px solid #facc15', zIndex: 10, whiteSpace: 'nowrap',
+        }}>
+          {isMobile ? <>Tap <strong>E</strong> to exit {buildingName}</> : <>Press <strong>E</strong> or <strong>Esc</strong> to exit {buildingName}</>}
+        </div>
       )}
       {nearInteract && (
         <div style={{
-          position: 'absolute', bottom: '16%', left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', bottom: talkBottom, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(0,0,0,0.75)', color: '#a78bfa', padding: '7px 20px',
           borderRadius: 8, fontFamily: 'monospace', fontSize: 14, pointerEvents: 'none',
-          border: '1px solid #7c3aed', zIndex: 10,
-        }}>Press <strong>F</strong> to talk to {nearInteract.name}</div>
+          border: '1px solid #7c3aed', zIndex: 10, whiteSpace: 'nowrap',
+        }}>
+          {isMobile ? <>Tap <strong>F</strong> to talk to {nearInteract.name}</> : <>Press <strong>F</strong> to talk to {nearInteract.name}</>}
+        </div>
       )}
     </>
   )

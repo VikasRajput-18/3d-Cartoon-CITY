@@ -12,20 +12,93 @@ const OUTFIT_COLORS = {
   sports:      '#DC2626',
 }
 
-// Attach a clothing mesh to a bone found by case-insensitive name substring.
-// Returns {bone, mesh} so the caller can remove it on cleanup.
-function attachToBone(root, search, geo, color, pos) {
-  let bone = null
-  root.traverse(obj => {
-    if (!bone && obj.isBone && obj.name.toLowerCase().includes(search.toLowerCase())) bone = obj
-  })
-  if (!bone) return null
-  const mesh = new THREE.Mesh(geo, new THREE.MeshToonMaterial({ color: new THREE.Color(color) }))
+// Map a Mixamo bone name to a clothing region.
+// Priority matters: more-specific checks come first.
+function boneRegion(name) {
+  const n = name.toLowerCase()
+  if (n.includes('toe')    || n.includes('foot'))                           return 'shoe'
+  if (n.includes('upleg')  || n.includes('leg'))                            return 'pants'
+  if (n.includes('hip'))                                                    return 'pants'
+  if (n.includes('forearm')|| n.includes('fore_arm')|| n.includes('lowerarm')) return 'skin'
+  if (n.includes('hand')   || n.includes('finger') || n.includes('thumb')  ||
+      n.includes('index')  || n.includes('middle') || n.includes('ring')   || n.includes('pinky')) return 'skin'
+  if (n.includes('arm'))                                                    return 'shirt'
+  if (n.includes('head')   || n.includes('neck'))                           return 'skin'
+  return 'shirt'   // spine, shoulder, chest, clavicle → shirt
+}
+
+const _pantsC = new THREE.Color('#1c1c2e')
+const _shoeC  = new THREE.Color('#120e08')
+
+// Paint per-vertex colours onto a SkinnedMesh using skinning weights.
+// The dominant bone for each vertex determines which region (shirt/pants/shoe/skin) it belongs to.
+function paintClothing(mesh, skinHex, outfitHex) {
+  const geo   = mesh.geometry
+  const bones = mesh.skeleton?.bones
+
+  // Fallback if no skinning data (shouldn't happen with standard Mixamo FBX)
+  if (!bones || !geo.attributes.skinIndex) {
+    mesh.material = new THREE.MeshToonMaterial({
+      color:    skinHex,
+      emissive: new THREE.Color(0.06, 0.06, 0.08),
+    })
+    mesh.castShadow = true
+    return
+  }
+
+  const si    = geo.attributes.skinIndex
+  const sw    = geo.attributes.skinWeight
+  const count = geo.attributes.position.count
+
+  const skinC   = new THREE.Color(skinHex)
+  const outfitC = new THREE.Color(outfitHex)
+
+  // Reuse existing buffer if possible; otherwise allocate fresh
+  let attr = geo.attributes.color
+  let arr
+  if (attr && attr.count === count) {
+    arr = attr.array
+  } else {
+    arr = new Float32Array(count * 3)
+  }
+
+  for (let i = 0; i < count; i++) {
+    // Find the bone with the highest influence on this vertex
+    let maxW = -1, domIdx = 0
+    for (let j = 0; j < 4; j++) {
+      const w = sw.getComponent(i, j)
+      if (w > maxW) { maxW = w; domIdx = si.getComponent(i, j) }
+    }
+    const bone = bones[domIdx]
+    const region = bone ? boneRegion(bone.name) : 'shirt'
+
+    const c =
+      region === 'skin'  ? skinC :
+      region === 'pants' ? _pantsC :
+      region === 'shoe'  ? _shoeC :
+      outfitC
+
+    arr[i * 3]     = c.r
+    arr[i * 3 + 1] = c.g
+    arr[i * 3 + 2] = c.b
+  }
+
+  if (attr && attr.count === count) {
+    attr.needsUpdate = true
+  } else {
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+  }
+
+  // Create or reuse a toon material with vertex colours.
+  // A small emissive ensures the character stays visible at night
+  // (ambient can drop to 0.04 intensity) without looking glowing in daylight.
+  if (!mesh.material?.vertexColors) {
+    mesh.material = new THREE.MeshToonMaterial({
+      vertexColors: true,
+      emissive:     new THREE.Color(0.07, 0.07, 0.09),
+    })
+  }
   mesh.castShadow = true
-  mesh.position.set(...pos)
-  mesh.name = '__clothing__'
-  bone.add(mesh)
-  return { bone, mesh }
 }
 
 export default function PlayerModel({
@@ -37,92 +110,36 @@ export default function PlayerModel({
 }) {
   const groupRef = useRef()
 
-  // Load cached FBX assets
   const rawWalkFBX = useFBX('/models/Walking.fbx')
   const rawIdleFBX = useFBX('/models/Standing_Idle.fbx')
 
-  // Clone walkFBX so material/bone modifications don't pollute the cache
-  // (NPCs also clone from the same cache — they must each get a clean copy)
-  const walkFBX = useMemo(() => SkeletonUtils.clone(rawWalkFBX), [rawWalkFBX])
+  // Clone the cached FBX AND deep-clone each SkinnedMesh geometry so this
+  // instance can write its own vertex colours without affecting the cache or other instances.
+  const walkFBX = useMemo(() => {
+    const clone = SkeletonUtils.clone(rawWalkFBX)
+    clone.traverse(c => { if (c.isSkinnedMesh) c.geometry = c.geometry.clone() })
+    return clone
+  }, [rawWalkFBX])
 
   const outfitColor = OUTFIT_COLORS[outfit] || OUTFIT_COLORS.casual
 
-  // Apply skin material to base mesh + attach clothing geometry to skeleton bones.
-  // Sizes are in FBX centimeter space (scale=0.01 converts to scene metres).
+  // Paint vertex colours for clothing regions whenever skin/outfit changes.
   useEffect(() => {
-    // Skin the whole character first
-    const skinMat = new THREE.MeshToonMaterial({ color: new THREE.Color(skin) })
     walkFBX.traverse(child => {
-      if (child.isSkinnedMesh || child.isMesh) {
-        child.castShadow = true
-        child.material   = skinMat
-      }
+      if (child.isSkinnedMesh) paintClothing(child, skin, outfitColor)
     })
+  }, [walkFBX, skin, outfitColor])
 
-    const attachments = []
-
-    // Shirt  — spine2/spine1 fallback
-    const shirt = attachToBone(
-      walkFBX, 'Spine2',
-      new THREE.CylinderGeometry(13, 15, 55, 8),
-      outfitColor, [0, -10, 0],
-    ) || attachToBone(
-      walkFBX, 'Spine1',
-      new THREE.CylinderGeometry(13, 15, 55, 8),
-      outfitColor, [0, -8, 0],
-    )
-    if (shirt) attachments.push(shirt)
-
-    // Pants — each upper leg independently
-    const leftPant = attachToBone(
-      walkFBX, 'LeftUpLeg',
-      new THREE.CylinderGeometry(10, 9, 40, 7),
-      '#1a1a2e', [0, -18, 0],
-    )
-    if (leftPant) attachments.push(leftPant)
-
-    const rightPant = attachToBone(
-      walkFBX, 'RightUpLeg',
-      new THREE.CylinderGeometry(10, 9, 40, 7),
-      '#1a1a2e', [0, -18, 0],
-    )
-    if (rightPant) attachments.push(rightPant)
-
-    // Shoes — feet
-    const leftShoe = attachToBone(
-      walkFBX, 'LeftFoot',
-      new THREE.BoxGeometry(9, 5, 15),
-      '#111111', [0, -2, 8],
-    )
-    if (leftShoe) attachments.push(leftShoe)
-
-    const rightShoe = attachToBone(
-      walkFBX, 'RightFoot',
-      new THREE.BoxGeometry(9, 5, 15),
-      '#111111', [0, -2, 8],
-    )
-    if (rightShoe) attachments.push(rightShoe)
-
-    return () => {
-      attachments.forEach(({ bone, mesh }) => {
-        bone.remove(mesh)
-        mesh.geometry.dispose()
-        if (mesh.material.dispose) mesh.material.dispose()
-      })
-    }
-  }, [walkFBX, outfitColor, skin])
-
-  // Build stable, named animation clips from the RAW cached FBX files
+  // Animation clips from the raw cached originals (not the clone)
   const clips = useMemo(() => {
     const result = []
-
     if (rawWalkFBX.animations[0]) {
       const clip = rawWalkFBX.animations[0].clone()
       clip.name  = 'Walking'
-      // Remove root-motion X/Z drift; keep Y for walk-bob
+      // Strip root-motion X/Z so character doesn't slide
       for (const track of clip.tracks) {
-        const lname = track.name.toLowerCase()
-        if ((lname.includes('hips') || lname.includes('hip')) && lname.endsWith('.position')) {
+        const ln = track.name.toLowerCase()
+        if ((ln.includes('hips') || ln.includes('hip')) && ln.endsWith('.position')) {
           for (let i = 0; i < track.values.length; i += 3) {
             track.values[i]     = 0
             track.values[i + 2] = 0
@@ -131,52 +148,43 @@ export default function PlayerModel({
       }
       result.push(clip)
     }
-
     if (rawIdleFBX.animations[0]) {
       const clip = rawIdleFBX.animations[0].clone()
       clip.name  = 'Idle'
       result.push(clip)
     }
-
     return result
   }, [rawWalkFBX, rawIdleFBX])
 
   const { actions } = useAnimations(clips, groupRef)
 
-  // Boot → Idle
   useEffect(() => {
     if (actions['Idle']) actions['Idle'].reset().play()
   }, [actions])
 
-  // Walking ↔ Idle crossfade
   const isMoving = walking || running
   useEffect(() => {
     const idle = actions['Idle']
     const walk = actions['Walking']
     if (!idle || !walk) return
-    if (isMoving) {
-      idle.fadeOut(0.2)
-      walk.reset().fadeIn(0.2).play()
-    } else {
-      walk.fadeOut(0.3)
-      idle.reset().fadeIn(0.3).play()
-    }
+    if (isMoving) { idle.fadeOut(0.2); walk.reset().fadeIn(0.2).play() }
+    else          { walk.fadeOut(0.3); idle.reset().fadeIn(0.3).play() }
   }, [isMoving, actions])
 
-  // Speed-up when running (Shift held)
   useEffect(() => {
     if (actions['Walking']) actions['Walking'].timeScale = running ? 1.6 : 1.0
   }, [running, actions])
 
   return (
     <group ref={groupRef}>
-      {/* scale 0.01: FBX cm → scene metres */}
       <primitive object={walkFBX} scale={0.01} position={[0, 0, 0]} />
-
       {name ? (
         <Billboard position={[0, 2.4, 0]}>
           <Text fontSize={0.2} color="#facc15" anchorX="center" anchorY="middle">
             ★ {name}
+          </Text>
+          <Text fontSize={0.12} color="#facc15" anchorX="center" anchorY="middle" position={[0, -0.27, 0]}>
+            • You
           </Text>
         </Billboard>
       ) : null}

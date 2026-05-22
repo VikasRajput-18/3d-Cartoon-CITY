@@ -1,35 +1,48 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useStore } from '@/store'
 import { gameControls } from '@/lib/gameControls'
 import { audioSystem } from '@/lib/audioSystem'
+import { groqChat, getTimeLabel, getWeatherDesc, LANGUAGE_RULE } from '@/lib/groqChat'
+import { timeWeatherState } from '@/lib/timeWeatherState'
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_KEY = import.meta.env.VITE_APP_GROQ_SECRET_KEY
-const MODEL = 'llama-3.3-70b-versatile'
+const GENERIC_FALLBACKS = [
+  "Hmm, signal's a bit choppy here — what were you saying?",
+  "Sorry, got distracted for a sec! Could you repeat that?",
+  "One moment... my mind wandered. Say that again?",
+]
 
-async function groqChat(history, systemPrompt) {
-  const res = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 120,
-      temperature: 0.85,
-      messages: [{ role: 'system', content: systemPrompt }, ...history],
-    }),
-  })
-  const data = await res.json()
-  return data.choices?.[0]?.message?.content ?? "Sorry, couldn't hear you!"
+function buildPrompt(npc, playerName) {
+  const time    = getTimeLabel(timeWeatherState.timeOfDay)
+  const weather = getWeatherDesc(timeWeatherState.weather)
+  const ctx     = `It is ${time}. ${weather} You are talking with ${playerName}.`
+  return `${npc.systemPrompt}\n\n${ctx}\n${LANGUAGE_RULE}`
+}
+
+function TypingDots() {
+  return (
+    <div style={{ display: 'flex', gap: 4, padding: '4px 2px', alignItems: 'center' }}>
+      {[0, 1, 2].map(i => (
+        <motion.div
+          key={i}
+          style={{ width: 7, height: 7, borderRadius: '50%', background: '#64748b' }}
+          animate={{ y: [0, -5, 0] }}
+          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
+        />
+      ))}
+    </div>
+  )
 }
 
 export default function AIChat({ npc, onClose }) {
-  const [msgs, setMsgs] = useState([])
-  const [input, setInput] = useState('')
+  const avatar   = useStore(s => s.avatar)
+  const [msgs, setMsgs]     = useState([])
+  const [input, setInput]   = useState('')
   const [loading, setLoading] = useState(false)
-  const inputRef = useRef()
+  const inputRef  = useRef()
   const bottomRef = useRef()
+  const histRef   = useRef([])
 
-  // Disable game controls while this panel is mounted
   useEffect(() => {
     gameControls.enabled = false
     return () => { gameControls.enabled = true }
@@ -40,30 +53,51 @@ export default function AIChat({ npc, onClose }) {
     if (!npc) return
     inputRef.current?.focus()
     setLoading(true)
-    groqChat([], npc.systemPrompt + ' Greet the player in one short friendly sentence as they approach.')
-      .then(g => { setMsgs([{ role: 'assistant', content: g }]); setLoading(false); audioSystem.playNotification() })
+    const playerName = avatar?.name || 'traveler'
+    const sysPrompt  = buildPrompt(npc, playerName)
+    groqChat(
+      [],
+      sysPrompt + `\n\nGreet ${playerName} in ONE short friendly sentence as they walk up to you. Stay completely in character.`,
+    )
+      .then(g => {
+        const greeting = [{ role: 'assistant', content: g }]
+        histRef.current = greeting
+        setMsgs(greeting)
+        setLoading(false)
+        audioSystem.playNotification()
+      })
       .catch(() => setLoading(false))
   }, [npc])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
 
   useEffect(() => {
-    const h = (e) => { if (e.key === 'Escape') onClose() }
+    const h = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [onClose])
 
   const send = async () => {
     if (!input.trim() || loading) return
-    const userMsg = { role: 'user', content: input.trim() }
-    const next = [...msgs, userMsg]
-    setMsgs(next); setInput(''); setLoading(true)
+    const playerName = avatar?.name || 'traveler'
+    const userMsg    = { role: 'user', content: input.trim() }
+    const next       = [...histRef.current, userMsg]
+    histRef.current  = next
+    setMsgs(next)
+    setInput('')
+    setLoading(true)
     try {
-      const reply = await groqChat(next, npc.systemPrompt)
-      setMsgs(m => [...m, { role: 'assistant', content: reply }])
+      const sysPrompt = buildPrompt(npc, playerName)
+      const reply     = await groqChat(next, sysPrompt)
+      const updated   = [...next, { role: 'assistant', content: reply }]
+      histRef.current = updated
+      setMsgs(updated)
       audioSystem.playNotification()
     } catch {
-      setMsgs(m => [...m, { role: 'assistant', content: "Sorry, didn't catch that!" }])
+      const fallback = GENERIC_FALLBACKS[Math.floor(Math.random() * GENERIC_FALLBACKS.length)]
+      const updated  = [...next, { role: 'assistant', content: fallback }]
+      histRef.current = updated
+      setMsgs(updated)
     }
     setLoading(false)
   }
@@ -83,7 +117,7 @@ export default function AIChat({ npc, onClose }) {
       {/* Header */}
       <div style={{
         padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)',
-        display: 'flex', alignItems: 'center', gap: 10
+        display: 'flex', alignItems: 'center', gap: 10,
       }}>
         <span style={{ fontSize: 22 }}>{npc.emoji}</span>
         <div style={{ flex: 1 }}>
@@ -113,9 +147,9 @@ export default function AIChat({ npc, onClose }) {
         {loading && (
           <div style={{
             alignSelf: 'flex-start', background: 'rgba(255,255,255,0.07)',
-            borderRadius: '16px 16px 16px 4px', padding: '9px 16px', color: '#64748b', fontSize: 14
+            borderRadius: '16px 16px 16px 4px', padding: '9px 16px',
           }}>
-            ●●●
+            <TypingDots />
           </div>
         )}
         <div ref={bottomRef} />

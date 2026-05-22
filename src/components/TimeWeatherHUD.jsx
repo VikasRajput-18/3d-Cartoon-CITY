@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 
 const WEATHER_ICON = { clear: '☀️', cloudy: '☁️', rainy: '🌧️', foggy: '🌫️' }
@@ -11,19 +11,17 @@ function fmtTime(h) {
 
 export default function TimeWeatherHUD() {
   const [state, setState] = useState({ time: '08:00', isNight: false, weather: 'clear' })
-  const rafRef = useRef()
 
   useEffect(() => {
-    const tick = () => {
-      setState({
-        time:    fmtTime(timeWeatherState.timeOfDay),
-        isNight: timeWeatherState.isNight,
-        weather: timeWeatherState.weather,
-      })
-      rafRef.current = requestAnimationFrame(tick)
-    }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
+    const tick = () => setState({
+      time:    fmtTime(timeWeatherState.timeOfDay),
+      isNight: timeWeatherState.isNight,
+      weather: timeWeatherState.weather,
+    })
+    tick()
+    // 2-second interval is fast enough — game time changes ~1 min every 25 real seconds
+    const id = setInterval(tick, 2000)
+    return () => clearInterval(id)
   }, [])
 
   const chip = {
@@ -39,7 +37,7 @@ export default function TimeWeatherHUD() {
 
   return (
     <div style={{
-      position: 'fixed', top: 68, left: 12, zIndex: 40,
+      position: 'fixed', top: 46, left: 12, zIndex: 40,
       display: 'flex', flexDirection: 'column', gap: 4,
       pointerEvents: 'none',
     }}>

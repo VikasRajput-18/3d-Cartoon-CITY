@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo, Suspense } from 'react'
+import React, { useRef, useState, useEffect, useMemo, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Text, Billboard } from '@react-three/drei'
 import * as THREE from 'three'
@@ -8,11 +8,12 @@ import { useStore } from '@/store'
 import { gameControls } from '@/lib/gameControls'
 import { mobileInput } from '@/lib/mobileInput'
 import { audioSystem, isOnRoad } from '@/lib/audioSystem'
-import { minimapState, npcLivePositions } from '@/lib/minimapState'
+import { minimapState, npcLivePositions, chatState } from '@/lib/minimapState'
 import PlayerModel from './PlayerModel'
 import NPCModel from './NPCModel'
 import CityMap from './CityMap'
 import { Car3D, Bike3D } from './Vehicle3D'
+import RemotePlayer from './RemotePlayer'
 
 // ── Collision system ──────────────────────────────────────────────────────────
 // Character and NPC radii — kept tight to match visual body size
@@ -252,6 +253,25 @@ function PlaceMarker({ position, emoji, label, color, onClick }) {
   )
 }
 
+// ── FPS tracking ─────────────────────────────────────────────────────────
+// Module-level so FpsTracker (inside Canvas) can write without React state
+const _fps = { value: 0 }
+
+function FpsTracker() {
+  const frameCount = useRef(0)
+  const lastTime   = useRef(performance.now())
+  useFrame(() => {
+    frameCount.current++
+    const now = performance.now()
+    if (now - lastTime.current >= 500) {
+      _fps.value = Math.round(frameCount.current * 1000 / (now - lastTime.current))
+      frameCount.current = 0
+      lastTime.current   = now
+    }
+  })
+  return null
+}
+
 // ── NPC character wandering around ────────────────────────────────────────
 // Scale varies per NPC (0.009–0.011) using a stable name-based hash.
 function npcScaleFor(name) {
@@ -260,7 +280,7 @@ function npcScaleFor(name) {
   return 0.009 + (h % 21) / 10000
 }
 
-function NPC({ startPos, skin, outfit, name, color, onChat }) {
+const NPC = React.memo(function NPC({ startPos, skin, outfit, name, color, onChat }) {
   const [target, setTarget]   = useState(startPos)
   const groupRef              = useRef()
   const currentPos            = useRef(new THREE.Vector3(...startPos))
@@ -268,8 +288,14 @@ function NPC({ startPos, skin, outfit, name, color, onChat }) {
   const isWalkingRef          = useRef(false)
   const [isWalking, setIsWalking] = useState(false)
 
+  // Shared with NPCModel to pause its animation mixer when culled
+  const npcVisRef = useRef(true)
+
   // Shared position object for collision + minimap
   const posEntry = useRef({ x: startPos[0], z: startPos[2], color })
+
+  // Prevents firing auto-close every frame — reset when chat closes
+  const autoCloseDispatchedRef = useRef(false)
 
   useEffect(() => {
     npcLivePositions.push(posEntry.current)
@@ -295,9 +321,39 @@ function NPC({ startPos, skin, outfit, name, color, onChat }) {
     return () => clearInterval(id)
   }, [])
 
-  // Move toward current target each frame
+  // Move toward current target — capped at ~30 fps; delta capped at 0.05 to absorb tab-focus spikes
+  const npcTimer = useRef(0)
   useFrame((_, delta) => {
+    npcTimer.current += Math.min(delta, 0.05)  // cap to prevent lag-spike jump
+    if (npcTimer.current < 0.033) return        // ~30 Hz
+    const dt = npcTimer.current
+    npcTimer.current = 0
+
     if (!groupRef.current) return
+
+    // Distance culling: NPCs beyond 35 units are invisible and skip logic
+    const pdx = currentPos.current.x - minimapState.playerX
+    const pdz = currentPos.current.z - minimapState.playerZ
+    const nearPlayer = (pdx * pdx + pdz * pdz) < 1225  // 35² = 1225
+    groupRef.current.visible = nearPlayer
+    npcVisRef.current = nearPlayer
+    if (!nearPlayer) return   // skip movement + animation for far NPCs
+
+    // ── Freeze NPC while player is chatting with it ─────────────────────────
+    const isChatting = chatState.activeNpcName === name
+    if (isChatting) {
+      // Auto-close chat if player walks more than 8 units away
+      const distSq = pdx * pdx + pdz * pdz
+      if (!autoCloseDispatchedRef.current && distSq > 64) {
+        autoCloseDispatchedRef.current = true
+        window.dispatchEvent(new CustomEvent('npc-auto-close'))
+      }
+      // Keep NPC in idle animation while chatting
+      if (isWalkingRef.current) { isWalkingRef.current = false; setIsWalking(false) }
+      return
+    }
+    autoCloseDispatchedRef.current = false  // reset when no longer chatting
+
     targetVec.current.set(target[0], 0, target[2])
     const dist   = currentPos.current.distanceTo(targetVec.current)
     const moving = dist > 0.15
@@ -308,10 +364,10 @@ function NPC({ startPos, skin, outfit, name, color, onChat }) {
     }
 
     if (moving) {
-      const dx    = targetVec.current.x - currentPos.current.x
-      const dz    = targetVec.current.z - currentPos.current.z
-      const len   = Math.sqrt(dx * dx + dz * dz)
-      const step  = Math.min(2.5 * delta, dist)
+      const dx   = targetVec.current.x - currentPos.current.x
+      const dz   = targetVec.current.z - currentPos.current.z
+      const len  = Math.sqrt(dx * dx + dz * dz)
+      const step = Math.min(2.5 * dt, dist)
       currentPos.current.x += (dx / len) * step
       currentPos.current.z += (dz / len) * step
       groupRef.current.position.set(currentPos.current.x, 0, currentPos.current.z)
@@ -333,11 +389,14 @@ function NPC({ startPos, skin, outfit, name, color, onChat }) {
         name={name}
         labelColor={color}
         npcScale={npcScale}
+        sublabel="• NPC"
+        sublabelColor="#f59e0b"
+        visibleRef={npcVisRef}
         onClick={onChat ? (e) => { e.stopPropagation(); onChat(e) } : null}
       />
     </group>
   )
-}
+})
 
 // Building IDs that have interiors (park/playground are outdoor, no interior)
 const INTERIOR_IDS = new Set([
@@ -368,6 +427,9 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
   // Pinch-zoom refs (mobile two-finger)
   const lastPinch   = useRef(0)
   const pinchActive = useRef(false)
+
+  // Timestamp of last manual mouse/pointer camera rotation (ms)
+  const lastMouseTime = useRef(0)
 
   // Player group ref
   const playerGroupRef = useRef()
@@ -480,6 +542,7 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
       mouse.current.lastY = e.clientY
       camYaw.current  -= dx * 0.005
       camPitch.current = THREE.MathUtils.clamp(camPitch.current + dy * 0.004, 0.1, 1.25)
+      lastMouseTime.current = Date.now()
     }
     const onPointerUp = (e) => {
       if (e.pointerId === mouse.current.pointerId) {
@@ -541,7 +604,9 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
 
   const _move = useRef(new THREE.Vector3())
 
-  useFrame((_, delta) => {
+  useFrame((_, rawDelta) => {
+    // Cap delta to absorb lag spikes when the tab regains focus
+    const delta = Math.min(rawDelta, 0.05)
     const BOUNDS = 53
 
     // ══════════════════════════════════════════════════════════════════════
@@ -633,13 +698,18 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
           : dm.material.opacity * 0.8
       }
 
-      // Camera auto-follows behind vehicle (smooth, overrideable by drag)
-      if (!mouse.current.down) {
+      // Camera lazily drifts behind vehicle when moving and mouse idle > 2 s.
+      // 30° dead zone so minor turns don't nudge the camera.
+      // Lerp delta*2 ≈ 0.033/frame — slow elastic feel.
+      const vehMouseIdle = !mouse.current.down && (Date.now() - lastMouseTime.current) > 2000
+      if (vehMouseIdle && absSpd > 0.3) {
         const targetYaw = vst.facing + Math.PI
         let diff = targetYaw - camYaw.current
         while (diff >  Math.PI) diff -= 2 * Math.PI
         while (diff < -Math.PI) diff += 2 * Math.PI
-        camYaw.current += diff * Math.min(1, delta * 2.5)
+        if (Math.abs(diff) > 0.524) {  // dead zone: 30°
+          camYaw.current += diff * Math.min(1, delta * 2)
+        }
       }
 
       const px = vst.pos.x, pz = vst.pos.z
@@ -657,6 +727,7 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
       minimapState.playerZ = vst.pos.z
       minimapState.playerFacing = vst.facing
       minimapState.drivingType = activeVeh.current
+      minimapState.isMoving = absSpd > 0.3
 
       // Engine sound update
       audioSystem.updateEngine(vst.speed, cfg.maxSpeed)
@@ -732,6 +803,7 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     minimapState.playerZ = charPos.current.z
     minimapState.playerFacing = charFacing.current
     minimapState.drivingType = null
+    minimapState.isMoving = moving
 
     if (moving) audioSystem.playFootstep(isOnRoad(charPos.current.x, charPos.current.z))
 
@@ -748,6 +820,20 @@ function PlayerController({ avatar, onNearVehicle, onDrivingChange, onSpeedChang
     if (playerGroupRef.current) {
       playerGroupRef.current.position.set(charPos.current.x, 0, charPos.current.z)
       playerGroupRef.current.rotation.y = charFacing.current
+    }
+
+    // Camera lazily drifts behind player when moving and mouse idle > 2 s.
+    // 35° dead zone: small turns and strafes don't touch the camera at all.
+    // Lerp delta*1.5 ≈ 0.025/frame — loose elastic feel, not a snap.
+    const walkMouseIdle = !mouse.current.down && (Date.now() - lastMouseTime.current) > 2000
+    if (moving && walkMouseIdle) {
+      const targetYaw = charFacing.current + Math.PI
+      let diff = targetYaw - camYaw.current
+      while (diff >  Math.PI) diff -= 2 * Math.PI
+      while (diff < -Math.PI) diff += 2 * Math.PI
+      if (Math.abs(diff) > 0.611) {  // dead zone: 35°
+        camYaw.current += diff * Math.min(1, delta * 1.5)
+      }
     }
 
     const px = charPos.current.x, pz = charPos.current.z
@@ -874,15 +960,20 @@ const NPCS = [
 ]
 
 // ── Full world scene ──────────────────────────────────────────────────────
-function WorldScene({ onNPCChat }) {
+// React.memo prevents WorldScene from re-rendering when WorldCanvas re-renders
+// due to speedKmh/nearVeh/nearBuilding state changes.
+const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds = [], onPlayerClick }) {
   return (
     <>
+      {/* FPS sampler — runs inside the render loop, writes to module-level _fps */}
+      <FpsTracker />
+
       {/* Dynamic day/night lighting + stars */}
       <DayNightCycle />
       {/* Dynamic weather: rain, clouds, fog */}
       <WeatherSystem />
 
-      {/* Full city geometry */}
+      {/* Full city geometry — memoized, never re-renders from parent */}
       <CityMap />
 
       {/* Interactive place markers — visual only, entry via E key */}
@@ -896,7 +987,7 @@ function WorldScene({ onNPCChat }) {
         />
       ))}
 
-      {/* NPCs */}
+      {/* NPCs — each memoized, visibility-culled beyond 35 units */}
       {NPCS.map(npc => (
         <NPC
           key={npc.name}
@@ -906,28 +997,51 @@ function WorldScene({ onNPCChat }) {
           onChat={() => onNPCChat(npc)}
         />
       ))}
+
+      {/* Remote players — other signed-in users in the city */}
+      {remotePlayerIds.map(uid => (
+        <RemotePlayer key={uid} uid={uid} onPlayerClick={onPlayerClick} />
+      ))}
     </>
   )
-}
+})
 
 // ── Canvas wrapper ────────────────────────────────────────────────────────
-export default function WorldCanvas({ onNPCChat, onEnterBuilding }) {
+// Cap pixel ratio: 1.0 on mobile (saves fill-rate), 1.5 max on desktop
+const DPR = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? [1, 1] : [1, 1.5]
+
+export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerIds = [], onPlayerClick }) {
   const avatar = useStore(s => s.avatar)
 
   const [nearVeh,     setNearVeh]     = useState(null)   // 'Car' | 'Bike' | null
   const [drivingType, setDrivingType] = useState(null)   // 'car' | 'bike' | null
   const [speedKmh,    setSpeedKmh]    = useState(0)
   const [nearBuilding, setNearBuilding] = useState(null) // place object | null
+  const [showFps,     setShowFps]     = useState(false)
+  const [fpsDisplay,  setFpsDisplay]  = useState(0)
+
+  // F3 toggles the FPS counter; poll _fps.value when visible
+  useEffect(() => {
+    const onKey = (e) => { if (e.code === 'F3') { e.preventDefault(); setShowFps(s => !s) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    if (!showFps) return
+    const id = setInterval(() => setFpsDisplay(_fps.value), 500)
+    return () => clearInterval(id)
+  }, [showFps])
 
   return (
     <div className="canvas-wrap">
       <Canvas
-        dpr={[1, 1.5]}
+        dpr={DPR}
         camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 150 }}
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
         <Suspense fallback={null}>
-          <WorldScene onNPCChat={onNPCChat} />
+          <WorldScene onNPCChat={onNPCChat} remotePlayerIds={remotePlayerIds} onPlayerClick={onPlayerClick} />
           <PlayerController
             avatar={avatar}
             onNearVehicle={setNearVeh}
@@ -978,6 +1092,19 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding }) {
           </div>
           <Speedometer kmh={speedKmh} />
         </>
+      )}
+
+      {/* FPS counter — toggled with F3 */}
+      {showFps && (
+        <div style={{
+          position: 'absolute', bottom: 8, left: 8,
+          background: 'rgba(0,0,0,0.75)', color: fpsDisplay < 30 ? '#f87171' : fpsDisplay < 50 ? '#fbbf24' : '#4ade80',
+          fontFamily: 'monospace', fontSize: 12, padding: '2px 8px',
+          borderRadius: 4, pointerEvents: 'none', userSelect: 'none', zIndex: 200,
+          letterSpacing: '0.04em',
+        }}>
+          {fpsDisplay} FPS &nbsp;<span style={{ color: '#64748b' }}>F3</span>
+        </div>
       )}
     </div>
   )

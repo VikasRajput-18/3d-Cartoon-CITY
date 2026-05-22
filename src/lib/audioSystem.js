@@ -1,5 +1,7 @@
-// Singleton Web-Audio engine — all sounds generated programmatically, no external files.
+// Singleton Web-Audio engine — SFX generated programmatically; bg + rain use real MP3 files.
 // Call audioSystem.unlock() on first user interaction (browsers block audio before that).
+
+import { timeWeatherState } from '@/lib/timeWeatherState'
 
 // Road zone detector — used by WorldCanvas to pick footstep variant
 export function isOnRoad(x, z) {
@@ -15,7 +17,7 @@ class AudioSystem {
     this.ctx    = null
     this.master = null
     this._vol   = parseFloat(localStorage.getItem('game_sfx_vol') ?? '0.4')
-    this._muted = false
+    this._muted = localStorage.getItem('game_muted') === '1'
     this._ready = false
 
     // Persistent looping nodes
@@ -32,8 +34,6 @@ class AudioSystem {
     this._indoorGain   = null
     this._windSrc      = null
     this._windGain     = null
-    this._rainSrc      = null
-    this._rainGain     = null
 
     // Crowd ambient (separate mute)
     this._crowdSrc   = null
@@ -47,12 +47,60 @@ class AudioSystem {
 
     // Cached 3-second noise buffer (reused for all noise-based sounds)
     this._noiseBuf = null
+
+    // ── HTML Audio elements (bg + rain MP3) ──────────────────────────────
+    this._bgAudio      = null
+    this._rainAudio    = null
+    this._bgFadeTimer  = null
+    this._rainFadeTimer= null
+    this._bgReady      = false   // true once initial 2s fade-in completes
+    this._isIndoor     = false
+    this._lastRainI    = 0       // last rainIntensity from setRainVolume
+
+    this._preloadHtmlAudio()
+  }
+
+  // Preload MP3s immediately so they're buffered before first play
+  _preloadHtmlAudio() {
+    try {
+      this._bgAudio = new Audio('/sounds/bg.mp3')
+      this._bgAudio.loop    = true
+      this._bgAudio.preload = 'auto'
+      this._bgAudio.volume  = 0
+    } catch (_) {}
+    try {
+      this._rainAudio = new Audio('/sounds/rain.mp3')
+      this._rainAudio.loop    = true
+      this._rainAudio.preload = 'auto'
+      this._rainAudio.volume  = 0
+    } catch (_) {}
+  }
+
+  // Smooth volume fade for an HTML Audio element
+  // timerField: string key on `this` holding the setInterval id
+  _fadeHtmlVol(audio, timerField, from, to, ms, onDone) {
+    if (!audio) return
+    if (this[timerField]) { clearInterval(this[timerField]); this[timerField] = null }
+    audio.volume = Math.max(0, Math.min(1, from))
+    const steps = Math.max(1, Math.ceil(ms / 50))
+    const inc   = (to - from) / steps
+    let i = 0
+    this[timerField] = setInterval(() => {
+      i++
+      audio.volume = Math.max(0, Math.min(1, from + inc * i))
+      if (i >= steps) {
+        clearInterval(this[timerField]); this[timerField] = null
+        audio.volume = Math.max(0, Math.min(1, to))
+        if (onDone) onDone()
+      }
+    }, 50)
   }
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
   unlock() {
     if (this._ready) {
       if (this.ctx.state === 'suspended') this.ctx.resume()
+      this._startHtmlAudio()
       return
     }
     try {
@@ -65,6 +113,24 @@ class AudioSystem {
       this._startAmbience()
       if (this.ctx.state === 'suspended') this.ctx.resume()
     } catch (_) {}
+    this._startHtmlAudio()
+  }
+
+  _startHtmlAudio() {
+    // BG — fade in from 0 to 0.3 over 2 seconds
+    if (this._bgAudio && this._bgAudio.paused) {
+      this._bgAudio.muted = this._muted
+      this._bgAudio.play().catch(() => {})
+      this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', 0, 0.3, 2000, () => {
+        this._bgReady = true
+      })
+    }
+    // Rain — start silent; setRainVolume drives volume as weather changes
+    if (this._rainAudio && this._rainAudio.paused) {
+      this._rainAudio.muted = this._muted
+      this._rainAudio.volume = 0
+      this._rainAudio.play().catch(() => {})
+    }
   }
 
   // ── Volume control ────────────────────────────────────────────────────────
@@ -81,10 +147,14 @@ class AudioSystem {
 
   toggleMute() {
     this._muted = !this._muted
-    if (this.master)
-      this.master.gain.setTargetAtTime(
-        this._muted ? 0 : this._vol, this.ctx.currentTime, 0.05,
-      )
+    localStorage.setItem('game_muted', this._muted ? '1' : '0')
+    if (this.master) {
+      const t = this.ctx.currentTime
+      this.master.gain.cancelScheduledValues(t)
+      this.master.gain.setValueAtTime(this._muted ? 0 : this._vol, t)
+    }
+    if (this._bgAudio)   this._bgAudio.muted   = this._muted
+    if (this._rainAudio) this._rainAudio.muted  = this._muted
     return this._muted
   }
 
@@ -126,7 +196,6 @@ class AudioSystem {
 
     const bp = this.ctx.createBiquadFilter()
     bp.type = 'bandpass'
-    // Road: hard surface → higher pitch; grass/ground → lower pitch
     bp.frequency.value = isRoad ? 340 + Math.random() * 80 : 150 + Math.random() * 60
     bp.Q.value = isRoad ? 4.5 : 3.0
 
@@ -151,7 +220,6 @@ class AudioSystem {
     osc.type = 'sawtooth'
     osc.frequency.setValueAtTime(base, t)
 
-    // Wobble LFO
     const lfo  = ctx.createOscillator()
     lfo.frequency.value = 6
     const lfog = ctx.createGain()
@@ -195,7 +263,6 @@ class AudioSystem {
 
   // ── One-shot interaction sounds ───────────────────────────────────────────
   playEnter() {
-    // Two-note ascending chime
     this._tone(880,  0.18, 'sine', 0.18)
     setTimeout(() => this._tone(1108, 0.22, 'sine', 0.14), 110)
   }
@@ -324,9 +391,9 @@ class AudioSystem {
     schedule()
   }
 
-  // Called each frame from DayNightCycle
+  // Called each frame from DayNightCycle (always outdoors)
   updateAmbience(isNight, rainIntensity, isIndoor) {
-    if (!this._ready) return
+    if (!this._ready || this._muted) return
     const t = this.ctx.currentTime
     const birdsTarget    = (!isNight && rainIntensity < 0.35 && !isIndoor) ? 0.55 : 0
     const cricketsTarget = (isNight  && rainIntensity < 0.7  && !isIndoor) ? 0.14 : 0
@@ -334,6 +401,13 @@ class AudioSystem {
     this._birdsGain?.gain.setTargetAtTime(birdsTarget,    t, 2.5)
     this._cricketsGain?.gain.setTargetAtTime(cricketsTarget, t, 3)
     this._cityHumGain?.gain.setTargetAtTime(cityTarget,   t, 1)
+
+    // BG audio: slowly drift volume toward night / day target when outdoors
+    if (this._bgReady && !this._isIndoor && !this._muted && this._bgAudio) {
+      const bgTarget = isNight ? 0.25 : 0.3
+      const cur = this._bgAudio.volume
+      this._bgAudio.volume = cur + (bgTarget - cur) * 0.005
+    }
   }
 
   // ── Indoor ambient ────────────────────────────────────────────────────────
@@ -348,6 +422,14 @@ class AudioSystem {
     osc.connect(g); g.connect(this.master)
     osc.start(t)
     this._indoorOsc = osc; this._indoorGain = g
+
+    this._isIndoor = true
+    // Reduce bg to indoor level
+    if (this._bgAudio && this._bgReady)
+      this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', this._bgAudio.volume, 0.2, 1500)
+    // Reduce rain proportionally if it was audible
+    if (this._rainAudio && this._rainAudio.volume > 0.01)
+      this._fadeHtmlVol(this._rainAudio, '_rainFadeTimer', this._rainAudio.volume, 0.2, 1500)
   }
 
   stopIndoor() {
@@ -356,29 +438,28 @@ class AudioSystem {
     this._indoorGain?.gain.setTargetAtTime(0, t, 0.5)
     try { this._indoorOsc.stop(t + 2) } catch (_) {}
     this._indoorOsc = null; this._indoorGain = null
+
+    this._isIndoor = false
+    // Restore bg to outdoor level
+    const bgTarget = timeWeatherState.isNight ? 0.25 : 0.3
+    if (this._bgAudio && this._bgReady)
+      this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', this._bgAudio.volume, bgTarget, 1500)
+    // Rain volume will be restored naturally by WeatherSystem's setRainVolume calls resuming
   }
 
-  // ── Rain ──────────────────────────────────────────────────────────────────
+  // ── Rain (rain.mp3) ───────────────────────────────────────────────────────
   startRain() {
-    if (!this._ready || this._rainSrc) return
-    const ctx = this.ctx
-    const g = ctx.createGain()
-    g.gain.value = 0
-    g.connect(this.master)
-    this._rainGain = g
-
-    const src = ctx.createBufferSource()
-    src.buffer = this._noiseBuf; src.loop = true
-    const bp = ctx.createBiquadFilter()
-    bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.4
-    src.connect(bp); bp.connect(g)
-    src.start()
-    this._rainSrc = src
+    // No-op: rain.mp3 is started silently in _startHtmlAudio(); setRainVolume drives volume
   }
 
   setRainVolume(v) {
-    if (!this._ready || !this._rainGain) return
-    this._rainGain.gain.setTargetAtTime(v * 0.14, this.ctx.currentTime, 1.2)
+    if (!this._rainAudio || this._rainAudio.paused || this._muted) return
+    this._lastRainI = v
+    // Target: 0.5 when fully raining outdoors, 0 when not raining
+    const targetVol = v * 0.5
+    // Per-frame lerp ≈ 3s fade at 60fps (0.05 * 60 = 3 frames to halve, ~3s to 95%)
+    const cur = this._rainAudio.volume
+    this._rainAudio.volume = Math.max(0, Math.min(1, cur + (targetVol - cur) * 0.05))
   }
 
   // ── Thunder ───────────────────────────────────────────────────────────────
@@ -446,7 +527,6 @@ class AudioSystem {
     src.start(t)
     this._crowdSrc = src
 
-    // Slow LFO to give it a murmur feel
     const lfo = ctx.createOscillator()
     lfo.frequency.value = 0.22
     const lfog = ctx.createGain()

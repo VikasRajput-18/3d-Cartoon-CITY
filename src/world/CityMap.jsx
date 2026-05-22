@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import React, { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { timeWeatherState } from '@/lib/timeWeatherState'
@@ -1163,7 +1163,9 @@ function DynamicLighting() {
 }
 
 // ── Main CityMap ──────────────────────────────────────────────────────────
-export default function CityMap() {
+// React.memo: CityMap has no reactive props so it never needs to re-render
+// from parent reconciliations triggered by speedKmh / nearBuilding etc.
+const CityMap = React.memo(function CityMap() {
   return (
     <group>
       <DynamicLighting />
@@ -1247,4 +1249,6 @@ export default function CityMap() {
       ))}
     </group>
   )
-}
+})
+
+export default CityMap

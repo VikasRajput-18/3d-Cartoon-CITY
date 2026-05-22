@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useUser } from '@clerk/clerk-react'
 import { useStore } from '@/store'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -9,30 +10,30 @@ const OUTFITS = ['casual','school','party','traditional','winter','sports']
 
 export default function Onboarding() {
   const navigate = useNavigate()
+  const { user } = useUser()
   const { completeOnboarding, setAvatar } = useStore()
 
   const [step,   setStep]   = useState(0)
-  const [name,   setName]   = useState('')
   const [skin,   setSkin]   = useState('#F4C08A')
   const [hair,   setHair]   = useState('#2C1810')
   const [outfit, setOutfit] = useState('casual')
 
-  const steps = ['welcome','name','looks','done']
+  const steps = ['welcome', 'looks', 'done']
   const current = steps[step]
+
+  const playerName = user?.fullName || user?.firstName || user?.username || 'Player'
 
   function finish() {
     setAvatar({ skin, hair, outfit, expression: 'happy' })
-    completeOnboarding(name || 'Player')
+    completeOnboarding({ name: playerName, skin, hair, outfit, expression: 'happy' })
     navigate('/')
   }
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-night-950 overflow-hidden">
-      {/* BG orbs */}
       <div className="absolute w-96 h-96 bg-purple-800 rounded-full blur-[120px] opacity-20 -top-20 -left-20" />
       <div className="absolute w-80 h-80 bg-pink-800 rounded-full blur-[120px] opacity-15 -bottom-20 -right-20" />
 
-      {/* Progress */}
       <div className="absolute top-8 left-1/2 -translate-x-1/2 w-48 h-1 bg-white/10 rounded-full overflow-hidden">
         <motion.div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
           animate={{ width: `${(step / (steps.length - 1)) * 100}%` }} transition={{ duration: 0.4 }} />
@@ -52,39 +53,13 @@ export default function Onboarding() {
               <div className="text-7xl animate-float">🌍</div>
               <h1 className="font-display text-4xl text-white">Cartoon Life<br/>Universe</h1>
               <p className="text-white/50 text-sm leading-relaxed">
-                Walk around a 3D cartoon city.<br/>
+                Hey <span className="text-purple-300 font-bold">{playerName}</span>! Welcome to the city.<br/>
                 Chat with NPCs. Do activities.<br/>
                 Live your cartoon life!
               </p>
               <button onClick={() => setStep(1)}
                 className="btn w-full bg-gradient-to-r from-purple-600 to-pink-600 py-3 text-base mt-4">
                 Let's go! 🚀
-              </button>
-            </div>
-          )}
-
-          {current === 'name' && (
-            <div className="space-y-5">
-              <div className="text-center">
-                <div className="text-5xl mb-3">✏️</div>
-                <h2 className="font-display text-2xl text-white">What's your name?</h2>
-                <p className="text-white/40 text-sm mt-1">Everyone in the city will know you as this</p>
-              </div>
-              <input
-                autoFocus
-                value={name}
-                onChange={e => setName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && name.trim() && setStep(2)}
-                maxLength={14}
-                placeholder="Enter name..."
-                className="w-full glass-dark px-4 py-3.5 rounded-2xl text-white text-center font-display text-xl outline-none focus:border-purple-400 border border-transparent transition-all placeholder-white/20"
-              />
-              <button
-                onClick={() => name.trim() && setStep(2)}
-                disabled={!name.trim()}
-                className="btn w-full bg-gradient-to-r from-purple-600 to-pink-600 py-3 disabled:opacity-30"
-              >
-                Continue →
               </button>
             </div>
           )}
@@ -131,7 +106,7 @@ export default function Onboarding() {
                 </div>
               </div>
 
-              <button onClick={() => setStep(3)}
+              <button onClick={() => setStep(2)}
                 className="btn w-full bg-gradient-to-r from-purple-600 to-pink-600 py-3">
                 Looking good! →
               </button>
@@ -142,7 +117,7 @@ export default function Onboarding() {
             <div className="text-center space-y-5">
               <div className="text-6xl animate-float">🎉</div>
               <div>
-                <h2 className="font-display text-3xl text-white">Ready, {name}!</h2>
+                <h2 className="font-display text-3xl text-white">Ready, {playerName}!</h2>
                 <p className="text-white/50 text-sm mt-2">
                   Click anywhere to walk.<br/>
                   Click NPCs to chat.<br/>
@@ -152,8 +127,8 @@ export default function Onboarding() {
               <div className="glass-dark p-3 rounded-2xl text-xs text-white/40 text-left space-y-1">
                 <p>🖱️ Click ground — your avatar walks there</p>
                 <p>👥 Click NPC — start a conversation</p>
-                <p>📍 Click place sign — enter & do activities</p>
-                <p>🤖 Add Claude API key for real AI chat</p>
+                <p>📍 Click place sign — enter &amp; do activities</p>
+                <p>🤖 AI-powered NPCs with Groq</p>
               </div>
               <button onClick={finish}
                 className="btn w-full bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 py-3.5 text-base">
