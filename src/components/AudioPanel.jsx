@@ -1,20 +1,36 @@
 import { useState, useRef, useEffect } from 'react'
 import { audioSystem } from '@/lib/audioSystem'
 
+const CATEGORIES = [
+  { key: 'music',    label: 'Music',       icon: '🎵' },
+  { key: 'ambient',  label: 'Ambience',    icon: '🌿' },
+  { key: 'effects',  label: 'Effects',     icon: '✨' },
+  { key: 'ui',       label: 'UI Sounds',   icon: '🔔' },
+  { key: 'vehicles', label: 'Vehicles',    icon: '🚗' },
+]
+
 export default function AudioPanel({
   voiceEnabled, pttMode, localSpeaking, error,
   inputVol, outputVol,
   toggleVoice, togglePttMode,
   setInputVolume, setOutputVolume,
 }) {
-  const [open,    setOpen]    = useState(false)
+  const [open,     setOpen]     = useState(false)
   const [sfxMuted, setSfxMuted] = useState(() => audioSystem.muted)
   const [sfxVol,   setSfxVol]   = useState(() => audioSystem.volume)
   const [bgMuted,  setBgMuted]  = useState(() => audioSystem.bgMuted)
   const [bgVol,    setBgVol]    = useState(() => audioSystem.bgVolume)
+
+  // Per-category state
+  const [catVols,  setCatVols]  = useState(() =>
+    Object.fromEntries(CATEGORIES.map(c => [c.key, audioSystem.getCategoryVol(c.key)]))
+  )
+  const [catMuted, setCatMuted] = useState(() =>
+    Object.fromEntries(CATEGORIES.map(c => [c.key, audioSystem.getCategoryMuted(c.key)]))
+  )
+
   const panelRef = useRef()
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return
     const handler = (e) => {
@@ -28,10 +44,19 @@ export default function AudioPanel({
     }
   }, [open])
 
-  const toggleSfx   = () => setSfxMuted(audioSystem.toggleMute())
+  const toggleSfx    = () => setSfxMuted(audioSystem.toggleMute())
   const changeSfxVol = (v) => { audioSystem.setVolume(v); setSfxVol(v) }
-  const toggleBg    = () => setBgMuted(audioSystem.toggleBgMute())
+  const toggleBg     = () => setBgMuted(audioSystem.toggleBgMute())
   const changeBgVol  = (v) => { audioSystem.setBgVolume(v); setBgVol(v) }
+
+  const toggleCatMute = (cat) => {
+    const next = audioSystem.toggleCategoryMute(cat)
+    setCatMuted(prev => ({ ...prev, [cat]: next }))
+  }
+  const changeCatVol = (cat, v) => {
+    audioSystem.setCategoryVolume(cat, v)
+    setCatVols(prev => ({ ...prev, [cat]: v }))
+  }
 
   const isSpeaking  = voiceEnabled && localSpeaking
   const borderColor = isSpeaking
@@ -43,31 +68,68 @@ export default function AudioPanel({
   return (
     <div ref={panelRef} style={{ position: 'fixed', top: 12, right: 12, zIndex: 400 }}>
 
-      {/* Settings popup */}
       {open && (
         <div style={{
           position: 'absolute', top: 42, right: 0,
-          width: 252,
+          width: 268,
           background: 'rgba(8,4,20,0.97)',
           border: '1px solid rgba(124,58,237,0.35)',
           borderRadius: 12, padding: '14px 16px',
           fontFamily: 'Nunito, sans-serif',
           boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
           backdropFilter: 'blur(10px)',
+          maxHeight: '80vh', overflowY: 'auto',
         }}>
+
+          {/* Header */}
           <div style={{
             color: '#a78bfa', fontSize: 11, fontWeight: 800,
-            marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1,
+            marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1,
           }}>
             Audio Settings
           </div>
 
-          <AudioRow label="Background Music" muted={bgMuted}  onToggle={toggleBg}  vol={bgVol}  onVol={changeBgVol}  />
-          <AudioRow label="Sound Effects"    muted={sfxMuted} onToggle={toggleSfx} vol={sfxVol} onVol={changeSfxVol} />
+          {/* Master SFX volume */}
+          <AudioRow
+            label="Master Volume"
+            muted={sfxMuted}
+            onToggle={toggleSfx}
+            vol={sfxVol}
+            onVol={changeSfxVol}
+          />
 
+          {/* Background music HTML audio volume */}
+          <AudioRow
+            label="BG Music (MP3)"
+            muted={bgMuted}
+            onToggle={toggleBg}
+            vol={bgVol}
+            onVol={changeBgVol}
+          />
+
+          {/* Divider */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '8px 0 10px' }} />
+          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+            Sound Categories
+          </div>
+
+          {/* Per-category rows */}
+          {CATEGORIES.map(({ key, label, icon }) => (
+            <CategoryRow
+              key={key}
+              icon={icon}
+              label={label}
+              muted={catMuted[key]}
+              onToggle={() => toggleCatMute(key)}
+              vol={catVols[key]}
+              onVol={(v) => changeCatVol(key, v)}
+            />
+          ))}
+
+          {/* Divider */}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '10px 0 12px' }} />
 
-          {/* Voice Chat toggle */}
+          {/* Voice Chat */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: voiceEnabled || error ? 10 : 0 }}>
             <span style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 700 }}>Voice Chat</span>
             <button
@@ -92,7 +154,6 @@ export default function AudioPanel({
 
           {voiceEnabled && (
             <>
-              {/* PTT toggle */}
               <button
                 onClick={togglePttMode}
                 style={{
@@ -170,8 +231,8 @@ export default function AudioPanel({
 
 function AudioRow({ label, muted, onToggle, vol, onVol }) {
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
         <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 700 }}>{label}</span>
         <ToggleBtn on={!muted} onToggle={onToggle} />
       </div>
@@ -180,6 +241,26 @@ function AudioRow({ label, muted, onToggle, vol, onVol }) {
           type="range" min="0" max="1" step="0.05" value={vol}
           onChange={e => onVol(parseFloat(e.target.value))}
           style={{ width: '100%', accentColor: '#7c3aed', cursor: 'pointer' }}
+        />
+      )}
+    </div>
+  )
+}
+
+function CategoryRow({ icon, label, muted, onToggle, vol, onVol }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+        <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600 }}>
+          <span style={{ marginRight: 5, fontSize: 12 }}>{icon}</span>{label}
+        </span>
+        <ToggleBtn on={!muted} onToggle={onToggle} small />
+      </div>
+      {!muted && (
+        <input
+          type="range" min="0" max="1" step="0.05" value={vol}
+          onChange={e => onVol(parseFloat(e.target.value))}
+          style={{ width: '100%', accentColor: '#6d28d9', cursor: 'pointer', height: 3 }}
         />
       )}
     </div>
@@ -199,16 +280,16 @@ function SliderRow({ label, value, onChange }) {
   )
 }
 
-function ToggleBtn({ on, onToggle }) {
+function ToggleBtn({ on, onToggle, small }) {
   return (
     <button
       onClick={onToggle}
       style={{
         background: on ? 'rgba(74,222,128,0.15)' : 'rgba(239,68,68,0.15)',
         border: `1px solid ${on ? 'rgba(74,222,128,0.4)' : 'rgba(239,68,68,0.4)'}`,
-        borderRadius: 6, padding: '3px 10px',
+        borderRadius: 6, padding: small ? '2px 8px' : '3px 10px',
         color: on ? '#4ade80' : '#f87171',
-        fontFamily: 'Nunito, sans-serif', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+        fontFamily: 'Nunito, sans-serif', fontSize: small ? 10 : 11, fontWeight: 700, cursor: 'pointer',
         transition: 'all 0.15s',
       }}
     >

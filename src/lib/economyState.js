@@ -62,7 +62,7 @@ async function _syncSupabase() {
   if (!supabase || !_s.uid) return
   try {
     await supabase.from('players').upsert({
-      uid:                _s.uid,
+      id:                 _s.uid,          // DB PK column is "id"
       coins:              _s.coins,
       gems:               _s.gems,
       tickets:            _s.tickets,
@@ -70,7 +70,7 @@ async function _syncSupabase() {
       owned_outfits:      _s.ownedOutfits,
       last_daily_bonus:   _s.lastDailyBonus,
       login_streak:       _s.loginStreak,
-    }, { onConflict: 'uid' })
+    }, { onConflict: 'id' })
   } catch {}
 }
 
@@ -139,7 +139,7 @@ export async function initEconomy(uid) {
       const { data } = await supabase
         .from('players')
         .select('coins,gems,tickets,tickets_last_refill,owned_outfits,last_daily_bonus,login_streak')
-        .eq('uid', uid)
+        .eq('id', uid)          // DB PK column is "id"
         .maybeSingle()
       if (data) {
         _s.coins            = data.coins              ?? 500

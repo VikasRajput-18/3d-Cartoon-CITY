@@ -24,8 +24,9 @@ import { parkedVehicles, onParkedVehicleChange, notifyParkedVehicleChange } from
 import EmotePicker from '@/components/EmotePicker'
 import BossCharacter from './BossCharacter'
 import MissionOrb from './MissionOrb'
+import GameAreaScene, { GAME_AREA_POS, GAME_AREA_ID } from './GameAreaBuilding'
 import { bossActiveFlag } from '@/lib/bossState'
-import { orbActiveFlag } from '@/lib/missionState'
+import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
 
 // ── Collision system ──────────────────────────────────────────────────────────
@@ -69,6 +70,8 @@ const BOX_COLLIDERS = [
   { x: 46, z: 34, hw: 1.5, hd: 1.5 },
   { x: 26, z: 44, hw: 1.5, hd: 1.5 },
   { x: 36, z: 44, hw: 1.5, hd: 1.5 },
+  // Game Area / Cartoon Arcade
+  { x: 22, z: -10, hw: 4.5, hd: 3.5 },
 ]
 
 const CIRCLE_COLLIDERS = [
@@ -341,6 +344,7 @@ const INTERIOR_IDS = new Set([
   'beach','cafe','arcade','rooftop','musicroom','cityhall','mall','cinema',
   'supermarket','bank','hospital','police','firestation','school','library',
   'gym','restaurant','gasstation','church','postoffice','apartments','house1','house2',
+  'gamearea',
 ])
 
 // ── Player controller ─────────────────────────────────────────────────────────
@@ -350,7 +354,7 @@ function PlayerController({
   onNearBuilding, onEnterBuilding, onPassengerChange,
   onNearParkedVehicle,
 }) {
-  const { camera, gl } = useThree()
+  const { camera, gl, scene } = useThree()
   const setPlayerPos = useStore(s => s.setPlayerPos)
 
   const charPos    = useRef(new THREE.Vector3(0, 0, 6))
@@ -358,6 +362,10 @@ function PlayerController({
   const camYaw     = useRef(0)
   const camPitch   = useRef(0.5)
   const camDist    = useRef(12)
+
+  // Building occlusion: raycaster + set of currently faded materials
+  const occlusionRay      = useRef(new THREE.Raycaster())
+  const occludedMaterials = useRef(new Set())
   const keys       = useRef(new Set())
   const mouse      = useRef({ down: false, lastX: 0, lastY: 0, pointerId: -1 })
   const lastPinch    = useRef(0)
@@ -387,6 +395,7 @@ function PlayerController({
   const vehLean       = useRef(0)
   const nearVehRef    = useRef(null)
   const nearBldRef    = useRef(null)
+  const coopTimerRef  = useRef(0)   // seconds near 2+ players while m1_4 active
   const vehDetectTick = useRef(0)
   const speedThrottle = useRef(0)
   const speedKmhRef   = useRef(0)
@@ -445,6 +454,16 @@ function PlayerController({
         }))
       }
 
+      // ── H key: vehicle horn ───────────────────────────────────────────
+      if (e.code === 'KeyH') {
+        const inVeh = activeVeh.current || activeParkedIdx.current !== null
+        if (inVeh) {
+          const vType = activeVeh.current ||
+            (activeParkedIdx.current !== null ? parkedVehicles[activeParkedIdx.current]?.type : null)
+          audioSystem.playHorn(vType || 'car')
+        }
+      }
+
       // ── Emote shortcuts (1-4) ─────────────────────────────────────────
       if (!activeVeh.current && !passengerVeh.current && activeParkedIdx.current === null) {
         if (e.code === 'Digit1' && !emoteRef.current) { triggerEmote('greet');     return }
@@ -455,6 +474,7 @@ function PlayerController({
       }
 
       if (e.code === 'KeyE') {
+        audioSystem.playInteractE()
         // ── 1. Exit passenger mode ────────────────────────────────────────
         if (passengerVeh.current) {
           const vType = passengerVeh.current
@@ -772,8 +792,12 @@ function PlayerController({
       if (fwd) {
         vst.speed = Math.min(vst.speed + cfg.accel * delta, maxSpd)
       } else if (bwd) {
-        if (vst.speed > 0.15) vst.speed = Math.max(vst.speed - cfg.brake * delta, 0)
-        else                  vst.speed = Math.max(vst.speed - cfg.accel * 0.5 * delta, -cfg.maxReverse)
+        if (vst.speed > 0.15) {
+          vst.speed = Math.max(vst.speed - cfg.brake * delta, 0)
+          if (vst.speed > 4) audioSystem.playBrake()
+        } else {
+          vst.speed = Math.max(vst.speed - cfg.accel * 0.5 * delta, -cfg.maxReverse)
+        }
       } else {
         const fric = cfg.friction * delta
         vst.speed = Math.abs(vst.speed) < fric ? 0 : vst.speed - Math.sign(vst.speed) * fric
@@ -905,8 +929,12 @@ function PlayerController({
       if (fwd) {
         vst.speed = Math.min(vst.speed + cfg.accel * delta, maxSpd)
       } else if (bwd) {
-        if (vst.speed > 0.15) vst.speed = Math.max(vst.speed - cfg.brake * delta, 0)
-        else                  vst.speed = Math.max(vst.speed - cfg.accel * 0.5 * delta, -cfg.maxReverse)
+        if (vst.speed > 0.15) {
+          vst.speed = Math.max(vst.speed - cfg.brake * delta, 0)
+          if (vst.speed > 4) audioSystem.playBrake()
+        } else {
+          vst.speed = Math.max(vst.speed - cfg.accel * 0.5 * delta, -cfg.maxReverse)
+        }
       } else {
         const fric = cfg.friction * delta
         vst.speed = Math.abs(vst.speed) < fric ? 0 : vst.speed - Math.sign(vst.speed) * fric
@@ -1168,6 +1196,9 @@ function PlayerController({
     if (moving    !== isWalkingRef.current) { isWalkingRef.current = moving;    setIsWalking(moving) }
     if (isRunNow  !== isRunningRef.current) { isRunningRef.current = isRunNow;  setIsRunning(isRunNow) }
 
+    // Update spatial audio position every frame
+    audioSystem.updateLocation(charPos.current.x, charPos.current.z, false)
+
     if (playerGroupRef.current) {
       playerGroupRef.current.position.set(charPos.current.x, 0, charPos.current.z)
       playerGroupRef.current.rotation.y = charFacing.current
@@ -1185,8 +1216,62 @@ function PlayerController({
 
     const px = charPos.current.x, pz = charPos.current.z
     const d  = camDist.current, p = camPitch.current, y = camYaw.current
-    camera.position.set(px + d * Math.sin(y) * Math.cos(p), d * Math.sin(p), pz + d * Math.cos(y) * Math.cos(p))
+    minimapState.camYaw = y
+
+    // ── Near-wall camera compression ─────────────────────────────────────
+    // When player is within 4 units of a box collider wall, pull camera in
+    let wallPush = 0
+    for (const c of BOX_COLLIDERS) {
+      const ox = Math.max(0, Math.abs(px - c.x) - c.hw)
+      const oz = Math.max(0, Math.abs(pz - c.z) - c.hd)
+      const wallDist = Math.sqrt(ox * ox + oz * oz)
+      if (wallDist < 4) { wallPush = Math.max(wallPush, 1 - wallDist / 4); break }
+    }
+    const effectiveDist = Math.max(2, d * (1 - wallPush * 0.65))
+
+    camera.position.set(px + effectiveDist * Math.sin(y) * Math.cos(p), effectiveDist * Math.sin(p), pz + effectiveDist * Math.cos(y) * Math.cos(p))
     camera.lookAt(px, 0.9, pz)
+
+    // ── Building occlusion transparency ──────────────────────────────────
+    // Restore all previously faded materials first
+    occludedMaterials.current.forEach(mat => {
+      mat.transparent = mat._wasTransparent || false
+      mat.opacity     = mat._origOpacity    ?? 1
+    })
+    occludedMaterials.current.clear()
+
+    // Ray from camera toward player
+    const playerWorldPos = new THREE.Vector3(px, 0.9, pz)
+    const camToPlayer    = playerWorldPos.clone().sub(camera.position)
+    const camDist2       = camToPlayer.length()
+    occlusionRay.current.set(camera.position, camToPlayer.normalize())
+    occlusionRay.current.far = camDist2 - 0.5
+
+    const hits = occlusionRay.current.intersectObjects(scene.children, true)
+    for (const hit of hits) {
+      const mat = hit.object.material
+      if (!mat || hit.object === playerGroupRef.current) continue
+      // Only fade building-like meshes (boxes with significant size)
+      const geom = hit.object.geometry
+      if (!geom?.boundingBox) geom?.computeBoundingBox()
+      const size = geom?.boundingBox ? new THREE.Vector3() : null
+      if (size) geom.boundingBox.getSize(size)
+      if (!size || (size.x < 1 && size.z < 1)) continue  // skip tiny meshes
+
+      if (Array.isArray(mat)) {
+        mat.forEach(m => {
+          if (!occludedMaterials.current.has(m)) {
+            m._origOpacity = m.opacity; m._wasTransparent = m.transparent
+            m.transparent = true; m.opacity = 0.28
+            occludedMaterials.current.add(m)
+          }
+        })
+      } else if (!occludedMaterials.current.has(mat)) {
+        mat._origOpacity = mat.opacity; mat._wasTransparent = mat.transparent
+        mat.transparent = true; mat.opacity = 0.28
+        occludedMaterials.current.add(mat)
+      }
+    }
 
     if (charPos.current.distanceTo(lastSentPos.current) > 0.5) {
       lastSentPos.current.copy(charPos.current)
@@ -1232,6 +1317,32 @@ function PlayerController({
         Math.hypot(charPos.current.x - BOSS_POS_X, charPos.current.z - BOSS_POS_Z) < 5
       minimapState.nearOrb  = orbActiveFlag.value  &&
         Math.hypot(charPos.current.x - ORB_POS_X,  charPos.current.z - ORB_POS_Z)  < 3
+
+      // m1_4 coop check — complete when 2+ remote players within 8 units for 5 s
+      if (getMissionStatus('m1_4') === 'active') {
+        let nearbyCount = 0
+        remotePlayersRef.current.forEach(p => {
+          if (Math.hypot((p.x ?? 0) - charPos.current.x, (p.z ?? 0) - charPos.current.z) < 8) nearbyCount++
+        })
+        if (nearbyCount >= 2) {
+          coopTimerRef.current += delta
+          if (coopTimerRef.current >= 5) completeMission('m1_4')
+        } else {
+          coopTimerRef.current = 0
+        }
+      }
+
+      // NPC ambient sounds — occasional very quiet sounds from nearby NPCs
+      if (Math.random() < 0.01) {  // ~once per 3-4 seconds at 60fps throttled calls
+        for (const entry of npcLivePositions) {
+          const dx = entry.x - charPos.current.x
+          const dz = entry.z - charPos.current.z
+          if (dx * dx + dz * dz < 100) {  // within 10 units
+            audioSystem.playNpcAmbient(entry.x, entry.z)
+            break
+          }
+        }
+      }
     }
   })
 
@@ -1302,6 +1413,7 @@ const PLACES = [
   { id: 'playground',  pos: [0,   0, 38],  emoji: '🎠', label: 'Playground',   color: '#22c55e' },
   { id: 'house1',      pos: [26,  0, 29],  emoji: '🏠', label: 'Blue House',   color: '#3b82f6' },
   { id: 'house2',      pos: [36,  0, 29],  emoji: '🏠', label: 'Yellow House', color: '#eab308' },
+  { id: 'gamearea',    pos: [22,  0,-10],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
 ]
 
 const NPCS = [
@@ -1377,6 +1489,9 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
       {/* Mission system — boss and orb */}
       <BossCharacter />
       <MissionOrb />
+
+      {/* Game Zone arcade building + billboard */}
+      <GameAreaScene />
     </>
   )
 })
@@ -1393,27 +1508,28 @@ function vehiclePrompt(veh, myUserId) {
 }
 
 // ── Loading overlay (shown while GLBs stream in via Suspense) ─────────────────
+// Module-level flags survive React remounts (WorldCanvas unmounts on building enter/exit)
+let _wlEverActive = false
+let _wlDone       = false
+
 function WorldLoadingOverlay() {
   const { progress, active } = useProgress()
-  // Track state in refs so the screen is never shown twice in the same session
-  const everActiveRef = useRef(false)
-  const doneRef       = useRef(false)
   const timerRef      = useRef(null)
-  const [opacity, setOpacity] = useState(1)
-  const [removed, setRemoved] = useState(false)
+  // Initialise from module flags so a remounted component starts already-done
+  const [opacity, setOpacity] = useState(_wlDone ? 0 : 1)
+  const [removed, setRemoved] = useState(_wlDone)
 
   useEffect(() => {
+    if (_wlDone) return
     if (active) {
-      everActiveRef.current = true
-      // Cancel any premature fade-out — a new loading phase started
+      _wlEverActive = true
       if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
       return
     }
-    // active just went false; wait 500 ms to confirm no new phase follows
-    if (!everActiveRef.current || doneRef.current) return
+    if (!_wlEverActive) return
     timerRef.current = setTimeout(() => {
-      if (doneRef.current) return
-      doneRef.current = true
+      if (_wlDone) return
+      _wlDone = true
       setOpacity(0)
       setTimeout(() => setRemoved(true), 1000)
     }, 500)
@@ -1491,7 +1607,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
       <Canvas
         dpr={DPR}
         camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 600 }}
-        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, powerPreference: 'high-performance' }}
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15, powerPreference: 'high-performance' }}
       >
         <Suspense fallback={null}>
           <WorldScene

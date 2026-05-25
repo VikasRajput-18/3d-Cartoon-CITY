@@ -7,35 +7,45 @@ import { voiceState } from '@/lib/voiceState'
 import { emitChatNotification } from '@/lib/chatNotifications'
 import { appendDmCache, getDmCache } from '@/lib/chatCache'
 
-const BROADCAST_MS   = 80     // position update interval (ms)
+const BROADCAST_MS   = 80     // position broadcast interval (ms)
 const OFFLINE_MS     = 15000  // prune players silent for 15 s
-const TELEPORT_SQ    = 400    // ignore position jumps > 20 units
+
+// Module-level rate-limiter: never write to players table more than once per 3 s
+let lastDbUpsertTime = 0
+function canUpsert() {
+  const now = Date.now()
+  if (now - lastDbUpsertTime < 3000) return false
+  lastDbUpsertTime = now
+  return true
+}
 
 // ── Apply a players-table row into remotePlayersRef ───────────────────────────
+// DB columns: id (= Clerk UID), position_x, position_z, facing
 function applyPlayerRow(row) {
-  const existing   = remotePlayersRef.current.get(row.uid) || {}
-  const posBuffer  = existing.posBuffer || []
-  posBuffer.push({ x: row.x, z: row.z, facing: row.facing })
+  const uid      = row.id   // DB primary key is "id", value is the Clerk UID
+  if (!uid) return
+  const existing  = remotePlayersRef.current.get(uid) || {}
+  const posBuffer = existing.posBuffer || []
+  posBuffer.push({ x: row.position_x, z: row.position_z, facing: row.facing })
   while (posBuffer.length > 3) posBuffer.shift()
-  remotePlayersRef.current.set(row.uid, {
+  remotePlayersRef.current.set(uid, {
     ...existing,
     posBuffer,
     is_moving:     !!row.is_moving,
     is_in_vehicle: !!row.is_in_vehicle,
     vehicle_type:  row.vehicle_type || '',
-    lastReceivedPos: { x: row.x, z: row.z },
+    lastReceivedPos: { x: row.position_x, z: row.position_z },
     name:          row.name   || existing.name   || 'Player',
     outfit:        row.outfit || existing.outfit || 'casual',
     skin:          row.skin   || existing.skin   || '#F4C08A',
     voice_enabled: !!row.voice_enabled,
-    x:      existing.x      ?? row.x,
-    z:      existing.z      ?? row.z,
+    x:      existing.x      ?? row.position_x,
+    z:      existing.z      ?? row.position_z,
     facing: existing.facing ?? row.facing,
     lastSeen: Date.now(),
   })
-  // Keep voiceEnabledSet in sync
-  if (row.voice_enabled) voiceState.voiceEnabledSet.add(row.uid)
-  else                   voiceState.voiceEnabledSet.delete(row.uid)
+  if (row.voice_enabled) voiceState.voiceEnabledSet.add(uid)
+  else                   voiceState.voiceEnabledSet.delete(uid)
 }
 
 export function useMultiplayer({ userId, avatar }) {
@@ -83,7 +93,7 @@ export function useMultiplayer({ userId, avatar }) {
       })
       .subscribe()
 
-    // ── DM notification subscription — incoming direct messages ──────────
+    // ── DM notification subscription ──────────────────────────────────────
     const dmSub = supabase
       .channel(`dm-notify-${userId}`)
       .on('postgres_changes', {
@@ -93,7 +103,6 @@ export function useMultiplayer({ userId, avatar }) {
         filter: `receiver_id=eq.${userId}`,
       }, ({ new: row }) => {
         if (row.type !== 'direct') return
-        // Only append if not already cached (DirectChat may have caught it too)
         const existing = getDmCache(userId, row.uid)
         const alreadyCached = existing && existing.some(m => String(m.id) === String(row.id))
         if (!alreadyCached) appendDmCache(userId, row.uid, row)
@@ -101,8 +110,7 @@ export function useMultiplayer({ userId, avatar }) {
       })
       .subscribe()
 
-    // ── Fetch currently online players (called on mount + reconnect) ──────
-    // Filters: is_online AND last_seen within 30 seconds
+    // ── Fetch currently online players ────────────────────────────────────
     const fetchOnlinePlayers = async () => {
       const cutoff = new Date(Date.now() - 30000).toISOString()
       const { data } = await supabase
@@ -113,9 +121,9 @@ export function useMultiplayer({ userId, avatar }) {
       if (!data) return
       const newIds = []
       for (const row of data) {
-        if (row.uid === userId) continue
+        if (row.id === userId) continue   // DB PK column is "id"
         applyPlayerRow(row)
-        newIds.push(row.uid)
+        newIds.push(row.id)
       }
       if (newIds.length > 0) {
         setRemotePlayerIds(prev => [...new Set([...prev, ...newIds])])
@@ -148,7 +156,6 @@ export function useMultiplayer({ userId, avatar }) {
       }
     }
 
-    // Run both fetches before subscribing so initial state is correct
     fetchOnlinePlayers()
     fetchVehicles()
 
@@ -185,11 +192,10 @@ export function useMultiplayer({ userId, avatar }) {
       if (!payload?.uid || payload.uid === userId) return
       const existing = remotePlayersRef.current.get(payload.uid) || {}
 
-      // Teleport guard
       if (existing.x !== undefined) {
         const tdx = payload.x - existing.x
         const tdz = payload.z - existing.z
-        if (tdx * tdx + tdz * tdz > TELEPORT_SQ) return
+        if (tdx * tdx + tdz * tdz > 400) return   // teleport guard
       }
 
       let is_moving = payload.is_moving
@@ -232,13 +238,12 @@ export function useMultiplayer({ userId, avatar }) {
       })
     })
 
-    // Vehicle position broadcast receiver
+    // Vehicle broadcast receiver
     channel.on('broadcast', { event: 'vehicle' }, ({ payload }) => {
       if (!payload?.vehicle_id || payload.driver_id === userId) return
       const vType = payload.vehicle_id
       if (!vehicleState[vType]) return
       if (payload.driver_id === null) {
-        // Vehicle released — update position and clear occupants
         vehicleState[vType].x       = payload.x       ?? vehicleState[vType].x
         vehicleState[vType].z       = payload.z       ?? vehicleState[vType].z
         vehicleState[vType].facing  = payload.facing  ?? vehicleState[vType].facing
@@ -276,7 +281,7 @@ export function useMultiplayer({ userId, avatar }) {
     const playersSub = supabase
       .channel(`players-db-${userId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, ({ eventType, new: row, old }) => {
-        const uid = eventType === 'DELETE' ? old?.uid : row?.uid
+        const uid = eventType === 'DELETE' ? old?.id : row?.id   // DB PK is "id"
         if (!uid || uid === userId) return
 
         if (eventType === 'DELETE' || row?.is_online === false) {
@@ -311,18 +316,28 @@ export function useMultiplayer({ userId, avatar }) {
     channel.subscribe(async (status) => {
       if (status !== 'SUBSCRIBED') return
 
-      // Upsert own record immediately so others see us right away
-      await supabase.from('players').upsert({
-        uid:          userId,
-        name:         avatarRef.current.name,
-        outfit:       avatarRef.current.outfit,
-        skin:         avatarRef.current.skin,
-        x:            minimapState.playerX,
-        z:            minimapState.playerZ,
-        facing:       minimapState.playerFacing,
-        is_online:    true,
-        last_seen:    new Date().toISOString(),
-      }, { onConflict: 'uid' })
+      // Initial upsert — announce ourselves to the DB (rate-limited)
+      if (canUpsert()) {
+        try {
+          const { error } = await supabase.from('players').upsert({
+            id:            userId,          // DB PK column is "id"
+            name:          avatarRef.current.name,
+            outfit:        avatarRef.current.outfit,
+            skin:          avatarRef.current.skin,
+            position_x:   minimapState.playerX,
+            position_z:   minimapState.playerZ,
+            facing:        minimapState.playerFacing,
+            is_moving:     minimapState.isMoving,
+            is_in_vehicle: !!(minimapState.drivingType || minimapState.passengerOf),
+            vehicle_type:  minimapState.drivingType || minimapState.passengerOf || '',
+            is_online:     true,
+            last_seen:     new Date().toISOString(),
+          }, { onConflict: 'id' })
+          if (error) console.error('[multiplayer] initial upsert error:', error.message)
+        } catch (err) {
+          console.error('[multiplayer] initial upsert exception:', err)
+        }
+      }
 
       await channel.track({
         uid:    userId,
@@ -330,11 +345,10 @@ export function useMultiplayer({ userId, avatar }) {
         outfit: avatarRef.current.outfit,
       })
 
-      // On reconnect: re-fetch to resync any missed updates
       fetchOnlinePlayers()
     })
 
-    // ── Position + vehicle broadcast every 80 ms ─────────────────────────
+    // ── Position broadcast every 80 ms (no DB writes here) ───────────────
     const posInterval = setInterval(() => {
       if (channelRef.current !== channel) return
       const moving      = minimapState.isMoving
@@ -361,7 +375,6 @@ export function useMultiplayer({ userId, avatar }) {
         },
       })
 
-      // Vehicle state broadcast if I am the driver
       if (driving) {
         const vs = vehicleState[driving]
         channel.send({
@@ -386,37 +399,41 @@ export function useMultiplayer({ userId, avatar }) {
       }
     }, BROADCAST_MS)
 
-    // ── Heartbeat: upsert own row to DB every 3 s ─────────────────────────
+    // ── Heartbeat: DB upsert every 3 s — minimal columns only ────────────
     const heartbeatInterval = setInterval(async () => {
       if (channelRef.current !== channel) return
-      await supabase.from('players').upsert({
-        uid:          userId,
-        name:         avatarRef.current.name,
-        outfit:       avatarRef.current.outfit,
-        skin:         avatarRef.current.skin,
-        x:            minimapState.playerX,
-        z:            minimapState.playerZ,
-        facing:       minimapState.playerFacing,
-        is_moving:    minimapState.isMoving,
-        is_in_vehicle: !!(minimapState.drivingType || minimapState.passengerOf),
-        vehicle_type: minimapState.drivingType || minimapState.passengerOf || '',
-        is_online:    true,
-        last_seen:    new Date().toISOString(),
-      }, { onConflict: 'uid' })
+      if (!canUpsert()) return   // skip if already upserted < 3 s ago
+
+      try {
+        const { error: hbErr } = await supabase.from('players').upsert({
+          id:          userId,
+          position_x:  minimapState.playerX,
+          position_z:  minimapState.playerZ,
+          facing:      minimapState.playerFacing,
+          is_moving:   minimapState.isMoving,
+          is_online:   true,
+          last_seen:   new Date().toISOString(),
+        }, { onConflict: 'id' })
+        if (hbErr) console.error('[multiplayer] heartbeat upsert error:', hbErr.message)
+      } catch (err) {
+        console.error('[multiplayer] heartbeat exception:', err)
+      }
 
       if (minimapState.drivingType) {
         const vType = minimapState.drivingType
         const vs    = vehicleState[vType]
-        await supabase.from('vehicles').upsert({
-          vehicle_id:   vType,
-          x:            vs.x,
-          z:            vs.z,
-          facing:       vs.facing,
-          driver_id:    userId,
-          driver_name:  avatarRef.current.name,
-          passenger_id: vs.passengerId || null,
-          last_seen:    new Date().toISOString(),
-        }, { onConflict: 'vehicle_id' })
+        try {
+          await supabase.from('vehicles').upsert({
+            vehicle_id:   vType,
+            x:            vs.x,
+            z:            vs.z,
+            facing:       vs.facing,
+            driver_id:    userId,
+            driver_name:  avatarRef.current.name,
+            passenger_id: vs.passengerId || null,
+            last_seen:    new Date().toISOString(),
+          }, { onConflict: 'vehicle_id' })
+        } catch {}
       }
     }, 3000)
 
@@ -432,7 +449,6 @@ export function useMultiplayer({ userId, avatar }) {
       })
       if (changed) {
         setRemotePlayerIds(prev => prev.filter(id => remotePlayersRef.current.has(id)))
-        // Release vehicles whose driver went stale
         for (const vType of ['car', 'bike']) {
           const vs = vehicleState[vType]
           if (vs.driverId && vs.driverId !== userId) {
@@ -446,7 +462,7 @@ export function useMultiplayer({ userId, avatar }) {
       }
     }, 5000)
 
-    // ── Handshake trigger broadcast ───────────────────────────────────────
+    // ── Handshake trigger ─────────────────────────────────────────────────
     channel.on('broadcast', { event: 'handshake-trigger' }, ({ payload }) => {
       if (payload?.target_uid === userId) {
         window.dispatchEvent(new CustomEvent('handshake-received', {
@@ -465,9 +481,16 @@ export function useMultiplayer({ userId, avatar }) {
         type: 'broadcast', event: 'vehicle',
         payload: { vehicle_id: vType, x, z, facing, speed: 0, driver_id: null, passenger_id: null },
       })
-      supabase.from('vehicles').upsert({
-        vehicle_id: vType, x, z, facing, driver_id: null, passenger_id: null, last_seen: new Date().toISOString(),
-      }, { onConflict: 'vehicle_id' }).then(undefined, () => {})
+      ;(async () => {
+        try {
+          const { error } = await supabase.from('vehicles').upsert({
+            vehicle_id: vType, x, z, facing, driver_id: null, passenger_id: null, last_seen: new Date().toISOString(),
+          }, { onConflict: 'vehicle_id' })
+          if (error) console.error('[multiplayer] vehicle release error:', error.message)
+        } catch (err) {
+          console.error('[multiplayer] vehicle release exception:', err)
+        }
+      })()
     }
 
     const onPassengerJoin = ({ detail }) => {
@@ -491,7 +514,6 @@ export function useMultiplayer({ userId, avatar }) {
       })
     }
 
-    // Broadcast handshake trigger to the target player
     const onHandshakeTrigger = ({ detail }) => {
       const { targetUid } = detail
       channel.send({
@@ -506,7 +528,7 @@ export function useMultiplayer({ userId, avatar }) {
     window.addEventListener('handshake-trigger',  onHandshakeTrigger)
 
     const onUnload = () => {
-      supabase.from('players').upsert({ uid: userId, is_online: false }, { onConflict: 'uid' }).then(undefined, () => {})
+      supabase.from('players').upsert({ id: userId, is_online: false }, { onConflict: 'id' })
       channel.untrack()
       supabase.removeChannel(channel)
     }
@@ -521,7 +543,11 @@ export function useMultiplayer({ userId, avatar }) {
       window.removeEventListener('passenger-join',     onPassengerJoin)
       window.removeEventListener('passenger-exit',     onPassengerExit)
       window.removeEventListener('handshake-trigger',  onHandshakeTrigger)
-      supabase.from('players').upsert({ uid: userId, is_online: false }, { onConflict: 'uid' }).then(undefined, () => {})
+      ;(async () => {
+        try {
+          await supabase.from('players').upsert({ id: userId, is_online: false }, { onConflict: 'id' })
+        } catch {}
+      })()
       supabase.removeChannel(channel)
       supabase.removeChannel(globalSub)
       supabase.removeChannel(dmSub)

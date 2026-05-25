@@ -334,7 +334,7 @@ export function useVoiceChat({ userId, onlinePlayers }) {
         try {
           const { data, error: dbErr } = await supabase
             .from('players')
-            .select('uid')
+            .select('id')          // DB PK is "id"
             .eq('voice_enabled', true)
 
           if (dbErr) {
@@ -342,8 +342,8 @@ export function useVoiceChat({ userId, onlinePlayers }) {
           } else if (data) {
             console.log(`[Voice] Found ${data.length} voice-enabled players in DB`)
             for (const row of data) {
-              if (row.uid !== userIdRef.current) {
-                callPeer(row.uid)
+              if (row.id !== userIdRef.current) {   // DB PK is "id"
+                callPeer(row.id)
               }
             }
           }
@@ -352,9 +352,13 @@ export function useVoiceChat({ userId, onlinePlayers }) {
         }
 
         // Persist voice_enabled = true in DB
-        supabase.from('players')
-          .upsert({ uid: userId, voice_enabled: true }, { onConflict: 'uid' })
-          .then(undefined, () => {})
+        try {
+          const { error } = await supabase.from('players')
+            .upsert({ id: userId, voice_enabled: true }, { onConflict: 'id' })
+          if (error) console.error('[voice] voice_enabled upsert error:', error.message)
+        } catch (err) {
+          console.error('[voice] voice_enabled upsert exception:', err)
+        }
       })
 
       peer.on('error', (err) => {
@@ -413,9 +417,15 @@ export function useVoiceChat({ userId, onlinePlayers }) {
       type: 'broadcast', event: 'voice-status',
       payload: { uid: userId, voice_enabled: false },
     })
-    supabase.from('players')
-      .upsert({ uid: userId, voice_enabled: false }, { onConflict: 'uid' })
-      .then(undefined, () => {})
+    ;(async () => {
+      try {
+        const { error } = await supabase.from('players')
+          .upsert({ id: userId, voice_enabled: false }, { onConflict: 'id' })
+        if (error) console.error('[voice] voice_disabled upsert error:', error.message)
+      } catch (err) {
+        console.error('[voice] voice_disabled upsert exception:', err)
+      }
+    })()
   }, [userId])
 
   const toggleVoice = useCallback(

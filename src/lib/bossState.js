@@ -1,13 +1,14 @@
 import { supabase } from './supabase'
 
 const _s = {
-  isActive: false,
-  sessionId: null,
-  bossName: 'Shadow Vendor',
-  maxHp: 1000,
-  currentHp: 1000,
-  isDefeated: false,
-  listeners: new Set(),
+  isActive:    false,
+  sessionId:   null,
+  bossName:    'Shadow Vendor',
+  maxHp:       1000,
+  currentHp:   1000,
+  isDefeated:  false,
+  listeners:   new Set(),
+  _channel:    null,
 }
 
 // Shared flag for WorldCanvas proximity checks
@@ -61,7 +62,13 @@ export async function initBoss() {
     emit()
   }
 
-  supabase.channel('boss_rt')
+  // Remove any existing channel first — prevents "cannot add callbacks after subscribe()" on re-init
+  if (_s._channel) {
+    try { supabase.removeChannel(_s._channel) } catch {}
+    _s._channel = null
+  }
+
+  _s._channel = supabase.channel('boss_rt')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'boss_sessions' }, ({ new: d }) => {
       if (!d) return
       const wasDefeated = _s.isDefeated

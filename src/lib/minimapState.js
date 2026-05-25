@@ -4,6 +4,7 @@ export const minimapState = {
   playerX: 0,
   playerZ: 0,
   playerFacing: 0,
+  camYaw: 0,            // camera yaw in world space — written by PlayerController each frame
   drivingType: null,    // null | 'car' | 'bike'  (local player is driver)
   passengerOf: null,    // null | 'car' | 'bike'  (local player is passenger)
   isMoving: false,

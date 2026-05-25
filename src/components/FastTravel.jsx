@@ -18,6 +18,7 @@ const LOCATIONS = [
   { id: 'hospital',   pos: [34,  0, -5],  emoji: '🏥', label: 'Hospital'        },
   { id: 'school',     pos: [-34, 0, -5],  emoji: '🏫', label: 'School'          },
   { id: 'restaurant', pos: [12,  0, 28],  emoji: '🍕', label: 'Restaurant'      },
+  { id: 'gamearea',   pos: [22,  0,-10],  emoji: '🎮', label: 'Game Zone'        },
 ]
 
 function walkTime(x, z) {

@@ -32,6 +32,17 @@ export const DAILY_MISSIONS = [
 // Shared flag so WorldCanvas can check orb visibility without importing React state
 export const orbActiveFlag = { value: false }
 
+// Mission hint text shown in toast when a mission unlocks
+const MISSION_HINTS = {
+  m1_1: '🏙️ Head to the Cafe and talk to Anaya — she has noticed something strange.',
+  m1_2: '🕹️ Find Rahul at the Arcade and Zoya at the Beach and chat with both.',
+  m1_3: '🌳 A glowing object appeared in the Park. Walk up to it and press F to examine it.',
+  m1_4: '🤝 Stand near 2 other players for 5 seconds to decode the note together.',
+  m1_5: '⚔️ The Shadow Vendor has appeared at the city center — press F to attack!',
+}
+
+let _m4FallbackTimer = null
+
 function emit() { _s.listeners.forEach(fn => fn(getMissionState())) }
 
 export function onMissionUpdate(fn) {
@@ -117,7 +128,7 @@ export async function initMissions(uid, avatarName) {
       await _bootstrap(uid)
     }
 
-    const { data: player } = await supabase.from('players').select('xp,level').eq('uid', uid).maybeSingle()
+    const { data: player } = await supabase.from('players').select('xp,level').eq('id', uid).maybeSingle()
     if (player) { _s.xp = player.xp ?? 0; _s.level = player.level ?? 1 }
   } else {
     _s.missions = STORY_MISSIONS
@@ -192,7 +203,18 @@ export async function completeMission(missionId) {
     let nextPm = _s.playerMissions.find(p => p.mission_id === next.id)
     if (nextPm) { nextPm.status = 'active'; nextPm.started_at = new Date().toISOString() }
     else _s.playerMissions.push({ player_uid: _s.uid, mission_id: next.id, status: 'active', started_at: new Date().toISOString() })
-    window.dispatchEvent(new CustomEvent('mission-unlocked', { detail: { title: next.title } }))
+    window.dispatchEvent(new CustomEvent('mission-unlocked', {
+      detail: { title: next.title, hint: MISSION_HINTS[next.id] || next.description, id: next.id },
+    }))
+
+    // m1_4 solo fallback — auto-complete after 75 s if no co-op partner found
+    if (next.id === 'm1_4') {
+      if (_m4FallbackTimer) clearTimeout(_m4FallbackTimer)
+      _m4FallbackTimer = setTimeout(() => {
+        _m4FallbackTimer = null
+        if (getMissionStatus('m1_4') === 'active') completeMission('m1_4')
+      }, 75000)
+    }
   }
 
   saveProgress()
@@ -205,7 +227,7 @@ export async function completeMission(missionId) {
       await supabase.from('player_missions')
         .upsert({ player_uid: _s.uid, mission_id: next.id, status: 'active', started_at: new Date().toISOString() }, { onConflict: 'player_uid,mission_id' })
     }
-    await supabase.from('players').update({ xp: _s.xp, level: _s.level }).eq('uid', _s.uid)
+    await supabase.from('players').update({ xp: _s.xp, level: _s.level }).eq('id', _s.uid)
   }
 
   _updateOrbFlag()
@@ -231,7 +253,7 @@ export function completeDailyMission(id) {
   saveDailyLocal()
   saveProgress()
   window.dispatchEvent(new CustomEvent('economy-reward', { detail: { coins: coinsReward } }))
-  if (supabase && _s.uid) supabase.from('players').update({ xp: _s.xp, level: _s.level }).eq('uid', _s.uid)
+  if (supabase && _s.uid) supabase.from('players').update({ xp: _s.xp, level: _s.level }).eq('id', _s.uid)
   emit()
 }
 

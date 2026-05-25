@@ -9,46 +9,47 @@ import { voiceState } from '@/lib/voiceState'
 
 const VIS_DIST_SQ = 1600  // 40 units²
 
-function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
-  const groupRef     = useRef()
-  const visRef       = useRef(false)
+// Module-level speech bubble store: uid → { text, expires, type }
+export const speechBubbles = new Map()
 
-  // Walking animation
+export function showSpeechBubble(uid, text, type = 'chat') {
+  speechBubbles.set(uid, { text: text.slice(0, 28), expires: Date.now() + 4500, type })
+}
+
+function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
+  const groupRef      = useRef()
+  const visRef        = useRef(false)
+  const glowRingRef   = useRef()
+  const glowT         = useRef(Math.random() * Math.PI * 2)  // stagger pulse per player
+
   const isWalkingRef = useRef(false)
   const [isWalking, setIsWalking] = useState(false)
 
-  // Visual properties (name / outfit / skin)
   const displayRef = useRef({ name: 'Player', outfit: 'casual', skin: '#F4C08A' })
   const [display, setDisplay] = useState({ name: 'Player', outfit: 'casual', skin: '#F4C08A' })
 
-  // In-vehicle flag — hides character while driving (RemoteVehicle owns that rendering)
-  const inVehicleRef = useRef(false)
+  const inVehicleRef    = useRef(false)
+  const hoveredRef      = useRef(false)
+  const hoverRingRef    = useRef()
+  const bounceRef       = useRef(0)
 
-  // Hover UX
-  const hoveredRef   = useRef(false)
-  const hoverRingRef = useRef()
-
-  // Click bounce animation (seconds countdown)
-  const bounceRef = useRef(0)
-
-  // Name popup before DM opens
   const [showPopup, setShowPopup] = useState(false)
   const popupTimerRef = useRef(null)
 
-  // Voice speaking indicator
   const speakingStateRef = useRef(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
 
-  // Muted state
   const mutedStateRef = useRef(false)
   const [isMuted, setIsMuted] = useState(false)
 
-  // Remote emote state
   const remoteEmoteRef = useRef('')
   const [remoteEmote, setRemoteEmote] = useState('')
 
-  // Long-press for mobile context menu
-  const longPressTimerRef = useRef(null)
+  // Speech bubble state
+  const [bubble, setBubble] = useState(null)
+  const bubbleCheckRef = useRef(0)
+
+  const longPressTimerRef    = useRef(null)
   const longPressTriggeredRef = useRef(false)
 
   useEffect(() => {
@@ -77,7 +78,6 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
     const inView = distSq < VIS_DIST_SQ
     visRef.current = inView
 
-    // Hide character while in vehicle — RemoteVehicle shows the car/bike
     const nowInVehicle = !!data.is_in_vehicle
     if (nowInVehicle !== inVehicleRef.current) inVehicleRef.current = nowInVehicle
     groupRef.current.visible = inView && !nowInVehicle
@@ -118,6 +118,12 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
       setDisplay(next)
     }
 
+    // ── Glow ring pulse ───────────────────────────────────────────────────
+    glowT.current += delta * 2.2
+    if (glowRingRef.current) {
+      glowRingRef.current.material.opacity = 0.22 + Math.sin(glowT.current) * 0.14
+    }
+
     // ── Hover ring ────────────────────────────────────────────────────────
     if (hoverRingRef.current) {
       const targetOpacity = hoveredRef.current ? 0.65 : 0
@@ -156,6 +162,19 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
       remoteEmoteRef.current = nowEmote
       setRemoteEmote(nowEmote)
     }
+
+    // ── Speech bubble check (every 500 ms) ───────────────────────────────
+    bubbleCheckRef.current += delta
+    if (bubbleCheckRef.current > 0.5) {
+      bubbleCheckRef.current = 0
+      const b = speechBubbles.get(uid)
+      if (b && Date.now() < b.expires) {
+        setBubble(b)
+      } else {
+        speechBubbles.delete(uid)
+        setBubble(null)
+      }
+    }
   })
 
   const handlePointerOver = (e) => { e.stopPropagation(); hoveredRef.current = true;  document.body.style.cursor = 'pointer' }
@@ -163,7 +182,7 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
 
   const handleClick = (e) => {
     e.stopPropagation()
-    if (longPressTriggeredRef.current) return  // long-press already handled
+    if (longPressTriggeredRef.current) return
     if (!onPlayerClick) return
     bounceRef.current = 0.5
     setShowPopup(true)
@@ -174,18 +193,16 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
     }, 900)
   }
 
-  // Right-click context menu (desktop)
   const handleContextMenu = (e) => {
     e.stopPropagation()
-    e.nativeEvent?.preventDefault()  // suppress browser context menu
+    e.nativeEvent?.preventDefault()
     if (onPlayerContextMenu) {
       onPlayerContextMenu(uid, display.name, e.clientX ?? e.x ?? 0, e.clientY ?? e.y ?? 0)
     }
   }
 
-  // Long-press for mobile context menu
   const handlePointerDown = (e) => {
-    if (e.button !== 0 && e.button !== undefined) return  // right-click handled by onContextMenu
+    if (e.button !== 0 && e.button !== undefined) return
     longPressTriggeredRef.current = false
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
     longPressTimerRef.current = setTimeout(() => {
@@ -195,13 +212,11 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
       }
     }, 600)
   }
-  const handlePointerUpCancel = () => {
-    clearTimeout(longPressTimerRef.current)
-  }
+  const handlePointerUpCancel = () => { clearTimeout(longPressTimerRef.current) }
 
   return (
     <group ref={groupRef} visible={false}>
-      {/* Invisible hitbox for pointer events */}
+      {/* Invisible hitbox */}
       <mesh
         position={[0, 1.2, 0]}
         onPointerOver={handlePointerOver}
@@ -215,13 +230,19 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      {/* Hover glow ring at feet */}
+      {/* Glow ring at feet — pulsing green/cyan, clearly visible from far */}
+      <mesh ref={glowRingRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+        <ringGeometry args={[0.72, 1.08, 36]} />
+        <meshBasicMaterial color="#00e5ff" transparent opacity={0.3} depthWrite={false} />
+      </mesh>
+
+      {/* Hover glow ring */}
       <mesh ref={hoverRingRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
         <ringGeometry args={[0.5, 0.82, 32]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0} />
       </mesh>
 
-      {/* Name popup 900 ms after click, before DM opens */}
+      {/* Click name popup */}
       {showPopup && (
         <Billboard position={[0, 3.4, 0]}>
           <Text fontSize={0.22} color="#ffffff" outlineWidth={0.012} outlineColor="#7c3aed" anchorX="center" anchorY="middle">
@@ -230,34 +251,47 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
         </Billboard>
       )}
 
-      {/* Voice speaking indicator — green wave above head */}
-      {isSpeaking && !isMuted && (
-        <Billboard position={[0, 3.85, 0]}>
-          <Text fontSize={0.2} anchorX="center" anchorY="middle">
-            🔊
+      {/* Speech bubble — shown when DM/chat arrives */}
+      {bubble && (
+        <Billboard position={[0, 3.8, 0]}>
+          <Text
+            fontSize={0.19}
+            color={bubble.type === 'dm' ? '#ffd700' : '#ffffff'}
+            anchorX="center"
+            anchorY="middle"
+            outlineColor="#000000"
+            outlineWidth={0.015}
+            maxWidth={3.5}
+          >
+            {bubble.type === 'dm' ? `💬 ${bubble.text}` : `🗨️ ${bubble.text}`}
           </Text>
+        </Billboard>
+      )}
+
+      {/* Voice speaking indicator */}
+      {isSpeaking && !isMuted && (
+        <Billboard position={[0, 3.55, 0]}>
+          <Text fontSize={0.2} anchorX="center" anchorY="middle">🔊</Text>
         </Billboard>
       )}
 
       {/* Muted indicator */}
       {isMuted && (
-        <Billboard position={[0, 3.85, 0]}>
-          <Text fontSize={0.2} anchorX="center" anchorY="middle">
-            🔇
-          </Text>
+        <Billboard position={[0, 3.55, 0]}>
+          <Text fontSize={0.2} anchorX="center" anchorY="middle">🔇</Text>
         </Billboard>
       )}
 
-      {/* Walking character — hidden while in vehicle */}
+      {/* Character — gold name, star sublabel to distinguish from NPCs */}
       <NPCModel
         outfit={display.outfit}
         skin={display.skin}
         walking={isWalking}
         emote={remoteEmote}
-        name={display.name}
-        labelColor="#60a5fa"
-        sublabel="• Player"
-        sublabelColor="#4ade80"
+        name={`★ ${display.name}`}
+        labelColor="#ffd700"
+        sublabel="● Online"
+        sublabelColor="#00e5ff"
         npcScale={0.01}
         visibleRef={visRef}
       />

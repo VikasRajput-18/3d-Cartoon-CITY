@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { gameControls } from '@/lib/gameControls'
 import { getDmCache, setDmCache, appendDmCache } from '@/lib/chatCache'
+import { audioSystem } from '@/lib/audioSystem'
 
 export default function DirectChat({ myId, myName, targetId, targetName, onClose }) {
   const cached = getDmCache(myId, targetId)
@@ -88,6 +89,7 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
   const send = () => {
     const text = input.trim()
     if (!text || !supabase) return
+    audioSystem.playChatSent()
     setInput('')
     const ts     = Date.now()
     const tempId = 'me-' + ts

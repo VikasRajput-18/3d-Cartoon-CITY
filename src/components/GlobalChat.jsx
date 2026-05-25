@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { gameControls } from '@/lib/gameControls'
 import { supabase } from '@/lib/supabase'
+import { audioSystem } from '@/lib/audioSystem'
 
 const BUBBLE = {
   position: 'fixed', bottom: 24, left: 16, zIndex: 50,
@@ -41,6 +42,7 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, 
   const send = () => {
     const text = input.trim()
     if (!text) return
+    audioSystem.playChatSent()
     onSendGlobal(text)
     setInput('')
   }

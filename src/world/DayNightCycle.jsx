@@ -72,6 +72,7 @@ export default function DayNightCycle() {
   const ambRef      = useRef()
   const sunRef      = useRef()
   const moonRef     = useRef()
+  const hemiRef     = useRef()
   const starsMatRef = useRef()
 
   // Star positions — upper hemisphere, fixed for the session
@@ -90,8 +91,11 @@ export default function DayNightCycle() {
   }, [])
 
   // Point scene.background at our managed colour so we only update in-place
+  // and add persistent FogExp2 for atmosphere
   useEffect(() => {
     scene.background = bgColor.current
+    scene.fog = new THREE.FogExp2('#87ceeb', 0.006)
+    return () => { scene.fog = null }
   }, [scene])
 
   useFrame((_, delta) => {
@@ -113,6 +117,12 @@ export default function DayNightCycle() {
     )
     bgColor.current.multiplyScalar(1 - gloomy * 0.55)
 
+    // Sync fog color to sky so distant objects blend into the horizon
+    if (scene.fog) {
+      scene.fog.color.copy(bgColor.current)
+      scene.fog.density = timeWeatherState.isNight ? 0.009 : 0.005
+    }
+
     // ── Ambient light ─────────────────────────────────────────────────
     const amb = lerpStops(AMB_STOPS, hour, true)
     const weatherDim = 1 - Math.max(
@@ -122,6 +132,12 @@ export default function DayNightCycle() {
     if (ambRef.current) {
       ambRef.current.intensity = amb.intensity * weatherDim
       ambRef.current.color.copy(amb.color)
+    }
+
+    // Hemisphere light follows ambient intensity (sky-fill light)
+    if (hemiRef.current) {
+      hemiRef.current.intensity = amb.intensity * 0.55 * weatherDim
+      hemiRef.current.color.copy(bgColor.current)
     }
 
     // ── Sun: arc east→west during 5-20 ───────────────────────────────
@@ -150,11 +166,12 @@ export default function DayNightCycle() {
         : 0
     }
 
-    // ── Ambience (birds / crickets / city hum) ───────────────────────────
+    // ── Ambience (birds / crickets / city hum / synth music) ─────────────
     audioSystem.updateAmbience(
       timeWeatherState.isNight,
       timeWeatherState.rainIntensity,
       false,
+      hour,
     )
 
     // ── Stars opacity ─────────────────────────────────────────────────
@@ -173,7 +190,7 @@ export default function DayNightCycle() {
       <ambientLight ref={ambRef} intensity={0.65} color="#fff8f0" />
       <directionalLight ref={sunRef} position={[-35, 28, -8]} intensity={1.3} color="#fff8dc" />
       <directionalLight ref={moonRef} position={[10, 18, -10]} intensity={0.22} color="#8090c0" />
-      <hemisphereLight skyColor="#87ceeb" groundColor="#2d5a27" intensity={0.35} />
+      <hemisphereLight ref={hemiRef} skyColor="#87ceeb" groundColor="#2d5a1e" intensity={0.35} />
       {/* Night stars — opacity-controlled Points */}
       <points frustumCulled={false}>
         <bufferGeometry>

@@ -31,6 +31,12 @@ import { initMissions, recordNPCTalk, completeMission, completeDailyMission } fr
 import { initBoss, attackBoss, spawnBoss } from '@/lib/bossState'
 import { initEconomy, addCoins, addGems, onEconomyUpdate, getEconomyState, startPassiveIncome, stopPassiveIncome } from '@/lib/economyState'
 import FastTravel from '@/components/FastTravel'
+import GameHub from '@/components/GameHub'
+import Phone, { PhoneButton, phoneStyle } from '@/components/Phone'
+import { usePhone } from '@/hooks/usePhone'
+import PlayerRadar from '@/components/PlayerRadar'
+import { initGameState, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
+import { showSpeechBubble } from '@/world/RemotePlayer'
 
 export default function Game() {
   const avatar   = useStore(s => s.avatar)
@@ -44,11 +50,23 @@ export default function Game() {
   // Voice chat
   const voice = useVoiceChat({ userId: user?.id, onlinePlayers })
 
+  // Phone system
+  const phone = usePhone({ userId: user?.id, userName: avatar.name, onlinePlayers })
+
   // Mission + boss system
   const [showMissions,    setShowMissions]    = useState(false)
   const [bossBanner,      setBossBanner]      = useState(null)   // null | 'spawned' | 'defeated'
   const [showFastTravel,  setShowFastTravel]  = useState(false)
   const [dailyBonus,      setDailyBonus]      = useState(null)   // null | { coins, tickets, streak, streakBonus }
+
+  // Orb examine panel
+  const [showOrbPanel, setShowOrbPanel] = useState(false)
+
+  // DM screen flash
+  const [dmFlash, setDmFlash] = useState(false)
+
+  // Game Area / Game Hub
+  const [showGameHub, setShowGameHub] = useState(false)
 
   // NPC chat
   const [activeNPC,         setActiveNPC]         = useState(null)
@@ -98,6 +116,7 @@ export default function Game() {
     })
     initMissions(user.id, avatar.name)
     initBoss()
+    initGameState(user.id, avatar.name)
     startPassiveIncome()
     return () => stopPassiveIncome()
   }, [user?.id])
@@ -105,7 +124,7 @@ export default function Game() {
   // Economy reward listener (missions, boss, daily)
   useEffect(() => {
     const handler = ({ detail }) => {
-      if (detail?.coins) addCoins(detail.coins)
+      if (detail?.coins) { addCoins(detail.coins); audioSystem.playCoinsEarned() }
       if (detail?.gems)  addGems(detail.gems)
     }
     window.addEventListener('economy-reward', handler)
@@ -115,19 +134,24 @@ export default function Game() {
   // Mission + boss event bus
   useEffect(() => {
     const onMissionUnlocked = ({ detail }) => {
+      audioSystem.playMissionComplete()
       const id = ++toastIdRef.current
       setMsgToasts(prev => [...prev.slice(-2), {
         id, type: 'global',
-        fromName: '🗺️ Mission', text: `New mission: ${detail.title}`,
+        fromName: `🗺️ New Mission: ${detail.title}`,
+        text: detail.hint || detail.title,
+        duration: 10000,
         onClick: () => setShowMissions(true),
       }])
     }
     const onBossSpawned = () => {
       setBossBanner('spawned')
+      audioSystem.playBossAppear()
       setTimeout(() => setBossBanner(null), 8000)
     }
     const onBossDefeated = () => {
       setBossBanner('defeated')
+      audioSystem.playBossDefeated()
       setTimeout(() => setBossBanner(null), 8000)
     }
     const onBossActivate = () => {
@@ -135,19 +159,62 @@ export default function Game() {
     }
     const onPlayerInteract = ({ detail }) => {
       if (detail?.nearBoss) { attackBoss(user?.id); window.dispatchEvent(new CustomEvent('boss-hit')) }
-      if (detail?.nearOrb)  { completeMission('m1_3'); window.dispatchEvent(new CustomEvent('orb-collected')) }
+      if (detail?.nearOrb)  { setShowOrbPanel(true) }
     }
-    window.addEventListener('mission-unlocked',  onMissionUnlocked)
-    window.addEventListener('boss-spawned',      onBossSpawned)
-    window.addEventListener('boss-defeated',     onBossDefeated)
-    window.addEventListener('boss-activate',     onBossActivate)
-    window.addEventListener('player-interact',   onPlayerInteract)
+    const onChallengeIncoming = ({ detail: ch }) => {
+      if (!ch) return
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id,
+        type: 'challenge',
+        fromName: '⚔️ Challenge Received',
+        text: `${ch.challenger_name} challenged you to ${GAME_NAMES[ch.game_id]}! Beat their score of ${ch.challenger_score} pts`,
+        duration: 12000,
+        actions: [
+          { label: '⚔️ Accept', primary: true, action: () => setShowGameHub(true) },
+          { label: 'Later', primary: false, action: () => {} },
+        ],
+      }])
+      audioSystem.playNotification?.() || audioSystem.playChime?.()
+    }
+    const onChallengeResolved = ({ detail: ch }) => {
+      if (!ch) return
+      const won = ch.challenged_uid === user?.id
+        ? ch.status === 'challenged_won'
+        : ch.status === 'challenger_won'
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: won ? '🏆 Challenge Won' : '💀 Challenge Lost',
+        text: won
+          ? `You beat ${ch.challenger_uid === user?.id ? ch.challenged_name : ch.challenger_name} in ${GAME_NAMES[ch.game_id]}!`
+          : `${ch.challenger_uid === user?.id ? ch.challenged_name : ch.challenger_name} beat you in ${GAME_NAMES[ch.game_id]}!`,
+        onClick: null,
+      }])
+    }
+    const onAchievement = ({ detail }) => {
+      if (!detail?.text) return
+      audioSystem.playLevelUp()
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), { id, type: 'global', fromName: '🏅 Achievement', text: detail.text, onClick: null }])
+    }
+    window.addEventListener('mission-unlocked',    onMissionUnlocked)
+    window.addEventListener('boss-spawned',        onBossSpawned)
+    window.addEventListener('boss-defeated',       onBossDefeated)
+    window.addEventListener('boss-activate',       onBossActivate)
+    window.addEventListener('player-interact',     onPlayerInteract)
+    window.addEventListener('challenge-incoming',  onChallengeIncoming)
+    window.addEventListener('challenge-resolved',  onChallengeResolved)
+    window.addEventListener('achievement',         onAchievement)
     return () => {
-      window.removeEventListener('mission-unlocked',  onMissionUnlocked)
-      window.removeEventListener('boss-spawned',      onBossSpawned)
-      window.removeEventListener('boss-defeated',     onBossDefeated)
-      window.removeEventListener('boss-activate',     onBossActivate)
-      window.removeEventListener('player-interact',   onPlayerInteract)
+      window.removeEventListener('mission-unlocked',    onMissionUnlocked)
+      window.removeEventListener('boss-spawned',        onBossSpawned)
+      window.removeEventListener('boss-defeated',       onBossDefeated)
+      window.removeEventListener('boss-activate',       onBossActivate)
+      window.removeEventListener('player-interact',     onPlayerInteract)
+      window.removeEventListener('challenge-incoming',  onChallengeIncoming)
+      window.removeEventListener('challenge-resolved',  onChallengeResolved)
+      window.removeEventListener('achievement',         onAchievement)
     }
   }, [user?.id])
 
@@ -181,10 +248,15 @@ export default function Game() {
   const buildingGames = activeBuilding ? (LOCATION_GAMES[activeBuilding] || []) : []
 
   function enterBuilding(id) {
+    if (id === 'gamearea') {
+      setShowGameHub(true)
+      return
+    }
     if (!INTERIOR_DEFS[id]) return
     completeDailyMission('daily_building')
-    audioSystem.playTransition()
+    audioSystem.playEnter()
     audioSystem.startIndoor()
+    audioSystem.updateLocation(0, 0, true)
     setFading(true)
     setTimeout(() => {
       setMode('interior')
@@ -197,8 +269,9 @@ export default function Game() {
     setChatNpc(null)
     setShowGameMenu(false)
     setActiveGame(null)
-    audioSystem.playTransition()
+    audioSystem.playExit()
     audioSystem.stopIndoor()
+    audioSystem.updateLocation(0, 0, false)
     setFading(true)
     setTimeout(() => {
       setMode('city')
@@ -229,6 +302,8 @@ export default function Game() {
       if (type === 'global') {
         if (!globalChatOpenRef.current) setUnreadGlobal(n => n + 1)
         audioSystem.playChime()
+        // Show speech bubble above sender's 3D character
+        if (payload.fromId) showSpeechBubble(payload.fromId, payload.text, 'global')
         const id = ++toastIdRef.current
         setMsgToasts(prev => [...prev.slice(-2), {
           id, type: 'global',
@@ -240,6 +315,10 @@ export default function Game() {
         if (!isOpen) {
           setDmUnread(prev => ({ ...prev, [payload.fromId]: (prev[payload.fromId] || 0) + 1 }))
           audioSystem.playChime()
+          // Show speech bubble + screen flash for DMs
+          if (payload.fromId) showSpeechBubble(payload.fromId, payload.text, 'dm')
+          setDmFlash(true)
+          setTimeout(() => setDmFlash(false), 900)
           const id = ++toastIdRef.current
           setMsgToasts(prev => [...prev.slice(-2), {
             id, type: 'dm',
@@ -266,7 +345,7 @@ export default function Game() {
       className="fixed inset-0 overflow-hidden bg-night-950"
       onPointerDown={() => audioSystem.unlock()}
     >
-      <style>{toastStyle}</style>
+      <style>{toastStyle + phoneStyle}</style>
 
       {/* 3D World */}
       {mode === 'city' && (
@@ -295,6 +374,68 @@ export default function Game() {
       {/* Mission system overlays */}
       <BossHealthBar />
       <MissionPanel open={showMissions} onClose={() => setShowMissions(false)} />
+
+      {/* Player radar — directional arrows + nearby counter */}
+      {mode === 'city' && <PlayerRadar />}
+
+      {/* DM screen flash — edge glow when someone messages you directly */}
+      {dmFlash && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200, pointerEvents: 'none',
+          boxShadow: 'inset 0 0 60px 20px rgba(0,229,255,0.55)',
+          borderRadius: 0,
+          animation: 'dmFlash 0.9s ease-out forwards',
+        }} />
+      )}
+      <style>{`
+        @keyframes dmFlash {
+          0%   { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      `}</style>
+
+      {/* Orb examine cutscene panel */}
+      {showOrbPanel && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 120,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)',
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(20,10,40,0.98), rgba(40,20,10,0.98))',
+            border: '2px solid rgba(255,215,0,0.5)',
+            borderRadius: 20, padding: '36px 40px', maxWidth: 480, width: '90%', textAlign: 'center',
+            boxShadow: '0 0 60px rgba(255,215,0,0.25), 0 20px 40px rgba(0,0,0,0.8)',
+          }}>
+            <div style={{ fontSize: 56, marginBottom: 12 }}>✨</div>
+            <h2 style={{ color: '#ffd700', fontFamily: 'Nunito, sans-serif', fontSize: 22, margin: '0 0 12px' }}>
+              A Hidden Note
+            </h2>
+            <p style={{ color: '#fffde7', fontFamily: 'Nunito, sans-serif', fontSize: 15, lineHeight: 1.7, margin: '0 0 8px' }}>
+              You find a crumpled note wedged under the glowing object. The text is scrambled — fragments of coordinates, names, and a symbol you don't recognise.
+            </p>
+            <p style={{ color: '#fbbf24', fontFamily: 'Nunito, sans-serif', fontSize: 14, lineHeight: 1.6, margin: '0 0 28px', opacity: 0.9 }}>
+              <em>"...shadow... city center... must not reach..."</em>
+            </p>
+            <button
+              onClick={() => {
+                setShowOrbPanel(false)
+                completeMission('m1_3')
+                window.dispatchEvent(new CustomEvent('orb-collected'))
+              }}
+              style={{
+                background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
+                border: 'none', borderRadius: 12, padding: '12px 36px',
+                color: '#1a0a00', fontFamily: 'Nunito, sans-serif', fontWeight: 800,
+                fontSize: 16, cursor: 'pointer', letterSpacing: 0.5,
+                boxShadow: '0 4px 20px rgba(245,158,11,0.5)',
+              }}
+            >
+              Pocket the Note
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Left-side quick buttons — mission + fast travel, vertically centered */}
       {mode === 'city' && !showMissions && !showFastTravel && (
@@ -526,6 +667,15 @@ export default function Game() {
       {/* Toast notifications — bottom left above chat button */}
       <MsgToast toasts={msgToasts} onDismiss={dismissToast} />
 
+      {/* Game Hub — Game Zone arcade */}
+      <GameHub
+        open={showGameHub}
+        onClose={() => setShowGameHub(false)}
+        onlinePlayers={onlinePlayers}
+        myUid={user?.id}
+        myName={avatar.name}
+      />
+
       {/* Fast Travel panel */}
       <FastTravel
         open={showFastTravel}
@@ -574,6 +724,39 @@ export default function Game() {
 
       {/* Mobile touch controls */}
       {isMobile && !activeGame && <MobileControls />}
+
+      {/* Phone system */}
+      <PhoneButton
+        onClick={() => {
+          if (phone.callStatus === 'incoming') { phone.acceptCall(); return }
+          phone.setPhoneOpen(o => !o)
+        }}
+        callStatus={phone.callStatus}
+        missedCount={phone.missedCalls.length}
+        isMobile={isMobile}
+      />
+      <Phone
+        myId={user?.id}
+        myName={avatar.name}
+        onlinePlayers={onlinePlayers}
+        phoneOpen={phone.phoneOpen}
+        onToggle={() => phone.setPhoneOpen(o => !o)}
+        callStatus={phone.callStatus}
+        callMeta={phone.callMeta}
+        callElapsed={phone.callElapsed}
+        missedCalls={phone.missedCalls}
+        clearMissed={phone.clearMissed}
+        npcSession={phone.npcSession}
+        npcTyping={phone.npcTyping}
+        micMuted={phone.micMuted}
+        onMakeCall={phone.makeCall}
+        onAcceptCall={phone.acceptCall}
+        onRejectCall={phone.rejectCall}
+        onEndCall={phone.endCall}
+        onToggleMic={phone.toggleMic}
+        onCallNPC={phone.callNPC}
+        onSendNpcMessage={phone.sendNpcMessage}
+      />
 
       {/* Fade overlay for building transitions */}
       <div style={{

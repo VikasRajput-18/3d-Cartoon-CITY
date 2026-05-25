@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { useStore } from '@/store'
 import { getEconomyState, onEconomyUpdate, purchaseOutfit, msUntilNextTicket } from '@/lib/economyState'
 import { getMissionState, onMissionUpdate, calcLevel } from '@/lib/missionState'
+import { getMyStats, onGameUpdate, GAME_IDS, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
 
 const ALL_OUTFITS = [
   { id: 'casual',      label: 'Casual',      color: '#7C3AED', currency: 'coins', cost: 0,   free: true  },
@@ -33,9 +34,11 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
   const [ms,  setMs]    = useState(getMissionState())
   const [nextTicket, setNextTicket] = useState(msUntilNextTicket())
   const [shopMsg, setShopMsg] = useState('')
+  const [, forceGames]  = useState(0)
 
   useEffect(() => onEconomyUpdate(setEco), [])
   useEffect(() => onMissionUpdate(setMs),   [])
+  useEffect(() => onGameUpdate(() => forceGames(n => n + 1)), [])
 
   // Tick countdown for next ticket
   useEffect(() => {
@@ -145,6 +148,7 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
         <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {tabBtn('profile', '👤 Profile')}
           {tabBtn('shop',    '🛍️ Shop')}
+          {tabBtn('games',   '🎮 Games')}
           {tabBtn('stats',   '📊 Stats')}
         </div>
 
@@ -210,6 +214,58 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
               </div>
             </div>
           )}
+
+          {tab === 'games' && (() => {
+            const gs = getMyStats()
+            const totalGames = gs?.total_games || 0
+            const wins       = gs?.total_wins   || 0
+            const losses     = gs?.total_losses || 0
+            const winRate    = totalGames > 0 ? Math.round(wins / totalGames * 100) : 0
+            const coinsFromGames = gs?.coins_earned_from_games || 0
+            const favGame = gs ? GAME_IDS.reduce((best, gid) =>
+              (gs[`best_${gid}`] || 0) > (gs[`best_${best}`] || 0) ? gid : best
+            , 'snake') : 'snake'
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Summary row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {[
+                    { icon: '🏆', val: wins,         label: 'Total Wins'   },
+                    { icon: '💀', val: losses,        label: 'Total Losses' },
+                    { icon: '🎮', val: totalGames,    label: 'Games Played' },
+                    { icon: '📈', val: `${winRate}%`, label: 'Win Rate'     },
+                    { icon: '🪙', val: coinsFromGames,label: 'Coins Earned' },
+                    { icon: '🌟', val: GAME_NAMES[favGame]?.split(' ')[0] ?? '—', label: 'Fav Game' },
+                  ].map(({ icon, val, label }) => (
+                    <div key={label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '10px 12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>{icon} {val}</div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Best scores per game */}
+                <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', marginTop: 4 }}>PERSONAL BESTS</div>
+                {GAME_IDS.map(gid => {
+                  const best = gs?.[`best_${gid}`] || 0
+                  return (
+                    <div key={gid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <span style={{ fontSize: 18 }}>{GAME_EMOJIS[gid]}</span>
+                      <span style={{ flex: 1, color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{GAME_NAMES[gid]}</span>
+                      <span style={{ color: best > 0 ? '#facc15' : '#475569', fontSize: 14, fontWeight: 800 }}>{best}</span>
+                    </div>
+                  )
+                })}
+
+                {!gs && (
+                  <div style={{ color: '#475569', textAlign: 'center', fontSize: 13, padding: '16px 0' }}>
+                    Visit the Game Zone to start playing!
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {tab === 'stats' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
