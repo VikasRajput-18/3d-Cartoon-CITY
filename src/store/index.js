@@ -41,9 +41,14 @@ export const useStore = create((set, get) => ({
     return { stats: n }
   }),
 
-  // Wallet
+  // Wallet — synced from economyState on init and on every economy change
   wallet: { coins: 500, gems: 10, tickets: 3 },
-  addCoins: (n) => set(s => ({ wallet: { ...s.wallet, coins: s.wallet.coins + n } })),
+  addCoins:   (n) => set(s => ({ wallet: { ...s.wallet, coins:   s.wallet.coins   + n } })),
+  setWallet:  (w) => set(s => ({ wallet: { ...s.wallet, ...w } })),
+  ownedOutfits: ['casual'],
+  setOwnedOutfits: (o) => set({ ownedOutfits: o }),
+  loginStreak: 0,
+  setLoginStreak: (n) => set({ loginStreak: n }),
 
   // World state
   currentPlace: 'city',

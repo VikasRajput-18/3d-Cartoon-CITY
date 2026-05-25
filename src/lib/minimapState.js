@@ -4,8 +4,12 @@ export const minimapState = {
   playerX: 0,
   playerZ: 0,
   playerFacing: 0,
-  drivingType: null,   // null | 'car' | 'bike'
+  drivingType: null,    // null | 'car' | 'bike'  (local player is driver)
+  passengerOf: null,    // null | 'car' | 'bike'  (local player is passenger)
   isMoving: false,
+  currentEmote: '',     // '' | 'dance' | 'greet' | 'handshake' | 'laughing'
+  nearBoss: false,
+  nearOrb: false,
 }
 
 // Live NPC positions written by Avatar3D each frame.

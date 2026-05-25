@@ -6,6 +6,7 @@ import { gameControls } from '@/lib/gameControls'
 import { audioSystem } from '@/lib/audioSystem'
 import { groqChat, getTimeLabel, getWeatherDesc, LANGUAGE_RULE } from '@/lib/groqChat'
 import { timeWeatherState } from '@/lib/timeWeatherState'
+import { getNpcCache, setNpcCache } from '@/lib/chatCache'
 
 // ── Visual identity per city NPC ──────────────────────────────────────────
 const NPC_META = {
@@ -217,13 +218,18 @@ export default function ChatPanel({ npc, onClose }) {
   const meta = NPC_META[npc?.name] || NPC_META.Anaya
   const avatar = useStore(s => s.avatar)
 
-  // Local state — cleared every time panel opens (fresh conversation per visit)
-  const [msgs, setMsgs] = useState([])
+  // Restore from cache so conversation survives unmount/remount
+  const cachedSession = npc ? getNpcCache(npc.name) : null
+  const [msgs, setMsgs] = useState(cachedSession?.msgs ?? [])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef()
   const inputRef = useRef()
-  const histRef = useRef([])  // parallel ref for closure-safe history access
+  const histRef = useRef(cachedSession?.hist ?? [])
+
+  const updateCache = (newMsgs, newHist) => {
+    setNpcCache(npc.name, newMsgs, newHist)
+  }
 
   // Disable game controls while panel is open
   useEffect(() => {
@@ -231,10 +237,11 @@ export default function ChatPanel({ npc, onClose }) {
     return () => { gameControls.enabled = true }
   }, [])
 
-  // Opening greeting from the NPC
+  // Opening greeting — skipped if we have a cached conversation
   useEffect(() => {
     if (!npc) return
     inputRef.current?.focus()
+    if (cachedSession) return   // restore silently, no new greeting
     setLoading(true)
     const sysPrompt = buildSystemPrompt(npc.name, avatar.name)
     groqChat([], sysPrompt + `\n\nGreet ${avatar.name} in ONE short friendly sentence as they walk up to you. Stay completely in character.`)
@@ -242,6 +249,7 @@ export default function ChatPanel({ npc, onClose }) {
         const msg = { role: 'assistant', content: text }
         setMsgs([msg])
         histRef.current = [msg]
+        updateCache([msg], [msg])
         audioSystem.playNotification()
       })
       .catch(() => {
@@ -249,6 +257,7 @@ export default function ChatPanel({ npc, onClose }) {
         const msg = { role: 'assistant', content: fb }
         setMsgs([msg])
         histRef.current = [msg]
+        updateCache([msg], [msg])
       })
       .finally(() => setLoading(false))
   }, [npc?.name])
@@ -274,21 +283,26 @@ export default function ChatPanel({ npc, onClose }) {
     const newHist = [...histRef.current, userMsg]
     histRef.current = newHist
     setMsgs(newHist)
+    updateCache(newHist, newHist)
     setLoading(true)
 
     try {
       const sysPrompt = buildSystemPrompt(npc.name, avatar.name)
       const reply = await groqChat(newHist, sysPrompt)
       const assistMsg = { role: 'assistant', content: reply }
-      histRef.current = [...newHist, assistMsg]
-      setMsgs([...newHist, assistMsg])
+      const finalHist = [...newHist, assistMsg]
+      histRef.current = finalHist
+      setMsgs(finalHist)
+      updateCache(finalHist, finalHist)
       audioSystem.playNotification()
     } catch {
       const pool = FALLBACKS[npc.name] || FALLBACKS.Anaya
       const fb = pool[Math.floor(Math.random() * pool.length)]
       const fbMsg = { role: 'assistant', content: fb }
-      histRef.current = [...newHist, fbMsg]
-      setMsgs([...newHist, fbMsg])
+      const finalHist = [...newHist, fbMsg]
+      histRef.current = finalHist
+      setMsgs(finalHist)
+      updateCache(finalHist, finalHist)
       audioSystem.playNotification()
     } finally {
       setLoading(false)

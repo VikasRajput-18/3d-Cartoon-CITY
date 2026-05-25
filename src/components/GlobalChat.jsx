@@ -19,8 +19,17 @@ const PANEL = {
   boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
 }
 
-export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount }) {
-  const [open,  setOpen]  = useState(false)
+// open / onOpenChange are optional — if omitted, component manages its own state
+export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, open: openProp, onOpenChange, unreadCount }) {
+  const controlled = openProp !== undefined
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlled ? openProp : internalOpen
+
+  const setOpen = (val) => {
+    if (controlled) { onOpenChange?.(val) }
+    else            { setInternalOpen(val) }
+  }
+
   const [input, setInput] = useState('')
   const bottomRef = useRef()
   const inputRef  = useRef()
@@ -120,7 +129,7 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount }
 
       {/* Toggle button */}
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen(!open)}
         style={{
           background: open ? 'rgba(124,58,237,0.7)' : 'rgba(8,4,20,0.82)',
           border: '1.5px solid ' + (open ? '#7c3aed' : 'rgba(124,58,237,0.35)'),
@@ -129,10 +138,20 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount }
           fontSize: 13, fontWeight: 700, cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+          position: 'relative',
         }}
       >
         💬 Chat
-        {onlineCount > 0 && (
+        {!open && unreadCount > 0 && (
+          <span style={{
+            background: '#ef4444', color: '#fff', borderRadius: 10,
+            fontSize: 10, fontWeight: 800, padding: '1px 5px', lineHeight: 1.4,
+            minWidth: 16, textAlign: 'center',
+          }}>
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+        {(open || !unreadCount) && onlineCount > 0 && (
           <span style={{
             background: '#4ade80', color: '#000', borderRadius: 10,
             fontSize: 10, fontWeight: 800, padding: '1px 5px', lineHeight: 1.4,

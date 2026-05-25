@@ -5,76 +5,11 @@ import * as THREE from 'three'
 import NPCModel from './NPCModel'
 import { remotePlayersRef } from '@/lib/multiplayerState'
 import { minimapState } from '@/lib/minimapState'
+import { voiceState } from '@/lib/voiceState'
 
 const VIS_DIST_SQ = 1600  // 40 units²
 
-// Simple inline car geometry for remote players in vehicles
-function RemoteCar({ name }) {
-  return (
-    <group>
-      {/* Body */}
-      <mesh position={[0, 0.55, 0]}>
-        <boxGeometry args={[1.5, 0.55, 3.0]} />
-        <meshToonMaterial color="#1e40af" />
-      </mesh>
-      {/* Cabin */}
-      <mesh position={[0, 1.05, -0.1]}>
-        <boxGeometry args={[1.25, 0.55, 1.6]} />
-        <meshToonMaterial color="#1e3a8a" />
-      </mesh>
-      {/* Wheels */}
-      {[[-0.75, 0.35, -0.9], [0.75, 0.35, -0.9], [-0.75, 0.35, 0.9], [0.75, 0.35, 0.9]].map(([x, y, z], i) => (
-        <mesh key={i} position={[x, y, z]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.35, 0.35, 0.22, 10]} />
-          <meshToonMaterial color="#111827" />
-        </mesh>
-      ))}
-      {/* Windshield */}
-      <mesh position={[0, 1.1, -0.95]} rotation={[-0.3, 0, 0]}>
-        <planeGeometry args={[1.1, 0.45]} />
-        <meshBasicMaterial color="#bfdbfe" transparent opacity={0.5} />
-      </mesh>
-      <Billboard position={[0, 2.6, 0]}>
-        <Text fontSize={0.15} color="#60a5fa" anchorX="center" anchorY="middle">{name}</Text>
-        <Text fontSize={0.09} color="#4ade80" anchorX="center" anchorY="middle" position={[0, -0.2, 0]}>🚗 Driving</Text>
-      </Billboard>
-    </group>
-  )
-}
-
-// Simple inline bike geometry for remote players in vehicles
-function RemoteBike({ name }) {
-  return (
-    <group>
-      {/* Body */}
-      <mesh position={[0, 0.55, 0]}>
-        <boxGeometry args={[0.5, 0.35, 1.4]} />
-        <meshToonMaterial color="#374151" />
-      </mesh>
-      {/* Front wheel */}
-      <mesh position={[0, 0.38, -0.65]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.38, 0.38, 0.16, 10]} />
-        <meshToonMaterial color="#1a1a1a" />
-      </mesh>
-      {/* Rear wheel */}
-      <mesh position={[0, 0.38, 0.65]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.38, 0.38, 0.16, 10]} />
-        <meshToonMaterial color="#1a1a1a" />
-      </mesh>
-      {/* Handlebar */}
-      <mesh position={[0, 0.9, -0.5]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.04, 0.04, 0.7, 6]} />
-        <meshToonMaterial color="#6b7280" />
-      </mesh>
-      <Billboard position={[0, 2.5, 0]}>
-        <Text fontSize={0.15} color="#60a5fa" anchorX="center" anchorY="middle">{name}</Text>
-        <Text fontSize={0.09} color="#4ade80" anchorX="center" anchorY="middle" position={[0, -0.18, 0]}>🏍 Riding</Text>
-      </Billboard>
-    </group>
-  )
-}
-
-function RemotePlayer({ uid, onPlayerClick }) {
+function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
   const groupRef     = useRef()
   const visRef       = useRef(false)
 
@@ -86,24 +21,40 @@ function RemotePlayer({ uid, onPlayerClick }) {
   const displayRef = useRef({ name: 'Player', outfit: 'casual', skin: '#F4C08A' })
   const [display, setDisplay] = useState({ name: 'Player', outfit: 'casual', skin: '#F4C08A' })
 
-  // Vehicle state
-  const vehicleRef = useRef({ isInVehicle: false, vehicleType: '' })
-  const [vehicle, setVehicle] = useState({ isInVehicle: false, vehicleType: '' })
+  // In-vehicle flag — hides character while driving (RemoteVehicle owns that rendering)
+  const inVehicleRef = useRef(false)
 
   // Hover UX
   const hoveredRef   = useRef(false)
   const hoverRingRef = useRef()
 
-  // Click bounce animation (duration counter in seconds)
+  // Click bounce animation (seconds countdown)
   const bounceRef = useRef(0)
 
-  // Name popup before opening DM chat
+  // Name popup before DM opens
   const [showPopup, setShowPopup] = useState(false)
   const popupTimerRef = useRef(null)
+
+  // Voice speaking indicator
+  const speakingStateRef = useRef(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+
+  // Muted state
+  const mutedStateRef = useRef(false)
+  const [isMuted, setIsMuted] = useState(false)
+
+  // Remote emote state
+  const remoteEmoteRef = useRef('')
+  const [remoteEmote, setRemoteEmote] = useState('')
+
+  // Long-press for mobile context menu
+  const longPressTimerRef = useRef(null)
+  const longPressTriggeredRef = useRef(false)
 
   useEffect(() => {
     return () => {
       if (popupTimerRef.current) clearTimeout(popupTimerRef.current)
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
       document.body.style.cursor = 'default'
     }
   }, [])
@@ -119,16 +70,20 @@ function RemotePlayer({ uid, onPlayerClick }) {
       return
     }
 
-    // ── Distance culling ────────────────────────────────────────────────────
+    // ── Distance culling ──────────────────────────────────────────────────
     const dToPx  = data.x - minimapState.playerX
     const dToPz  = data.z - minimapState.playerZ
     const distSq = dToPx * dToPx + dToPz * dToPz
     const inView = distSq < VIS_DIST_SQ
-    groupRef.current.visible = inView
     visRef.current = inView
-    if (!inView) return
 
-    // ── Position buffer → smooth lerp ──────────────────────────────────────
+    // Hide character while in vehicle — RemoteVehicle shows the car/bike
+    const nowInVehicle = !!data.is_in_vehicle
+    if (nowInVehicle !== inVehicleRef.current) inVehicleRef.current = nowInVehicle
+    groupRef.current.visible = inView && !nowInVehicle
+    if (!inView || nowInVehicle) return
+
+    // ── Position buffer → smooth lerp ─────────────────────────────────────
     const lerpAlpha = Math.min(1, delta * 12)
     if (data.posBuffer && data.posBuffer.length > 0) {
       const tgt = data.posBuffer[0]
@@ -145,14 +100,14 @@ function RemotePlayer({ uid, onPlayerClick }) {
     groupRef.current.position.set(data.x, 0, data.z)
     groupRef.current.rotation.y = data.facing
 
-    // ── Animation ───────────────────────────────────────────────────────────
+    // ── Walking animation ─────────────────────────────────────────────────
     const nowWalking = !!data.is_moving
     if (nowWalking !== isWalkingRef.current) {
       isWalkingRef.current = nowWalking
       setIsWalking(nowWalking)
     }
 
-    // ── Visual properties ────────────────────────────────────────────────────
+    // ── Visual properties ─────────────────────────────────────────────────
     if (data.name && (
       data.name   !== displayRef.current.name   ||
       data.outfit !== displayRef.current.outfit ||
@@ -163,15 +118,7 @@ function RemotePlayer({ uid, onPlayerClick }) {
       setDisplay(next)
     }
 
-    // ── Vehicle state ────────────────────────────────────────────────────────
-    const nowInVehicle  = !!data.is_in_vehicle
-    const nowVehicleType = data.vehicle_type || ''
-    if (nowInVehicle !== vehicleRef.current.isInVehicle || nowVehicleType !== vehicleRef.current.vehicleType) {
-      vehicleRef.current = { isInVehicle: nowInVehicle, vehicleType: nowVehicleType }
-      setVehicle({ isInVehicle: nowInVehicle, vehicleType: nowVehicleType })
-    }
-
-    // ── Hover ring ───────────────────────────────────────────────────────────
+    // ── Hover ring ────────────────────────────────────────────────────────
     if (hoverRingRef.current) {
       const targetOpacity = hoveredRef.current ? 0.65 : 0
       hoverRingRef.current.material.opacity = THREE.MathUtils.lerp(
@@ -179,7 +126,7 @@ function RemotePlayer({ uid, onPlayerClick }) {
       )
     }
 
-    // ── Bounce animation on click ────────────────────────────────────────────
+    // ── Bounce on click ───────────────────────────────────────────────────
     if (bounceRef.current > 0) {
       bounceRef.current -= delta
       const t = 1 - Math.max(0, bounceRef.current / 0.5)
@@ -188,22 +135,35 @@ function RemotePlayer({ uid, onPlayerClick }) {
     } else if (groupRef.current.scale.x !== 1) {
       groupRef.current.scale.setScalar(1)
     }
+
+    // ── Voice speaking indicator ──────────────────────────────────────────
+    const nowSpeaking = voiceState.speakingSet.has(uid)
+    if (nowSpeaking !== speakingStateRef.current) {
+      speakingStateRef.current = nowSpeaking
+      setIsSpeaking(nowSpeaking)
+    }
+
+    // ── Muted indicator ───────────────────────────────────────────────────
+    const nowMuted = voiceState.mutedSet.has(uid)
+    if (nowMuted !== mutedStateRef.current) {
+      mutedStateRef.current = nowMuted
+      setIsMuted(nowMuted)
+    }
+
+    // ── Remote emote ──────────────────────────────────────────────────────
+    const nowEmote = data.current_emote || ''
+    if (nowEmote !== remoteEmoteRef.current) {
+      remoteEmoteRef.current = nowEmote
+      setRemoteEmote(nowEmote)
+    }
   })
 
-  const handlePointerOver = (e) => {
-    e.stopPropagation()
-    hoveredRef.current = true
-    document.body.style.cursor = 'pointer'
-  }
-
-  const handlePointerOut = (e) => {
-    e.stopPropagation()
-    hoveredRef.current = false
-    document.body.style.cursor = 'default'
-  }
+  const handlePointerOver = (e) => { e.stopPropagation(); hoveredRef.current = true;  document.body.style.cursor = 'pointer' }
+  const handlePointerOut  = (e) => { e.stopPropagation(); hoveredRef.current = false; document.body.style.cursor = 'default' }
 
   const handleClick = (e) => {
     e.stopPropagation()
+    if (longPressTriggeredRef.current) return  // long-press already handled
     if (!onPlayerClick) return
     bounceRef.current = 0.5
     setShowPopup(true)
@@ -214,14 +174,42 @@ function RemotePlayer({ uid, onPlayerClick }) {
     }, 900)
   }
 
+  // Right-click context menu (desktop)
+  const handleContextMenu = (e) => {
+    e.stopPropagation()
+    e.nativeEvent?.preventDefault()  // suppress browser context menu
+    if (onPlayerContextMenu) {
+      onPlayerContextMenu(uid, display.name, e.clientX ?? e.x ?? 0, e.clientY ?? e.y ?? 0)
+    }
+  }
+
+  // Long-press for mobile context menu
+  const handlePointerDown = (e) => {
+    if (e.button !== 0 && e.button !== undefined) return  // right-click handled by onContextMenu
+    longPressTriggeredRef.current = false
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true
+      if (onPlayerContextMenu) {
+        onPlayerContextMenu(uid, display.name, e.clientX ?? 0, e.clientY ?? 0)
+      }
+    }, 600)
+  }
+  const handlePointerUpCancel = () => {
+    clearTimeout(longPressTimerRef.current)
+  }
+
   return (
     <group ref={groupRef} visible={false}>
-      {/* Large invisible hitbox — easier to click/tap than the character mesh */}
+      {/* Invisible hitbox for pointer events */}
       <mesh
         position={[0, 1.2, 0]}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUpCancel}
       >
         <boxGeometry args={[1.4, 2.6, 1.0]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -233,40 +221,46 @@ function RemotePlayer({ uid, onPlayerClick }) {
         <meshBasicMaterial color="#ffffff" transparent opacity={0} />
       </mesh>
 
-      {/* Name popup for 900ms after click, before DM opens */}
+      {/* Name popup 900 ms after click, before DM opens */}
       {showPopup && (
         <Billboard position={[0, 3.4, 0]}>
-          <Text
-            fontSize={0.22}
-            color="#ffffff"
-            outlineWidth={0.012}
-            outlineColor="#7c3aed"
-            anchorX="center"
-            anchorY="middle"
-          >
+          <Text fontSize={0.22} color="#ffffff" outlineWidth={0.012} outlineColor="#7c3aed" anchorX="center" anchorY="middle">
             {display.name}
           </Text>
         </Billboard>
       )}
 
-      {/* Vehicle or walking character */}
-      {vehicle.isInVehicle ? (
-        vehicle.vehicleType === 'bike'
-          ? <RemoteBike name={display.name} />
-          : <RemoteCar  name={display.name} />
-      ) : (
-        <NPCModel
-          outfit={display.outfit}
-          skin={display.skin}
-          walking={isWalking}
-          name={display.name}
-          labelColor="#60a5fa"
-          sublabel="• Player"
-          sublabelColor="#4ade80"
-          npcScale={0.01}
-          visibleRef={visRef}
-        />
+      {/* Voice speaking indicator — green wave above head */}
+      {isSpeaking && !isMuted && (
+        <Billboard position={[0, 3.85, 0]}>
+          <Text fontSize={0.2} anchorX="center" anchorY="middle">
+            🔊
+          </Text>
+        </Billboard>
       )}
+
+      {/* Muted indicator */}
+      {isMuted && (
+        <Billboard position={[0, 3.85, 0]}>
+          <Text fontSize={0.2} anchorX="center" anchorY="middle">
+            🔇
+          </Text>
+        </Billboard>
+      )}
+
+      {/* Walking character — hidden while in vehicle */}
+      <NPCModel
+        outfit={display.outfit}
+        skin={display.skin}
+        walking={isWalking}
+        emote={remoteEmote}
+        name={display.name}
+        labelColor="#60a5fa"
+        sublabel="• Player"
+        sublabelColor="#4ade80"
+        npcScale={0.01}
+        visibleRef={visRef}
+      />
     </group>
   )
 }

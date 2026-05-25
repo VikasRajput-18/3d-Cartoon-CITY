@@ -32,31 +32,20 @@ const _shoeC  = new THREE.Color('#120e08')
 function paintClothing(mesh, skinHex, outfitHex) {
   const geo   = mesh.geometry
   const bones = mesh.skeleton?.bones
-
   if (!bones || !geo.attributes.skinIndex) {
-    mesh.material = new THREE.MeshToonMaterial({
-      color:    skinHex,
-      emissive: new THREE.Color(0.06, 0.06, 0.08),
-    })
+    mesh.material = new THREE.MeshToonMaterial({ color: skinHex, emissive: new THREE.Color(0.06, 0.06, 0.08) })
     mesh.castShadow = true
     return
   }
-
   const si    = geo.attributes.skinIndex
   const sw    = geo.attributes.skinWeight
   const count = geo.attributes.position.count
-
   const skinC   = new THREE.Color(skinHex)
   const outfitC = new THREE.Color(outfitHex)
-
   let attr = geo.attributes.color
   let arr
-  if (attr && attr.count === count) {
-    arr = attr.array
-  } else {
-    arr = new Float32Array(count * 3)
-  }
-
+  if (attr && attr.count === count) { arr = attr.array }
+  else                               { arr = new Float32Array(count * 3) }
   for (let i = 0; i < count; i++) {
     let maxW = -1, domIdx = 0
     for (let j = 0; j < 4; j++) {
@@ -65,31 +54,26 @@ function paintClothing(mesh, skinHex, outfitHex) {
     }
     const bone   = bones[domIdx]
     const region = bone ? boneRegion(bone.name) : 'shirt'
-
-    const c =
-      region === 'skin'  ? skinC :
-      region === 'pants' ? _pantsC :
-      region === 'shoe'  ? _shoeC :
-      outfitC
-
-    arr[i * 3]     = c.r
-    arr[i * 3 + 1] = c.g
-    arr[i * 3 + 2] = c.b
+    const c = region === 'skin' ? skinC : region === 'pants' ? _pantsC : region === 'shoe' ? _shoeC : outfitC
+    arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b
   }
-
-  if (attr && attr.count === count) {
-    attr.needsUpdate = true
-  } else {
-    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
-  }
-
+  if (attr && attr.count === count) { attr.needsUpdate = true }
+  else { geo.setAttribute('color', new THREE.BufferAttribute(arr, 3)) }
   if (!mesh.material?.vertexColors) {
-    mesh.material = new THREE.MeshToonMaterial({
-      vertexColors: true,
-      emissive:     new THREE.Color(0.07, 0.07, 0.09),
-    })
+    mesh.material = new THREE.MeshToonMaterial({ vertexColors: true, emissive: new THREE.Color(0.07, 0.07, 0.09) })
   }
   mesh.castShadow = true
+}
+
+function stripRootMotion(clip) {
+  for (const track of clip.tracks) {
+    const ln = track.name.toLowerCase()
+    if ((ln.includes('hips') || ln.includes('hip')) && ln.endsWith('.position')) {
+      for (let i = 0; i < track.values.length; i += 3) {
+        track.values[i] = 0; track.values[i + 2] = 0
+      }
+    }
+  }
 }
 
 function NPCModel({
@@ -103,11 +87,16 @@ function NPCModel({
   npcScale      = 0.01,
   onClick       = null,
   visibleRef    = null,
+  emote         = '',
 }) {
   const groupRef = useRef()
 
-  const rawWalkFBX = useFBX('/models/Walking.fbx')
-  const rawIdleFBX = useFBX('/models/Standing_Idle.fbx')
+  const rawWalkFBX      = useFBX('/models/Walking.fbx')
+  const rawIdleFBX      = useFBX('/models/Standing_Idle.fbx')
+  const rawDanceFBX     = useFBX('/sounds/dance.fbx')
+  const rawGreetFBX     = useFBX('/sounds/greet.fbx')
+  const rawHandshakeFBX = useFBX('/sounds/handshake.fbx')
+  const rawLaughFBX     = useFBX('/sounds/laughing.fbx')
 
   const walkFBX = useMemo(() => {
     const clone = SkeletonUtils.clone(rawWalkFBX)
@@ -127,52 +116,96 @@ function NPCModel({
     const result = []
     if (rawWalkFBX.animations[0]) {
       const clip = rawWalkFBX.animations[0].clone()
-      clip.name  = 'Walking'
-      for (const track of clip.tracks) {
-        const ln = track.name.toLowerCase()
-        if ((ln.includes('hips') || ln.includes('hip')) && ln.endsWith('.position')) {
-          for (let i = 0; i < track.values.length; i += 3) {
-            track.values[i]     = 0
-            track.values[i + 2] = 0
-          }
-        }
-      }
+      clip.name = 'Walking'
+      stripRootMotion(clip)
       result.push(clip)
     }
     if (rawIdleFBX.animations[0]) {
       const clip = rawIdleFBX.animations[0].clone()
-      clip.name  = 'Idle'
+      clip.name = 'Idle'
       result.push(clip)
     }
+    const emoteSources = [
+      [rawDanceFBX, 'dance'], [rawGreetFBX, 'greet'],
+      [rawHandshakeFBX, 'handshake'], [rawLaughFBX, 'laughing'],
+    ]
+    for (const [fbx, clipName] of emoteSources) {
+      if (fbx.animations[0]) {
+        const clip = fbx.animations[0].clone()
+        clip.name = clipName
+        stripRootMotion(clip)
+        result.push(clip)
+      }
+    }
     return result
-  }, [rawWalkFBX, rawIdleFBX])
+  }, [rawWalkFBX, rawIdleFBX, rawDanceFBX, rawGreetFBX, rawHandshakeFBX, rawLaughFBX])
 
   const { actions, mixer } = useAnimations(clips, groupRef)
 
-  // Pause animation mixer when this NPC is distance-culled — saves CPU for invisible NPCs
+  // Pause mixer when distance-culled
   useFrame(() => {
     if (mixer) mixer.timeScale = (visibleRef && visibleRef.current === false) ? 0 : 1
   })
 
+  // Start idle on mount
   useEffect(() => {
     if (actions['Idle']) actions['Idle'].reset().play()
   }, [actions])
 
+  // Walk / idle crossfade (skips when emote is active)
   useEffect(() => {
+    if (emote) return
     const idle = actions['Idle']
     const walk = actions['Walking']
     if (!idle || !walk) return
     if (walking) { idle.fadeOut(0.2); walk.reset().fadeIn(0.2).play() }
     else         { walk.fadeOut(0.3); idle.reset().fadeIn(0.3).play() }
-  }, [walking, actions])
+  }, [walking, emote, actions])
+
+  // Emote controller (no onEmoteEnd needed — prop drives the transition)
+  const prevEmoteRef = useRef('')
+  useEffect(() => {
+    const prevEmote = prevEmoteRef.current
+    prevEmoteRef.current = emote
+
+    const idle = actions['Idle']
+    const walk = actions['Walking']
+
+    if (!emote) {
+      if (prevEmote) {
+        const prev = actions[prevEmote]
+        if (prev?.isRunning()) prev.fadeOut(0.2)
+        if (idle) idle.reset().fadeIn(0.2).play()
+      }
+      return
+    }
+
+    const emoteAction = actions[emote]
+    if (!emoteAction) return
+
+    if (idle?.isRunning()) idle.fadeOut(0.2)
+    if (walk?.isRunning()) walk.fadeOut(0.2)
+    if (prevEmote && prevEmote !== emote) {
+      const prev = actions[prevEmote]
+      if (prev?.isRunning()) prev.fadeOut(0.2)
+    }
+
+    const isDance = emote === 'dance'
+    emoteAction.reset()
+    if (isDance) {
+      emoteAction.setLoop(THREE.LoopRepeat, Infinity)
+    } else {
+      emoteAction.setLoop(THREE.LoopOnce, 1)
+      emoteAction.clampWhenFinished = true
+    }
+    emoteAction.fadeIn(0.2).play()
+  }, [emote, actions])
 
   return (
     <group ref={groupRef} onClick={onClick}>
       <primitive object={walkFBX} scale={npcScale} position={[0, 0, 0]} />
       <Billboard position={[0, 2.4, 0]}>
-        <Text fontSize={0.18} color={labelColor} anchorX="center" anchorY="middle">
-          {name}
-        </Text>
+        <Text fontSize={0.18} color={labelColor} anchorX="center" anchorY="middle">{name}</Text>
         {sublabel ? (
           <Text fontSize={0.11} color={sublabelColor} anchorX="center" anchorY="middle" position={[0, -0.23, 0]}>
             {sublabel}

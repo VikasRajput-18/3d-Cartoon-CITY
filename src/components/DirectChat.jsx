@@ -1,37 +1,42 @@
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { gameControls } from '@/lib/gameControls'
+import { getDmCache, setDmCache, appendDmCache } from '@/lib/chatCache'
 
 export default function DirectChat({ myId, myName, targetId, targetName, onClose }) {
-  const [messages, setMessages] = useState([])
+  const cached = getDmCache(myId, targetId)
+  const [messages, setMessages] = useState(cached ?? [])
   const [input,    setInput]    = useState('')
-  const [loading,  setLoading]  = useState(true)
+  const [loading,  setLoading]  = useState(!cached)
   const bottomRef  = useRef()
-  const seenIds    = useRef(new Set())   // deduplicate broadcast + postgres_changes
+  const seenIds    = useRef(new Set(cached ? cached.map(m => String(m.id)) : []))
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return }
 
-    // Fetch conversation history
-    supabase
-      .from('messages')
-      .select('*')
-      .eq('type', 'direct')
-      .or(
-        `and(uid.eq.${myId},receiver_id.eq.${targetId}),` +
-        `and(uid.eq.${targetId},receiver_id.eq.${myId})`
-      )
-      .order('created_at', { ascending: true })
-      .limit(50)
-      .then(({ data }) => {
-        if (data) {
-          setMessages(data)
-          data.forEach(m => seenIds.current.add(String(m.id)))
-        }
-        setLoading(false)
-      })
+    // Only fetch history if we have no cached messages
+    if (!cached) {
+      supabase
+        .from('messages')
+        .select('*')
+        .eq('type', 'direct')
+        .or(
+          `and(uid.eq.${myId},receiver_id.eq.${targetId}),` +
+          `and(uid.eq.${targetId},receiver_id.eq.${myId})`
+        )
+        .order('created_at', { ascending: true })
+        .limit(50)
+        .then(({ data }) => {
+          if (data) {
+            setMessages(data)
+            setDmCache(myId, targetId, data)
+            data.forEach(m => seenIds.current.add(String(m.id)))
+          }
+          setLoading(false)
+        })
+    }
 
-    // postgres_changes: messages where I am the receiver (works even if DM window is closed on sender side)
+    // postgres_changes: messages where I am the receiver
     const pgSub = supabase
       .channel(`dm-pg-${myId}-${targetId}`)
       .on('postgres_changes', {
@@ -44,7 +49,11 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
         const key = String(row.id)
         if (seenIds.current.has(key)) return
         seenIds.current.add(key)
-        setMessages(prev => [...prev, row])
+        setMessages(prev => {
+          const next = [...prev, row]
+          setDmCache(myId, targetId, next)
+          return next
+        })
       })
       .subscribe()
 
@@ -56,10 +65,12 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
         const key = 'bc-' + payload.ts
         if (seenIds.current.has(key)) return
         seenIds.current.add(key)
-        setMessages(prev => [...prev, {
-          id: key, uid: payload.from, name: payload.name,
-          content: payload.text, type: 'direct',
-        }])
+        setMessages(prev => {
+          const msg  = { id: key, uid: payload.from, name: payload.name, content: payload.text, type: 'direct' }
+          const next = [...prev, msg]
+          setDmCache(myId, targetId, next)
+          return next
+        })
       })
       .subscribe()
 
@@ -81,9 +92,13 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
     const ts     = Date.now()
     const tempId = 'me-' + ts
 
-    // Optimistic local message
+    const newMsg = { id: tempId, uid: myId, name: myName, content: text, type: 'direct' }
     seenIds.current.add(tempId)
-    setMessages(prev => [...prev, { id: tempId, uid: myId, name: myName, content: text, type: 'direct' }])
+    setMessages(prev => {
+      const next = [...prev, newMsg]
+      setDmCache(myId, targetId, next)
+      return next
+    })
 
     // Broadcast for instant delivery
     supabase.channel('dm-' + [myId, targetId].sort().join('-')).send({

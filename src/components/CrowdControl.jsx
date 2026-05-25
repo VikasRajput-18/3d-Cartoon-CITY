@@ -14,7 +14,7 @@ export default function CrowdControl() {
       onClick={toggle}
       title={muted ? 'Unmute crowd' : 'Mute crowd'}
       style={{
-        position: 'fixed', top: 52, right: 12, zIndex: 200,
+        position: 'fixed', top: 60, right: 12, zIndex: 200,
         width: 36, height: 36, borderRadius: '50%',
         background: 'rgba(15,10,30,0.82)', border: '1.5px solid rgba(255,255,255,0.15)',
         backdropFilter: 'blur(8px)', cursor: 'pointer',

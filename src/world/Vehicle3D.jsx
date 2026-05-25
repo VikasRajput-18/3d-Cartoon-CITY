@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 
 // ── Car (front = +Z local, rear = -Z local) ───────────────────────────────
-export function Car3D({ wheelRefs, dustRefs }) {
-  const body  = '#e63946'
+export function Car3D({ wheelRefs, dustRefs, bodyColor = '#e63946' }) {
+  const body  = bodyColor
   const dark  = '#1a1a1a'
   const rim   = '#9ca3af'
 
@@ -98,8 +98,8 @@ export function Car3D({ wheelRefs, dustRefs }) {
 }
 
 // ── Bike (front = +Z local, rear = -Z local) ──────────────────────────────
-export function Bike3D({ wheelRefs, leanRef, dustRef }) {
-  const frame = '#7c3aed'
+export function Bike3D({ wheelRefs, leanRef, dustRef, frameColor = '#7c3aed' }) {
+  const frame = frameColor
   const dark  = '#1a1a1a'
   const rim   = '#9ca3af'
 

@@ -1,16 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '@/store'
 import { GAME_DEFS } from './index'
 import { gameControls } from '@/lib/gameControls'
 import { audioSystem } from '@/lib/audioSystem'
-import RacingGame   from './RacingGame'
-import ShootingGame from './ShootingGame'
-import RunnerGame   from './RunnerGame'
-import FootballGame from './FootballGame'
-import FishingGame  from './FishingGame'
+
+const RacingGame   = lazy(() => import('./RacingGame'))
+const ShootingGame = lazy(() => import('./ShootingGame'))
+const RunnerGame   = lazy(() => import('./RunnerGame'))
+const FootballGame = lazy(() => import('./FootballGame'))
+const FishingGame  = lazy(() => import('./FishingGame'))
 
 const COMPONENTS = { racing: RacingGame, shooting: ShootingGame, runner: RunnerGame, football: FootballGame, fishing: FishingGame }
+
+function GameLoading() {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: '#000', color: '#a78bfa', fontFamily: 'Nunito, sans-serif', fontSize: 16, fontWeight: 700,
+    }}>
+      Loading game…
+    </div>
+  )
+}
 
 export default function GameRunner({ gameId, onClose }) {
   const addCoins = useStore(s => s.addCoins)
@@ -85,7 +97,9 @@ export default function GameRunner({ gameId, onClose }) {
 
       {/* Game area fills remaining screen */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <GameComp key={gameKey} paused={paused} onResult={handleResult} />
+        <Suspense fallback={<GameLoading />}>
+          <GameComp key={gameKey} paused={paused} onResult={handleResult} />
+        </Suspense>
 
         {/* Pause overlay */}
         {paused && !result && (

@@ -56,6 +56,8 @@ class AudioSystem {
     this._bgReady      = false   // true once initial 2s fade-in completes
     this._isIndoor     = false
     this._lastRainI    = 0       // last rainIntensity from setRainVolume
+    this._bgTargetVol  = parseFloat(localStorage.getItem('game_bg_vol')   ?? '1')
+    this._bgMuted      = localStorage.getItem('game_bg_muted') === '1'
 
     this._preloadHtmlAudio()
   }
@@ -117,17 +119,21 @@ class AudioSystem {
   }
 
   _startHtmlAudio() {
-    // BG — fade in from 0 to 0.3 over 2 seconds
+    // BG — fade in from 0 to target over 2 seconds
     if (this._bgAudio && this._bgAudio.paused) {
-      this._bgAudio.muted = this._muted
+      this._bgAudio.muted = this._bgMuted
       this._bgAudio.play().catch(() => {})
-      this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', 0, 0.3, 2000, () => {
+      if (!this._bgMuted) {
+        this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', 0, 0.3 * this._bgTargetVol, 2000, () => {
+          this._bgReady = true
+        })
+      } else {
         this._bgReady = true
-      })
+      }
     }
     // Rain — start silent; setRainVolume drives volume as weather changes
     if (this._rainAudio && this._rainAudio.paused) {
-      this._rainAudio.muted = this._muted
+      this._rainAudio.muted = this._bgMuted
       this._rainAudio.volume = 0
       this._rainAudio.play().catch(() => {})
     }
@@ -153,9 +159,30 @@ class AudioSystem {
       this.master.gain.cancelScheduledValues(t)
       this.master.gain.setValueAtTime(this._muted ? 0 : this._vol, t)
     }
-    if (this._bgAudio)   this._bgAudio.muted   = this._muted
-    if (this._rainAudio) this._rainAudio.muted  = this._muted
+    // SFX mute only silences the Web Audio graph; bg music has its own control
     return this._muted
+  }
+
+  get bgMuted()  { return this._bgMuted }
+  get bgVolume() { return this._bgTargetVol }
+
+  toggleBgMute() {
+    this._bgMuted = !this._bgMuted
+    localStorage.setItem('game_bg_muted', this._bgMuted ? '1' : '0')
+    if (this._bgAudio)   this._bgAudio.muted   = this._bgMuted
+    if (this._rainAudio) this._rainAudio.muted  = this._bgMuted
+    if (!this._bgMuted && this._bgAudio && this._bgReady) {
+      this._bgAudio.volume = 0.3 * this._bgTargetVol
+    }
+    return this._bgMuted
+  }
+
+  setBgVolume(v) {
+    this._bgTargetVol = Math.max(0, Math.min(1, v))
+    localStorage.setItem('game_bg_vol', String(this._bgTargetVol))
+    if (this._bgAudio && !this._bgMuted && this._bgReady) {
+      this._bgAudio.volume = 0.3 * this._bgTargetVol
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -296,6 +323,12 @@ class AudioSystem {
     setTimeout(() => this._tone(880, 0.18, 'sine', 0.12), 120)
   }
 
+  playChime() {
+    this._tone(1047, 0.12, 'sine', 0.12)
+    setTimeout(() => this._tone(1319, 0.14, 'sine', 0.10), 100)
+    setTimeout(() => this._tone(1568, 0.18, 'sine', 0.08), 200)
+  }
+
   playTyping() {
     if (!this._ready) return
     const ctx = this.ctx; const t = ctx.currentTime
@@ -402,9 +435,9 @@ class AudioSystem {
     this._cricketsGain?.gain.setTargetAtTime(cricketsTarget, t, 3)
     this._cityHumGain?.gain.setTargetAtTime(cityTarget,   t, 1)
 
-    // BG audio: slowly drift volume toward night / day target when outdoors
-    if (this._bgReady && !this._isIndoor && !this._muted && this._bgAudio) {
-      const bgTarget = isNight ? 0.25 : 0.3
+    // BG audio: slowly drift volume toward night/day target when outdoors
+    if (this._bgReady && !this._isIndoor && !this._bgMuted && this._bgAudio) {
+      const bgTarget = (isNight ? 0.25 : 0.3) * this._bgTargetVol
       const cur = this._bgAudio.volume
       this._bgAudio.volume = cur + (bgTarget - cur) * 0.005
     }
@@ -425,10 +458,10 @@ class AudioSystem {
 
     this._isIndoor = true
     // Reduce bg to indoor level
-    if (this._bgAudio && this._bgReady)
-      this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', this._bgAudio.volume, 0.2, 1500)
+    if (this._bgAudio && this._bgReady && !this._bgMuted)
+      this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', this._bgAudio.volume, 0.2 * this._bgTargetVol, 1500)
     // Reduce rain proportionally if it was audible
-    if (this._rainAudio && this._rainAudio.volume > 0.01)
+    if (this._rainAudio && this._rainAudio.volume > 0.01 && !this._bgMuted)
       this._fadeHtmlVol(this._rainAudio, '_rainFadeTimer', this._rainAudio.volume, 0.2, 1500)
   }
 
@@ -441,8 +474,8 @@ class AudioSystem {
 
     this._isIndoor = false
     // Restore bg to outdoor level
-    const bgTarget = timeWeatherState.isNight ? 0.25 : 0.3
-    if (this._bgAudio && this._bgReady)
+    const bgTarget = (timeWeatherState.isNight ? 0.25 : 0.3) * this._bgTargetVol
+    if (this._bgAudio && this._bgReady && !this._bgMuted)
       this._fadeHtmlVol(this._bgAudio, '_bgFadeTimer', this._bgAudio.volume, bgTarget, 1500)
     // Rain volume will be restored naturally by WeatherSystem's setRainVolume calls resuming
   }

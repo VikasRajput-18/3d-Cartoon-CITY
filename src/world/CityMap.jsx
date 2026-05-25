@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useMemo, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 
@@ -14,12 +15,73 @@ const APT_WIN = [
   '#FEF9C3','#FEF9C3','#1e293b','#FEF9C3','#FEF9C3','#1e293b',
 ]
 
+// ── Tree scale: target 3.5-4.5 units tall (2-2.5x player height) ──────────
+const TREE_SCALE = 0.018
+
+// ── Generic instanced GLB renderer for trees ─────────────────────────────
+// placements: [[x, z, scale, rotY], ...]
+// Auto-aligns model base to y=0 using bounding box.
+function InstancedGLBModel({ url, placements, scale: gs = 1 }) {
+  const { scene } = useGLTF(url)
+
+  const { meshes, yOffset } = useMemo(() => {
+    scene.updateWorldMatrix(true, true)
+    const box = new THREE.Box3().setFromObject(scene)
+    const yOff = box.isEmpty() ? 0 : Math.max(0, -box.min.y)
+    const rootInv = new THREE.Matrix4().copy(scene.matrixWorld).invert()
+    const meshes = []
+    scene.traverse(child => {
+      if (!child.isMesh || !child.geometry) return
+      const mat = Array.isArray(child.material) ? child.material[0] : child.material
+      const localOffset = new THREE.Matrix4().multiplyMatrices(rootInv, child.matrixWorld)
+      meshes.push({ geo: child.geometry, mat, localOffset })
+    })
+    return { meshes, yOffset: yOff }
+  }, [scene])
+
+  const refs = useRef([])
+
+  useEffect(() => {
+    if (!meshes.length || !placements.length) return
+    const dummy = new THREE.Object3D()
+    placements.forEach(([x, z, s = 1, ry = 0], idx) => {
+      const es = s * gs
+      dummy.position.set(x, yOffset * es, z)
+      dummy.rotation.set(0, ry, 0)
+      dummy.scale.setScalar(es)
+      dummy.updateMatrix()
+      meshes.forEach(({ localOffset }, mi) => {
+        const ref = refs.current[mi]
+        if (ref) ref.setMatrixAt(idx, new THREE.Matrix4().multiplyMatrices(dummy.matrix, localOffset))
+      })
+    })
+    meshes.forEach((_, mi) => {
+      if (refs.current[mi]) refs.current[mi].instanceMatrix.needsUpdate = true
+    })
+  }, [meshes, placements, gs, yOffset])
+
+  return (
+    <>
+      {meshes.map(({ geo, mat }, mi) => (
+        <instancedMesh
+          key={mi}
+          ref={el => refs.current[mi] = el}
+          args={[geo, mat, placements.length]}
+          castShadow={false}
+          receiveShadow={false}
+          frustumCulled={false}
+        />
+      ))}
+    </>
+  )
+}
+
 // ── Ground ──────────────────────────────────────────────────────────────────
 function Ground() {
   return (
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[120, 120]} />
+        <planeGeometry args={[400, 400]} />
         <meshToonMaterial color="#2d5a27" />
       </mesh>
       {/* Sidewalk strips along main E-W road */}
@@ -48,21 +110,20 @@ function Ground() {
 function Roads() {
   const road = '#22252e'
   const dash = '#facc15'
-  const side = '#8b9db5'
 
   const hRoads = [
-    { z: 0,   w: 120, h: 4   },  // Main E-W
-    { z: -18, w: 120, h: 3.5 },  // North ring
-    { z:  18, w: 120, h: 3.5 },  // South ring
-    { z: -34, w: 120, h: 3   },  // Far north
-    { z:  34, w: 120, h: 3   },  // Far south
+    { z: 0,   w: 120, h: 4   },
+    { z: -18, w: 120, h: 3.5 },
+    { z:  18, w: 120, h: 3.5 },
+    { z: -34, w: 120, h: 3   },
+    { z:  34, w: 120, h: 3   },
   ]
   const vRoads = [
-    { x: 0,   w: 4,   h: 120 },  // Main N-S
-    { x: -20, w: 3.5, h: 120 },  // West arterial
-    { x:  20, w: 3.5, h: 120 },  // East arterial
-    { x: -40, w: 3,   h: 120 },  // Far west
-    { x:  40, w: 3,   h: 120 },  // Far east
+    { x: 0,   w: 4,   h: 120 },
+    { x: -20, w: 3.5, h: 120 },
+    { x:  20, w: 3.5, h: 120 },
+    { x: -40, w: 3,   h: 120 },
+    { x:  40, w: 3,   h: 120 },
   ]
 
   return (
@@ -79,7 +140,6 @@ function Roads() {
           <meshToonMaterial color={road} />
         </mesh>
       ))}
-
       {/* Center dashes E-W main */}
       {Array.from({ length: 22 }, (_, i) => i - 11).map(i => (
         <mesh key={`dew${i}`} rotation={[-Math.PI / 2, 0, 0]} position={[i * 5 + 2.5, 0.02, 0]}>
@@ -94,8 +154,7 @@ function Roads() {
           <meshBasicMaterial color={dash} transparent opacity={0.75} />
         </mesh>
       ))}
-
-      {/* Crosswalk stripes at main intersections */}
+      {/* Crosswalk stripes */}
       {[-1.5, -0.9, -0.3, 0.3, 0.9, 1.5].map((off, i) => (
         <mesh key={`cwew${i}`} rotation={[-Math.PI / 2, 0, 0]} position={[2.5 + off * 0.01, 0.03, 3.5]}>
           <planeGeometry args={[0.4, 1.2]} />
@@ -168,76 +227,40 @@ function House({ pos, color = '#E8D5B7', roofColor = '#C0392B', rotate = 0 }) {
   )
 }
 
-// ── Instanced Trees — 63 instances → 4 draw calls ────────────────────────
+// ── Tree data — all positions, split 50/50 between tree1 and tree2 GLBs ──
 const TREE_DATA = [
-  // Inner ring (scale=1)
   [-4,-4,1],[-4,4,1],[4,-4,1],[4,4,1],[-8,8,1],[8,8,1],[-8,-8,1],[8,-8,1],[-12,-2,1],[12,-2,1],
-  // E-W road z=-4.5 (scale=0.88)
   [-48,-4.5,.88],[-38,-4.5,.88],[-28,-4.5,.88],[-22,-4.5,.88],[-8,-4.5,.88],
   [8,-4.5,.88],[22,-4.5,.88],[28,-4.5,.88],[38,-4.5,.88],[48,-4.5,.88],
-  // E-W road z=+4.5 (scale=0.88)
   [-48,4.5,.88],[-38,4.5,.88],[-28,4.5,.88],[-22,4.5,.88],[-8,4.5,.88],
   [8,4.5,.88],[22,4.5,.88],[28,4.5,.88],[38,4.5,.88],[48,4.5,.88],
-  // N/S road x=-4.5 (scale=0.85) — z=-36.5/36.5 moved off far roads
   [-4.5,-45,.85],[-4.5,-36.5,.85],[-4.5,-24,.85],[-4.5,-14,.85],
   [-4.5,14,.85],[-4.5,24,.85],[-4.5,36.5,.85],[-4.5,45,.85],
-  // Residential (scale=0.8) — x=22/37 moved off arterial/far-east roads
   [22,20,.8],[30,20,.8],[37,20,.8],[50,20,.8],[22,30,.8],[30,30,.8],[37,30,.8],[50,30,.8],
   [22,40,.8],[30,40,.8],[37,40,.8],[50,40,.8],[22,50,.8],[30,50,.8],[37,50,.8],[50,50,.8],
-  // Church area (scale=0.85) — x=-17 moved off arterial, x=-20 removed
   [-16,24,.85],[-17,24,.85],[-22,24,.85],[-24,24,.85],
-  // North district (scale=0.82)
   [-8,-20,.82],[-5,-20,.82],[5,-20,.82],[8,-20,.82],
 ]
 
-function InstancedTrees() {
-  const trunkRef = useRef(), c1Ref = useRef(), c2Ref = useRef(), c3Ref = useRef()
-  const N = TREE_DATA.length
+const MID = Math.ceil(TREE_DATA.length / 2)
+const TREE1_PLACEMENTS = TREE_DATA.slice(0, MID).map(([x, z, s]) => [x, z, s, 0])
+const TREE2_PLACEMENTS = TREE_DATA.slice(MID).map(([x, z, s]) => [x, z, s, Math.PI])
 
-  useEffect(() => {
-    const d = new THREE.Object3D()
-    ;[
-      { ref: trunkRef, yOff: 0.6  },
-      { ref: c1Ref,    yOff: 1.8  },
-      { ref: c2Ref,    yOff: 2.65 },
-      { ref: c3Ref,    yOff: 3.3  },
-    ].forEach(({ ref, yOff }) => {
-      TREE_DATA.forEach(([x, z, s], i) => {
-        d.position.set(x, yOff * s, z); d.scale.setScalar(s); d.updateMatrix()
-        ref.current.setMatrixAt(i, d.matrix)
-      })
-      ref.current.instanceMatrix.needsUpdate = true
-    })
-  }, [])
-
+function GLBTrees() {
   return (
     <>
-      <instancedMesh ref={trunkRef} args={[null, null, N]} frustumCulled={false}>
-        <cylinderGeometry args={[0.12, 0.16, 1.2, 6]} /><meshToonMaterial color="#7C3F10" />
-      </instancedMesh>
-      <instancedMesh ref={c1Ref} args={[null, null, N]} frustumCulled={false}>
-        <coneGeometry args={[0.72, 1.4, 7]} /><meshToonMaterial color="#15803d" side={THREE.DoubleSide} />
-      </instancedMesh>
-      <instancedMesh ref={c2Ref} args={[null, null, N]} frustumCulled={false}>
-        <coneGeometry args={[0.52, 1.1, 7]} /><meshToonMaterial color="#16a34a" side={THREE.DoubleSide} />
-      </instancedMesh>
-      <instancedMesh ref={c3Ref} args={[null, null, N]} frustumCulled={false}>
-        <coneGeometry args={[0.32, 0.85, 7]} /><meshToonMaterial color="#22c55e" side={THREE.DoubleSide} />
-      </instancedMesh>
+      <InstancedGLBModel url="/models/tree1.glb" placements={TREE1_PLACEMENTS} scale={TREE_SCALE} />
+      <InstancedGLBModel url="/models/tree2.glb" placements={TREE2_PLACEMENTS} scale={TREE_SCALE} />
     </>
   )
 }
 
-// ── Instanced Lamps — 45 instances → 3 draw calls ────────────────────────
+// ── Instanced Lamps — primitive cylinders + sphere (day/night glow) ───────
 const LAMP_DATA = [
-  // Intersection + N-S road lamps shifted to x=±2.8, off main roads
   [-2.8,-2.8],[-2.8,2.8],[2.8,-2.8],[2.8,2.8],[-2.8,-8],[2.8,-8],[-2.8,8],[2.8,8],
   [-8,-20],[8,-20],[-22,-22],[22,-22],[-8,-30],[8,-30],[-30,-28],[30,-28],
-  // East arterial z=20 (was 18, on south ring), x=36 z=-3 (was -2, on main E-W)
   [22,-8],[22,5],[22,20],[22,27],[36,-3],[36,10],[36,22],
-  // West arterial z=20 (was 18), x=-36 z=-3 (was -2)
   [-22,-8],[-22,5],[-22,20],[-22,27],[-36,-3],[-36,-16],[-36,10],
-  // x=2.8 (was 0, on main N-S)
   [-8,22],[8,22],[-8,32],[8,32],[-22,32],[22,32],[2.8,32],
   [23,22],[33,22],[43,22],[23,32],[33,32],[43,32],[23,42],[33,42],
 ]
@@ -273,7 +296,7 @@ function InstancedLamps() {
   )
 }
 
-// ── Traffic Lights — single useFrame for all 10 lights ───────────────────
+// ── Traffic Lights ─────────────────────────────────────────────────────────
 const TL_POS = [
   [ 2.5,0,-2.5],[-2.5,0, 2.5],[22,0,-2.5],[-22,0, 2.5],
   [ 2.5,0,-20 ],[-2.5,0, 20 ],[ 2.5,0,-36],[-2.5,0, 36],
@@ -370,33 +393,28 @@ function CityHall() {
         <boxGeometry args={[10, 8, 6]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      {/* Dome */}
       <mesh position={[0, 8.6, 0]}>
         <sphereGeometry args={[2.2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
         <meshToonMaterial color="#e2e8f0" />
       </mesh>
-      {/* Columns */}
       {[-3.5, -1.2, 1.2, 3.5].map((x, i) => (
         <mesh key={i} position={[x, 3.5, 3.1]}>
           <cylinderGeometry args={[0.24, 0.3, 7, 8]} />
           <meshToonMaterial color="#e2e8f0" />
         </mesh>
       ))}
-      {/* Steps */}
       {[0, 1, 2].map(i => (
         <mesh key={i} position={[0, i * 0.15 + 0.08, 3.1 + i * 0.3]}>
           <boxGeometry args={[9, 0.15, 0.6]} />
           <meshToonMaterial color="#f1f5f9" />
         </mesh>
       ))}
-      {/* Windows */}
       {[-3, 0, 3].map((x, j) => [5.5, 2.5].map((y, k) => (
         <mesh key={`${j}${k}`} position={[x, y, 3.06]}>
           <planeGeometry args={[1.2, 1.8]} />
           <meshBasicMaterial color="#87CEEB" transparent opacity={0.8} />
         </mesh>
       )))}
-      {/* Flag pole + flag */}
       <mesh position={[0, 11.8, 0]}>
         <cylinderGeometry args={[0.05, 0.05, 3, 6]} />
         <meshToonMaterial color="#94a3b8" />
@@ -429,12 +447,10 @@ function Mall() {
         <boxGeometry args={[14.2, 0.3, 8.2]} />
         <meshToonMaterial color="#ec4899" />
       </mesh>
-      {/* Skylight dome */}
       <mesh position={[0, 6.6, 0]}>
         <sphereGeometry args={[2.6, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2]} />
         <meshToonMaterial color="#e0f2fe" transparent opacity={0.65} />
       </mesh>
-      {/* Entrance */}
       <mesh position={[0, 2.6, 4.1]}>
         <boxGeometry args={[5, 5.2, 0.5]} />
         <meshToonMaterial color="#f9a8d4" />
@@ -443,12 +459,10 @@ function Mall() {
         <torusGeometry args={[2.1, 0.28, 6, 10, Math.PI]} />
         <meshToonMaterial color="#ec4899" />
       </mesh>
-      {/* Neon sign */}
       <mesh ref={signRef} position={[0, 5.5, 4.17]}>
         <planeGeometry args={[6, 0.55]} />
         <meshBasicMaterial color="#ec4899" transparent opacity={0.9} />
       </mesh>
-      {/* Storefront windows */}
       {[-5, -2.5, 0, 2.5, 5].map((x, i) => (
         <mesh key={i} position={[x, 1.5, 4.06]}>
           <planeGeometry args={[1.8, 2.2]} />
@@ -463,9 +477,7 @@ function Mall() {
 function Cinema() {
   const marqueeRef = useRef()
   useFrame(({ clock }) => {
-    if (marqueeRef.current) {
-      marqueeRef.current.material.color.setHSL((clock.elapsedTime * 0.18) % 1, 0.85, 0.5)
-    }
+    if (marqueeRef.current) marqueeRef.current.material.color.setHSL((clock.elapsedTime * 0.18) % 1, 0.85, 0.5)
   })
   return (
     <group position={[16, 0, -28]}>
@@ -481,7 +493,6 @@ function Cinema() {
         <boxGeometry args={[10.2, 0.3, 7.2]} />
         <meshToonMaterial color="#4c1d95" />
       </mesh>
-      {/* Marquee */}
       <mesh position={[0, 5, 3.6]}>
         <boxGeometry args={[9.2, 2.6, 0.3]} />
         <meshToonMaterial color="#0f0011" />
@@ -490,14 +501,12 @@ function Cinema() {
         <planeGeometry args={[8.6, 2.1]} />
         <meshBasicMaterial color="#a855f7" transparent opacity={0.95} />
       </mesh>
-      {/* Star lights on marquee */}
       {[-3.5, -2, -0.5, 0.5, 2, 3.5].map((x, i) => (
         <mesh key={i} position={[x, 6.1, 3.77]}>
           <circleGeometry args={[0.1, 5]} />
           <meshBasicMaterial color="#fbbf24" />
         </mesh>
       ))}
-      {/* Entrance */}
       <mesh position={[0, 2.5, 3.61]}>
         <boxGeometry args={[4.2, 5, 0.3]} />
         <meshToonMaterial color="#1a0033" />
@@ -588,23 +597,14 @@ function Hospital() {
         <boxGeometry args={[7.2, 0.3, 6.2]} />
         <meshToonMaterial color="#0ea5e9" />
       </mesh>
-      {/* Red cross */}
-      <mesh position={[0, 5, 3.06]}>
-        <planeGeometry args={[0.5, 1.6]} />
-        <meshBasicMaterial color="#ef4444" />
-      </mesh>
-      <mesh position={[0, 5, 3.07]}>
-        <planeGeometry args={[1.6, 0.5]} />
-        <meshBasicMaterial color="#ef4444" />
-      </mesh>
-      {/* Windows */}
+      <mesh position={[0, 5, 3.06]}><planeGeometry args={[0.5, 1.6]} /><meshBasicMaterial color="#ef4444" /></mesh>
+      <mesh position={[0, 5, 3.07]}><planeGeometry args={[1.6, 0.5]} /><meshBasicMaterial color="#ef4444" /></mesh>
       {[-2, 0, 2].map((x, i) => [7, 5, 3].map((y, j) => (
         <mesh key={`${i}${j}`} position={[x, y, 3.06]}>
           <planeGeometry args={[0.9, 1.1]} />
           <meshBasicMaterial color="#bae6fd" transparent opacity={0.9} />
         </mesh>
       )))}
-      {/* Ambulance bay */}
       <mesh position={[0, 1.5, 3.55]}>
         <boxGeometry args={[3.2, 3, 1.2]} />
         <meshToonMaterial color="#e0f2fe" />
@@ -625,24 +625,10 @@ function PoliceStation() {
         <boxGeometry args={[5, 5, 5]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 5.15, 0]}>
-        <boxGeometry args={[5.2, 0.3, 5.2]} />
-        <meshToonMaterial color="#1d4ed8" />
-      </mesh>
-      {/* Badge star */}
-      <mesh position={[0, 3, 2.56]}>
-        <circleGeometry args={[0.65, 5]} />
-        <meshBasicMaterial color="#fbbf24" />
-      </mesh>
-      <mesh position={[0, 3, 2.57]}>
-        <circleGeometry args={[0.35, 8]} />
-        <meshBasicMaterial color="#1e3a5f" />
-      </mesh>
-      {/* Blue light bar */}
-      <mesh position={[0, 5.5, 0]}>
-        <boxGeometry args={[2, 0.3, 0.5]} />
-        <meshBasicMaterial color="#3b82f6" />
-      </mesh>
+      <mesh position={[0, 5.15, 0]}><boxGeometry args={[5.2, 0.3, 5.2]} /><meshToonMaterial color="#1d4ed8" /></mesh>
+      <mesh position={[0, 3, 2.56]}><circleGeometry args={[0.65, 5]} /><meshBasicMaterial color="#fbbf24" /></mesh>
+      <mesh position={[0, 3, 2.57]}><circleGeometry args={[0.35, 8]} /><meshBasicMaterial color="#1e3a5f" /></mesh>
+      <mesh position={[0, 5.5, 0]}><boxGeometry args={[2, 0.3, 0.5]} /><meshBasicMaterial color="#3b82f6" /></mesh>
       {[-1.2, 1.2].map((x, i) => (
         <mesh key={i} position={[x, 2.5, 2.56]}>
           <planeGeometry args={[0.9, 1.2]} />
@@ -665,22 +651,12 @@ function FireStation() {
         <boxGeometry args={[7, 5, 5]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 5.15, 0]}>
-        <boxGeometry args={[7.2, 0.3, 5.2]} />
-        <meshToonMaterial color="#991b1b" />
-      </mesh>
-      {/* 3 garage doors */}
+      <mesh position={[0, 5.15, 0]}><boxGeometry args={[7.2, 0.3, 5.2]} /><meshToonMaterial color="#991b1b" /></mesh>
       {[-2.2, 0, 2.2].map((x, i) => (
         <group key={i} position={[x, 0, 2.56]}>
-          <mesh position={[0, 1.5, 0]}>
-            <planeGeometry args={[1.8, 3]} />
-            <meshBasicMaterial color="#b91c1c" />
-          </mesh>
+          <mesh position={[0, 1.5, 0]}><planeGeometry args={[1.8, 3]} /><meshBasicMaterial color="#b91c1c" /></mesh>
           {[0.6, 1.1, 1.6, 2.1, 2.6].map((y, j) => (
-            <mesh key={j} position={[0, y, 0.01]}>
-              <planeGeometry args={[1.8, 0.06]} />
-              <meshBasicMaterial color="#7f1d1d" />
-            </mesh>
+            <mesh key={j} position={[0, y, 0.01]}><planeGeometry args={[1.8, 0.06]} /><meshBasicMaterial color="#7f1d1d" /></mesh>
           ))}
         </group>
       ))}
@@ -700,18 +676,10 @@ function School() {
         <boxGeometry args={[9, 7, 6]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 7.15, 0]}>
-        <boxGeometry args={[9.2, 0.3, 6.2]} />
-        <meshToonMaterial color="#f59e0b" />
-      </mesh>
-      {/* Bell tower */}
-      <mesh position={[0, 8, 0]}>
-        <boxGeometry args={[2, 2, 2]} />
-        <meshToonMaterial color="#fbbf24" />
-      </mesh>
+      <mesh position={[0, 7.15, 0]}><boxGeometry args={[9.2, 0.3, 6.2]} /><meshToonMaterial color="#f59e0b" /></mesh>
+      <mesh position={[0, 8, 0]}><boxGeometry args={[2, 2, 2]} /><meshToonMaterial color="#fbbf24" /></mesh>
       <mesh position={[0, 9.2, 0]} rotation={[0, Math.PI / 4, 0]}>
-        <coneGeometry args={[1.5, 1.6, 4]} />
-        <meshToonMaterial color="#d97706" />
+        <coneGeometry args={[1.5, 1.6, 4]} /><meshToonMaterial color="#d97706" />
       </mesh>
       {[-3, -1, 1, 3].map((x, i) => [5, 2.5].map((y, j) => (
         <mesh key={`${i}${j}`} position={[x, y, 3.06]}>
@@ -719,11 +687,7 @@ function School() {
           <meshBasicMaterial color="#FEF9C3" transparent opacity={0.9} />
         </mesh>
       )))}
-      {/* Entrance portico */}
-      <mesh position={[0, 1.6, 3.15]}>
-        <boxGeometry args={[2.8, 3.2, 0.4]} />
-        <meshToonMaterial color="#f59e0b" />
-      </mesh>
+      <mesh position={[0, 1.6, 3.15]}><boxGeometry args={[2.8, 3.2, 0.4]} /><meshToonMaterial color="#f59e0b" /></mesh>
     </group>
   )
 }
@@ -740,17 +704,13 @@ function Library() {
         <boxGeometry args={[7, 5, 5]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 5.15, 0]}>
-        <boxGeometry args={[7.2, 0.3, 5.2]} />
-        <meshToonMaterial color="#92400e" />
-      </mesh>
+      <mesh position={[0, 5.15, 0]}><boxGeometry args={[7.2, 0.3, 5.2]} /><meshToonMaterial color="#92400e" /></mesh>
       {[-2, 0, 2].map((x, i) => (
         <mesh key={i} position={[x, 2.5, 2.56]}>
           <planeGeometry args={[1.3, 2.2]} />
           <meshBasicMaterial color="#93c5fd" transparent opacity={0.8} />
         </mesh>
       ))}
-      {/* Book stripe decoration */}
       {[-2.5, -1.5, -0.5, 0.5, 1.5, 2.5].map((x, i) => (
         <mesh key={i} position={[x, 4.3, 2.56]}>
           <planeGeometry args={[0.7, 0.6]} />
@@ -773,15 +733,8 @@ function Gym() {
         <boxGeometry args={[6, 5, 5]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 5.15, 0]}>
-        <boxGeometry args={[6.2, 0.3, 5.2]} />
-        <meshToonMaterial color="#7c3aed" />
-      </mesh>
-      {/* Zigzag lightning window */}
-      <mesh position={[0, 3, 2.56]}>
-        <planeGeometry args={[3, 2]} />
-        <meshBasicMaterial color="#facc15" transparent opacity={0.85} />
-      </mesh>
+      <mesh position={[0, 5.15, 0]}><boxGeometry args={[6.2, 0.3, 5.2]} /><meshToonMaterial color="#7c3aed" /></mesh>
+      <mesh position={[0, 3, 2.56]}><planeGeometry args={[3, 2]} /><meshBasicMaterial color="#facc15" transparent opacity={0.85} /></mesh>
       {[-1.5, 1.5].map((x, i) => (
         <mesh key={i} position={[x, 2, 2.56]}>
           <planeGeometry args={[0.8, 0.8]} />
@@ -804,26 +757,14 @@ function Restaurant() {
         <boxGeometry args={[5, 5, 4]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 5.15, 0]}>
-        <boxGeometry args={[5.2, 0.3, 4.2]} />
-        <meshToonMaterial color="#f59e0b" />
-      </mesh>
-      {/* Awning */}
+      <mesh position={[0, 5.15, 0]}><boxGeometry args={[5.2, 0.3, 4.2]} /><meshToonMaterial color="#f59e0b" /></mesh>
       <mesh position={[0, 3.3, 2.25]} rotation={[0.45, 0, 0]}>
-        <boxGeometry args={[5.2, 0.12, 1.6]} />
-        <meshToonMaterial color="#f97316" />
+        <boxGeometry args={[5.2, 0.12, 1.6]} /><meshToonMaterial color="#f97316" />
       </mesh>
-      {/* Outdoor tables */}
       {[-1.5, 1.5].map((x, i) => (
         <group key={i} position={[x, 0, 3.8]}>
-          <mesh position={[0, 0.8, 0]}>
-            <cylinderGeometry args={[0.38, 0.38, 0.07, 8]} />
-            <meshToonMaterial color="#fcd34d" />
-          </mesh>
-          <mesh position={[0, 0.4, 0]}>
-            <cylinderGeometry args={[0.04, 0.04, 0.8, 6]} />
-            <meshToonMaterial color="#d97706" />
-          </mesh>
+          <mesh position={[0, 0.8, 0]}><cylinderGeometry args={[0.38, 0.38, 0.07, 8]} /><meshToonMaterial color="#fcd34d" /></mesh>
+          <mesh position={[0, 0.4, 0]}><cylinderGeometry args={[0.04, 0.04, 0.8, 6]} /><meshToonMaterial color="#d97706" /></mesh>
         </group>
       ))}
     </group>
@@ -846,31 +787,19 @@ function GasStation() {
         <boxGeometry args={[4, 3, 3]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      {/* Canopy */}
-      <mesh position={[0, 3.5, 0.8]}>
-        <boxGeometry args={[9, 0.2, 7]} />
-        <meshToonMaterial color="#ef4444" />
-      </mesh>
+      <mesh position={[0, 3.5, 0.8]}><boxGeometry args={[9, 0.2, 7]} /><meshToonMaterial color="#ef4444" /></mesh>
       {[-3.5, 3.5].map((x, i) => (
         <mesh key={i} position={[x, 1.75, 0.8]}>
           <cylinderGeometry args={[0.12, 0.15, 3.5, 6]} />
           <meshToonMaterial color="#94a3b8" />
         </mesh>
       ))}
-      {/* Fuel pumps */}
       {[-1.5, 0, 1.5].map((x, i) => (
         <group key={i} position={[x, 0, 1.8]}>
-          <mesh position={[0, 1, 0]}>
-            <boxGeometry args={[0.5, 2, 0.35]} />
-            <meshToonMaterial color="#475569" />
-          </mesh>
-          <mesh position={[0, 1.2, 0.2]}>
-            <planeGeometry args={[0.34, 0.22]} />
-            <meshBasicMaterial color="#fbbf24" />
-          </mesh>
+          <mesh position={[0, 1, 0]}><boxGeometry args={[0.5, 2, 0.35]} /><meshToonMaterial color="#475569" /></mesh>
+          <mesh position={[0, 1.2, 0.2]}><planeGeometry args={[0.34, 0.22]} /><meshBasicMaterial color="#fbbf24" /></mesh>
         </group>
       ))}
-      {/* Blinking price board */}
       <mesh ref={signRef} position={[0, 3, -3.06]}>
         <planeGeometry args={[3.5, 1.2]} />
         <meshBasicMaterial color="#ef4444" transparent opacity={1} />
@@ -879,7 +808,7 @@ function GasStation() {
   )
 }
 
-// ── Church / Temple ───────────────────────────────────────────────────────
+// ── Church ────────────────────────────────────────────────────────────────
 function Church() {
   return (
     <group position={[-25, 0, 18]}>
@@ -891,33 +820,14 @@ function Church() {
         <boxGeometry args={[6, 6, 7]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 7, 0]}>
-        <boxGeometry args={[2.6, 3, 2.6]} />
-        <meshToonMaterial color="#e7dfd0" />
-      </mesh>
+      <mesh position={[0, 7, 0]}><boxGeometry args={[2.6, 3, 2.6]} /><meshToonMaterial color="#e7dfd0" /></mesh>
       <mesh position={[0, 9.6, 0]} rotation={[0, Math.PI / 4, 0]}>
-        <coneGeometry args={[1.5, 3.2, 4]} />
-        <meshToonMaterial color="#94a3b8" />
+        <coneGeometry args={[1.5, 3.2, 4]} /><meshToonMaterial color="#94a3b8" />
       </mesh>
-      {/* Cross */}
-      <mesh position={[0, 11.4, 0]}>
-        <boxGeometry args={[0.15, 1.1, 0.15]} />
-        <meshToonMaterial color="#fbbf24" />
-      </mesh>
-      <mesh position={[0, 11.7, 0]}>
-        <boxGeometry args={[0.65, 0.15, 0.15]} />
-        <meshToonMaterial color="#fbbf24" />
-      </mesh>
-      {/* Rose window */}
-      <mesh position={[0, 5, 3.56]}>
-        <circleGeometry args={[0.85, 12]} />
-        <meshBasicMaterial color="#93c5fd" transparent opacity={0.75} />
-      </mesh>
-      {/* Entrance */}
-      <mesh position={[0, 2, 3.56]}>
-        <planeGeometry args={[2.2, 4]} />
-        <meshBasicMaterial color="#7c4a1e" transparent opacity={0.85} />
-      </mesh>
+      <mesh position={[0, 11.4, 0]}><boxGeometry args={[0.15, 1.1, 0.15]} /><meshToonMaterial color="#fbbf24" /></mesh>
+      <mesh position={[0, 11.7, 0]}><boxGeometry args={[0.65, 0.15, 0.15]} /><meshToonMaterial color="#fbbf24" /></mesh>
+      <mesh position={[0, 5, 3.56]}><circleGeometry args={[0.85, 12]} /><meshBasicMaterial color="#93c5fd" transparent opacity={0.75} /></mesh>
+      <mesh position={[0, 2, 3.56]}><planeGeometry args={[2.2, 4]} /><meshBasicMaterial color="#7c4a1e" transparent opacity={0.85} /></mesh>
     </group>
   )
 }
@@ -934,14 +844,8 @@ function PostOffice() {
         <boxGeometry args={[5, 4, 4]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 4.15, 0]}>
-        <boxGeometry args={[5.2, 0.3, 4.2]} />
-        <meshToonMaterial color="#dc2626" />
-      </mesh>
-      <mesh position={[0, 3.5, 2.06]}>
-        <planeGeometry args={[4.5, 0.45]} />
-        <meshBasicMaterial color="#1d4ed8" />
-      </mesh>
+      <mesh position={[0, 4.15, 0]}><boxGeometry args={[5.2, 0.3, 4.2]} /><meshToonMaterial color="#dc2626" /></mesh>
+      <mesh position={[0, 3.5, 2.06]}><planeGeometry args={[4.5, 0.45]} /><meshBasicMaterial color="#1d4ed8" /></mesh>
       {[-1.2, 1.2].map((x, i) => (
         <mesh key={i} position={[x, 2, 2.06]}>
           <planeGeometry args={[1.2, 1.6]} />
@@ -964,11 +868,7 @@ function Apartments() {
         <boxGeometry args={[5, 12, 4]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
-      <mesh position={[0, 12.15, 0]}>
-        <boxGeometry args={[5.2, 0.3, 4.2]} />
-        <meshToonMaterial color="#475569" />
-      </mesh>
-      {/* Floor-by-floor windows (deterministic) */}
+      <mesh position={[0, 12.15, 0]}><boxGeometry args={[5.2, 0.3, 4.2]} /><meshToonMaterial color="#475569" /></mesh>
       {[1, 3, 5, 7, 9, 11].flatMap((y, fi) =>
         [-1.5, 0, 1.5].map((x, ci) => (
           <mesh key={`${fi}-${ci}`} position={[x, y, 2.06]}>
@@ -981,7 +881,29 @@ function Apartments() {
   )
 }
 
-// ── Playground ────────────────────────────────────────────────────────────
+// ── Park area with benches + pond ─────────────────────────────────────────
+function ParkArea() {
+  return (
+    <group position={[0, 0, 18]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+        <planeGeometry args={[18, 10]} />
+        <meshToonMaterial color="#4ade80" />
+      </mesh>
+      {[[-5, 0, 3], [5, 0, 3], [-5, 0, -3], [5, 0, -3]].map(([x, y, z], i) => (
+        <group key={i} position={[x, 0, z]}>
+          <mesh position={[0, 0.42, 0]}><boxGeometry args={[1.4, 0.1, 0.42]} /><meshToonMaterial color="#92400e" /></mesh>
+          <mesh position={[0, 0.25, -0.16]}><boxGeometry args={[1.4, 0.3, 0.08]} /><meshToonMaterial color="#92400e" /></mesh>
+        </group>
+      ))}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, -1]}>
+        <circleGeometry args={[2.5, 16]} />
+        <meshToonMaterial color="#38bdf8" transparent opacity={0.8} />
+      </mesh>
+    </group>
+  )
+}
+
+// ── Playground (swing animation kept) ────────────────────────────────────
 function Playground() {
   const swing1 = useRef()
   const swing2 = useRef()
@@ -992,166 +914,56 @@ function Playground() {
   })
   return (
     <group position={[0, 0, 38]}>
-      {/* Grass patch */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
         <planeGeometry args={[16, 12]} />
         <meshToonMaterial color="#86efac" />
       </mesh>
-      {/* Fence */}
       {Array.from({ length: 8 }, (_, i) => (
         <mesh key={`fp${i}`} position={[-7 + i * 2, 0.5, -5.5]}>
           <boxGeometry args={[0.12, 1, 0.12]} />
           <meshToonMaterial color="#92400e" />
         </mesh>
       ))}
-
-      {/* === Swing set === */}
       <group position={[-4.5, 0, -1]}>
         {[-1.2, 1.2].map((x, i) => (
-          <mesh key={i} position={[x, 2, 0]}>
-            <cylinderGeometry args={[0.07, 0.07, 4, 6]} />
-            <meshToonMaterial color="#f97316" />
-          </mesh>
+          <mesh key={i} position={[x, 2, 0]}><cylinderGeometry args={[0.07, 0.07, 4, 6]} /><meshToonMaterial color="#f97316" /></mesh>
         ))}
         <mesh position={[0, 4.1, 0]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.07, 0.07, 2.6, 6]} />
-          <meshToonMaterial color="#f97316" />
+          <cylinderGeometry args={[0.07, 0.07, 2.6, 6]} /><meshToonMaterial color="#f97316" />
         </mesh>
         <group ref={swing1} position={[-0.5, 4.1, 0]}>
-          <mesh position={[0, -1.5, 0]}>
-            <boxGeometry args={[0.55, 0.1, 0.22]} />
-            <meshToonMaterial color="#7c3aed" />
-          </mesh>
-          <mesh position={[0, -0.75, 0]}>
-            <cylinderGeometry args={[0.02, 0.02, 1.5, 4]} />
-            <meshToonMaterial color="#475569" />
-          </mesh>
+          <mesh position={[0, -1.5, 0]}><boxGeometry args={[0.55, 0.1, 0.22]} /><meshToonMaterial color="#7c3aed" /></mesh>
+          <mesh position={[0, -0.75, 0]}><cylinderGeometry args={[0.02, 0.02, 1.5, 4]} /><meshToonMaterial color="#475569" /></mesh>
         </group>
         <group ref={swing2} position={[0.5, 4.1, 0]}>
-          <mesh position={[0, -1.5, 0]}>
-            <boxGeometry args={[0.55, 0.1, 0.22]} />
-            <meshToonMaterial color="#ec4899" />
-          </mesh>
-          <mesh position={[0, -0.75, 0]}>
-            <cylinderGeometry args={[0.02, 0.02, 1.5, 4]} />
-            <meshToonMaterial color="#475569" />
-          </mesh>
+          <mesh position={[0, -1.5, 0]}><boxGeometry args={[0.55, 0.1, 0.22]} /><meshToonMaterial color="#ec4899" /></mesh>
+          <mesh position={[0, -0.75, 0]}><cylinderGeometry args={[0.02, 0.02, 1.5, 4]} /><meshToonMaterial color="#475569" /></mesh>
         </group>
       </group>
-
-      {/* === Slide === */}
       <group position={[2, 0, -1]}>
         {[-0.5, 0.5].map((x, i) => (
-          <mesh key={i} position={[x, 1.25, -1]}>
-            <cylinderGeometry args={[0.07, 0.07, 2.5, 6]} />
-            <meshToonMaterial color="#15803d" />
-          </mesh>
+          <mesh key={i} position={[x, 1.25, -1]}><cylinderGeometry args={[0.07, 0.07, 2.5, 6]} /><meshToonMaterial color="#15803d" /></mesh>
         ))}
-        <mesh position={[0, 2.5, -1]}>
-          <boxGeometry args={[1.2, 0.14, 1.2]} />
-          <meshToonMaterial color="#22c55e" />
-        </mesh>
+        <mesh position={[0, 2.5, -1]}><boxGeometry args={[1.2, 0.14, 1.2]} /><meshToonMaterial color="#22c55e" /></mesh>
         <mesh position={[0.05, 1.5, 0.3]} rotation={[-0.75, 0, 0]}>
-          <boxGeometry args={[1.1, 0.1, 2.8]} />
-          <meshToonMaterial color="#facc15" />
+          <boxGeometry args={[1.1, 0.1, 2.8]} /><meshToonMaterial color="#facc15" />
         </mesh>
       </group>
-
-      {/* === Seesaw === */}
       <group position={[5, 0, 2]}>
-        <mesh position={[0, 0.6, 0]}>
-          <cylinderGeometry args={[0.09, 0.11, 1.2, 6]} />
-          <meshToonMaterial color="#7c3aed" />
-        </mesh>
+        <mesh position={[0, 0.6, 0]}><cylinderGeometry args={[0.09, 0.11, 1.2, 6]} /><meshToonMaterial color="#7c3aed" /></mesh>
         <mesh position={[0, 1.25, 0]} rotation={[0, 0, 0.15]}>
-          <boxGeometry args={[3.2, 0.12, 0.38]} />
-          <meshToonMaterial color="#f97316" />
+          <boxGeometry args={[3.2, 0.12, 0.38]} /><meshToonMaterial color="#f97316" />
         </mesh>
       </group>
-
-      {/* === Sandbox === */}
       <group position={[-2, 0, 3]}>
-        <mesh position={[0, 0.2, 0]}>
-          <boxGeometry args={[3.2, 0.4, 2.6]} />
-          <meshToonMaterial color="#92400e" />
-        </mesh>
-        <mesh position={[0, 0.42, 0]}>
-          <boxGeometry args={[3.0, 0.04, 2.4]} />
-          <meshToonMaterial color="#fde68a" />
-        </mesh>
+        <mesh position={[0, 0.2, 0]}><boxGeometry args={[3.2, 0.4, 2.6]} /><meshToonMaterial color="#92400e" /></mesh>
+        <mesh position={[0, 0.42, 0]}><boxGeometry args={[3.0, 0.04, 2.4]} /><meshToonMaterial color="#fde68a" /></mesh>
       </group>
     </group>
   )
 }
 
-// ── Animated Moving Clouds ────────────────────────────────────────────────
-function CloudPuff({ groupRef, startX, y, z, speed, puffs }) {
-  useFrame((_, delta) => {
-    if (groupRef.current) {
-      groupRef.current.position.x += delta * speed
-      if (groupRef.current.position.x > 60) groupRef.current.position.x = -60
-    }
-  })
-  return (
-    <group ref={groupRef} position={[startX, y, z]}>
-      {puffs.map(([px, py, r], i) => (
-        <mesh key={i} position={[px, py, 0]}>
-          <sphereGeometry args={[r, 8, 6]} />
-          <meshToonMaterial color="#f8fafc" transparent opacity={0.88} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
-
-function Clouds() {
-  const c1 = useRef(), c2 = useRef(), c3 = useRef(), c4 = useRef()
-  return (
-    <>
-      <CloudPuff groupRef={c1} startX={-30} y={14} z={-25} speed={1.0}
-        puffs={[[-1,0,1],[0,0.5,1.3],[1,0,1],[0,-0.2,1.1]]} />
-      <CloudPuff groupRef={c2} startX={15} y={16} z={-35} speed={0.55}
-        puffs={[[-1.5,0,1.2],[0,0.7,1.5],[1.5,0,1.2],[-0.5,-0.3,1],[0.5,-0.3,1]]} />
-      <CloudPuff groupRef={c3} startX={40} y={13} z={10} speed={1.3}
-        puffs={[[-0.8,0,0.9],[0,0.4,1.1],[0.8,0,0.9]]} />
-      <CloudPuff groupRef={c4} startX={-50} y={15} z={30} speed={0.75}
-        puffs={[[-1.2,0,1.1],[0,0.6,1.4],[1.2,0,1.1],[0,-0.25,1]]} />
-    </>
-  )
-}
-
-// ── Park Fountain (secondary) ─────────────────────────────────────────────
-function ParkArea() {
-  return (
-    <group position={[0, 0, 18]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-        <planeGeometry args={[18, 10]} />
-        <meshToonMaterial color="#4ade80" />
-      </mesh>
-      {/* Park benches */}
-      {[[-5, 0, 3], [5, 0, 3], [-5, 0, -3], [5, 0, -3]].map(([x, y, z], i) => (
-        <group key={i} position={[x, 0, z]}>
-          <mesh position={[0, 0.42, 0]}>
-            <boxGeometry args={[1.4, 0.1, 0.42]} />
-            <meshToonMaterial color="#92400e" />
-          </mesh>
-          <mesh position={[0, 0.25, -0.16]}>
-            <boxGeometry args={[1.4, 0.3, 0.08]} />
-            <meshToonMaterial color="#92400e" />
-          </mesh>
-        </group>
-      ))}
-      {/* Pond */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, -1]}>
-        <circleGeometry args={[2.5, 16]} />
-        <meshToonMaterial color="#38bdf8" transparent opacity={0.8} />
-      </mesh>
-    </group>
-  )
-}
-
-// ── Dynamic window + lamp lighting ───────────────────────────────────────
-// Runs every frame; updates the two shared materials from timeWeatherState.lampOn
+// ── Dynamic window + lamp lighting ────────────────────────────────────────
 function DynamicLighting() {
   useFrame(() => {
     const on = timeWeatherState.lampOn
@@ -1163,8 +975,6 @@ function DynamicLighting() {
 }
 
 // ── Main CityMap ──────────────────────────────────────────────────────────
-// React.memo: CityMap has no reactive props so it never needs to re-render
-// from parent reconciliations triggered by speedKmh / nearBuilding etc.
 const CityMap = React.memo(function CityMap() {
   return (
     <group>
@@ -1172,11 +982,9 @@ const CityMap = React.memo(function CityMap() {
       <Ground />
       <Roads />
 
-      {/* ── Town Centre ── */}
       <Fountain pos={[0, 0, 0]} />
       <CityHall />
 
-      {/* ── Original core buildings (kept) ── */}
       <Building pos={[-10, 0, -6]} w={5} d={4} h={5} color="#7F1D1D" roof="#F59E0B" />
       <Building pos={[10,  0, -6]} w={5} d={4} h={6} color="#1E1B4B" roof="#7C3AED" />
       <Building pos={[0,   0,-14]} w={8} d={4} h={2.5} color="#0C4A6E" roof="#38BDF8" />
@@ -1188,7 +996,6 @@ const CityMap = React.memo(function CityMap() {
       <Building pos={[-7,  0, 10]} w={2} d={2} h={2.5} color="#334155" roof="#22C55E" />
       <Building pos={[7,   0, 10]} w={2} d={2} h={2}   color="#334155" roof="#F59E0B" />
 
-      {/* ── North District ── */}
       <Mall />
       <Cinema />
       <Supermarket />
@@ -1196,17 +1003,14 @@ const CityMap = React.memo(function CityMap() {
       <Building pos={[-5,  0,-28]} w={4} d={3} h={4} color="#6d28d9" roof="#a855f7" />
       <Building pos={[5,   0,-28]} w={4} d={3} h={3} color="#0f4c8a" roof="#3b82f6" />
 
-      {/* ── East District (Services) ── */}
       <Hospital />
       <PoliceStation />
       <FireStation />
 
-      {/* ── West District (Education) ── */}
       <School />
       <Library />
       <Gym />
 
-      {/* ── South District ── */}
       <Restaurant />
       <GasStation />
       <Church />
@@ -1215,7 +1019,6 @@ const CityMap = React.memo(function CityMap() {
       <Playground />
       <ParkArea />
 
-      {/* ── Residential Houses ── */}
       <House pos={[26, 0, 24]} color="#bfdbfe" roofColor="#1d4ed8" />
       <House pos={[36, 0, 24]} color="#fde68a" roofColor="#b45309" rotate={0.08} />
       <House pos={[26, 0, 34]} color="#fce7f3" roofColor="#be185d" rotate={-0.06} />
@@ -1225,26 +1028,20 @@ const CityMap = React.memo(function CityMap() {
       <House pos={[26, 0, 44]} color="#fee2e2" roofColor="#dc2626" rotate={-0.04} />
       <House pos={[36, 0, 44]} color="#ecfdf5" roofColor="#059669" />
 
-      {/* ── Traffic Lights (single useFrame) ── */}
       <TrafficLights />
 
-      {/* ── Trees (instanced — 63 trees, 4 draw calls) ── */}
-      <InstancedTrees />
+      {/* GLB trees — tree1 + tree2, same positions as original, target 3.5-4.5 units tall */}
+      <Suspense fallback={null}>
+        <GLBTrees />
+      </Suspense>
 
-      {/* ── Street Lamps (instanced — 45 lamps, 3 draw calls) ── */}
       <InstancedLamps />
 
-      {/* ── Fountain plaza benches ── */}
-      {[[0,-2.6,0],[0,0,2.6,Math.PI/2],[2.6,0,0,Math.PI/2],[-2.6,0,0,Math.PI/2]].map(([x,y,z,ry=0],i)=>(
+      {/* Fountain plaza benches */}
+      {[[0,-2.6,0],[0,0,2.6,Math.PI/2],[2.6,0,0,Math.PI/2],[-2.6,0,0,Math.PI/2]].map(([x,y,z,ry=0],i) => (
         <group key={`bench${i}`} position={[x,0,z]} rotation={[0,ry,0]}>
-          <mesh position={[0, 0.42, 0]}>
-            <boxGeometry args={[1.3, 0.1, 0.42]} />
-            <meshToonMaterial color="#92400e" />
-          </mesh>
-          <mesh position={[0, 0.25, -0.17]}>
-            <boxGeometry args={[1.3, 0.3, 0.08]} />
-            <meshToonMaterial color="#92400e" />
-          </mesh>
+          <mesh position={[0, 0.42, 0]}><boxGeometry args={[1.3, 0.1, 0.42]} /><meshToonMaterial color="#92400e" /></mesh>
+          <mesh position={[0, 0.25, -0.17]}><boxGeometry args={[1.3, 0.3, 0.08]} /><meshToonMaterial color="#92400e" /></mesh>
         </group>
       ))}
     </group>
@@ -1252,3 +1049,6 @@ const CityMap = React.memo(function CityMap() {
 })
 
 export default CityMap
+
+useGLTF.preload('/models/tree1.glb')
+useGLTF.preload('/models/tree2.glb')
