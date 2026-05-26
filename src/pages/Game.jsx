@@ -37,6 +37,7 @@ import { usePhone } from '@/hooks/usePhone'
 import PlayerRadar from '@/components/PlayerRadar'
 import { initGameState, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
 import { showSpeechBubble } from '@/world/RemotePlayer'
+import Shop, { ShopButton } from '@/components/Shop'
 
 export default function Game() {
   const avatar   = useStore(s => s.avatar)
@@ -58,6 +59,9 @@ export default function Game() {
   const [bossBanner,      setBossBanner]      = useState(null)   // null | 'spawned' | 'defeated'
   const [showFastTravel,  setShowFastTravel]  = useState(false)
   const [dailyBonus,      setDailyBonus]      = useState(null)   // null | { coins, tickets, streak, streakBonus }
+
+  // Shop
+  const [showShop, setShowShop] = useState(false)
 
   // Orb examine panel
   const [showOrbPanel, setShowOrbPanel] = useState(false)
@@ -227,6 +231,28 @@ export default function Game() {
         if (elapsed >= 30) { completeDailyMission('daily_vehicle'); clearInterval(id) }
       }
     }, 500)
+    return () => clearInterval(id)
+  }, [])
+
+  // Midnight date-change detection — reset daily missions + show new-day toast
+  const todayRef = useRef(new Date().getDate())
+  useEffect(() => {
+    const id = setInterval(() => {
+      const day = new Date().getDate()
+      if (day !== todayRef.current) {
+        todayRef.current = day
+        window.dispatchEvent(new CustomEvent('daily-reset'))
+        audioSystem.playMissionComplete?.()
+        const tid = ++toastIdRef.current
+        setMsgToasts(prev => [...prev.slice(-2), {
+          id: tid, type: 'global',
+          fromName: '🌅 New Day!',
+          text: 'New day, new missions available!',
+          duration: 8000,
+          onClick: () => setShowMissions(true),
+        }])
+      }
+    }, 30000)
     return () => clearInterval(id)
   }, [])
 
@@ -437,7 +463,7 @@ export default function Game() {
         </div>
       )}
 
-      {/* Left-side quick buttons — mission + fast travel, vertically centered */}
+      {/* Left-side quick buttons — mission + fast travel + shop, vertically centered */}
       {mode === 'city' && !showMissions && !showFastTravel && (
         <div style={{ position: 'fixed', left: 12, top: '50%', transform: 'translateY(-50%)', zIndex: 40, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
@@ -450,6 +476,7 @@ export default function Game() {
             title="Fast Travel"
             style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(251,191,36,0.2)', border: '1.5px solid rgba(251,191,36,0.4)', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
           >📍</button>
+          <ShopButton onClick={() => setShowShop(true)} />
         </div>
       )}
 
@@ -722,6 +749,9 @@ export default function Game() {
         </div>
       )}
 
+      {/* Shop */}
+      <Shop open={showShop} onClose={() => setShowShop(false)} />
+
       {/* Mobile touch controls */}
       {isMobile && !activeGame && <MobileControls />}
 
@@ -744,6 +774,7 @@ export default function Game() {
         callStatus={phone.callStatus}
         callMeta={phone.callMeta}
         callElapsed={phone.callElapsed}
+        callError={phone.callError}
         missedCalls={phone.missedCalls}
         clearMissed={phone.clearMissed}
         npcSession={phone.npcSession}

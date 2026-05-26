@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 import { audioSystem } from '@/lib/audioSystem'
 
-const DAY_SECS = 600  // 10 real minutes = 1 full game day
+// Real-world time drives day/night — no fake clock needed
 
 // Sky background colour stops [hour, hex]
 const SKY_STOPS = [
@@ -67,7 +67,6 @@ function lerpStops(stops, hour, getColor) {
 export default function DayNightCycle() {
   const { scene } = useThree()
 
-  const clockRef    = useRef(DAY_SECS * 0.5)  // start at noon (12:00)
   const bgColor     = useRef(new THREE.Color('#4db8f5'))
   const ambRef      = useRef()
   const sunRef      = useRef()
@@ -98,14 +97,15 @@ export default function DayNightCycle() {
     return () => { scene.fog = null }
   }, [scene])
 
-  useFrame((_, delta) => {
-    clockRef.current = (clockRef.current + delta) % DAY_SECS
-    const hour = (clockRef.current / DAY_SECS) * 24
+  useFrame(() => {
+    // ── Real-world time — update every frame so sun/moon track smoothly ──
+    const now  = new Date()
+    const hour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600
 
     // ── Shared time state ─────────────────────────────────────────────
     timeWeatherState.timeOfDay = hour
     timeWeatherState.isNight   = hour < 6 || hour >= 20
-    timeWeatherState.lampOn    = hour < 6.5 || hour >= 19.5
+    timeWeatherState.lampOn    = hour < 7 || hour >= 19
 
     // ── Sky background ────────────────────────────────────────────────
     lerpStops(SKY_STOPS, hour, false)   // result in _ca

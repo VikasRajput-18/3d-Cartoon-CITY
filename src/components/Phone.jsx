@@ -4,13 +4,11 @@ import { timeWeatherState } from '@/lib/timeWeatherState'
 import { audioSystem } from '@/lib/audioSystem'
 import { useMobile } from '@/lib/useMobile'
 
-// ── Global scroll-hide style (injected once) ──────────────────────────────────
 export const phoneStyle = `
   .ph-scroll::-webkit-scrollbar { display: none; }
   .ph-scroll { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 `
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtTime(sec) {
   const m = Math.floor(sec / 60).toString().padStart(2, '0')
   const s = (sec % 60).toString().padStart(2, '0')
@@ -25,7 +23,6 @@ function fmtHour(h) {
   return `${disp}:${mm} ${ampm}`
 }
 
-// ── Style helpers ─────────────────────────────────────────────────────────────
 const BTN = (bg, color = '#fff') => ({
   border: 'none', borderRadius: 999, cursor: 'pointer',
   fontFamily: 'Nunito, sans-serif', fontWeight: 800,
@@ -53,58 +50,49 @@ const PANEL_COMMON = {
   overflow: 'hidden',
 }
 
-// NPC list that can be called
 const NPCS = [
   'Anaya', 'Rahul', 'Zoya', 'Kabir', 'Meera', 'Arjun',
   'Priya', 'Dev', 'Nisha', 'Rohan', 'Sana', 'Vivek',
 ]
 
-// ── Panel positioning by device ───────────────────────────────────────────────
 function usePanelStyles(isMobile) {
-  // Idle phone panel (contacts/missed tabs)
   const idlePanel = isMobile ? {
     ...PANEL_COMMON,
     position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 90,
-    maxHeight: '75vh',
-    borderRadius: '20px 20px 0 0',
+    maxHeight: '75vh', borderRadius: '20px 20px 0 0',
   } : {
     ...PANEL_COMMON,
     position: 'fixed', bottom: 70, left: 16, zIndex: 90,
-    width: 320,
-    maxHeight: '70vh',
-    borderRadius: 20,
+    width: 320, maxHeight: '70vh', borderRadius: 20,
   }
 
-  // Call screens (outgoing / active / npc-ringing)
-  const callPanel = isMobile ? {
+  const npcPanel = isMobile ? {
     ...PANEL_COMMON,
-    position: 'fixed',
-    bottom: 80, left: '50%',
+    position: 'fixed', bottom: 80, left: '50%',
     transform: 'translateX(-50%)',
-    zIndex: 90,
-    width: 'min(300px, calc(100vw - 32px))',
+    zIndex: 90, width: 'min(300px, calc(100vw - 32px))',
     borderRadius: 20,
   } : {
     ...PANEL_COMMON,
     position: 'fixed', bottom: 70, left: 16, zIndex: 90,
-    width: 320,
-    borderRadius: 20,
+    width: 320, borderRadius: 20,
   }
 
-  return { idlePanel, callPanel }
+  return { idlePanel, npcPanel }
 }
 
 // ── Main Phone component ──────────────────────────────────────────────────────
 export default function Phone({
   myId, myName, onlinePlayers = [],
   phoneOpen, onToggle,
-  callStatus, callMeta, callElapsed, missedCalls, clearMissed,
+  callStatus, callMeta, callElapsed, callError,
+  missedCalls, clearMissed,
   npcSession, npcTyping, micMuted,
   onMakeCall, onAcceptCall, onRejectCall, onEndCall, onToggleMic,
   onCallNPC, onSendNpcMessage,
 }) {
   const isMobile = useMobile()
-  const { idlePanel, callPanel } = usePanelStyles(isMobile)
+  const { idlePanel, npcPanel } = usePanelStyles(isMobile)
 
   const [tab, setTab] = useState('contacts')
   const [npcInput, setNpcInput] = useState('')
@@ -115,7 +103,7 @@ export default function Phone({
   }, [npcSession?.messages])
 
   const handleNpcFocus = () => { gameControls.enabled = false }
-  const handleNpcBlur = () => { gameControls.enabled = true }
+  const handleNpcBlur  = () => { gameControls.enabled = true }
 
   const sendNpcMsg = () => {
     const t = npcInput.trim()
@@ -124,62 +112,44 @@ export default function Phone({
     onSendNpcMessage(t)
   }
 
-  // ── Incoming call — full-screen centered overlay ──────────────────────────
-  if (callStatus === 'incoming') {
-    return <IncomingOverlay meta={callMeta} onAccept={onAcceptCall} onReject={onRejectCall} />
-  }
+  const inCall = callStatus !== 'idle'
 
-  // ── Outgoing ring ─────────────────────────────────────────────────────────
-  if (callStatus === 'outgoing') {
-    return (
-      <div style={{ ...callPanel, alignItems: 'center', padding: '28px 20px', gap: 16 }}>
-        <AvatarCircle name={callMeta?.receiverName} size={68} pulse />
-        <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 16, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {callMeta?.receiverName}
-        </div>
-        <div style={{ color: '#64748b', fontSize: 12 }}>Calling…</div>
-        <button onClick={onEndCall} style={{ ...BTN('#ef4444'), width: 56, height: 56, fontSize: 22, marginTop: 8 }}>📵</button>
-      </div>
-    )
-  }
+  return (
+    <>
+      <style>{phoneStyle}</style>
 
-  // ── NPC ringing (before NPC answers) ─────────────────────────────────────
-  if (callStatus === 'npc') {
-    return (
-      <div style={{ ...callPanel, alignItems: 'center', padding: '28px 20px', gap: 16 }}>
-        <AvatarCircle name={callMeta?.receiverName} size={68} pulse />
-        <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 16, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {callMeta?.receiverName}
-        </div>
-        <div style={{ color: '#64748b', fontSize: 12 }}>Ringing…</div>
-        <button onClick={onEndCall} style={{ ...BTN('#ef4444'), width: 56, height: 56, fontSize: 22, marginTop: 8 }}>📵</button>
-      </div>
-    )
-  }
+      {/* ── Incoming call — full-screen overlay ─────────────────────────── */}
+      {callStatus === 'incoming' && (
+        <IncomingOverlay meta={callMeta} onAccept={onAcceptCall} onReject={onRejectCall} />
+      )}
 
-  // ── Active call ───────────────────────────────────────────────────────────
-  if (callStatus === 'active') {
-    const otherName = callMeta?.receiverName || callMeta?.callerName || '?'
-    return (
-      <div style={{ ...callPanel, padding: '20px 16px', gap: 12 }}>
-        {/* Header */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          <AvatarCircle name={otherName} size={60} />
-          <div style={{ color: '#e2e8f0', fontWeight: 800, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-            {otherName}
+      {/* ── Floating call bar — visible during any non-idle call ─────────── */}
+      {inCall && callStatus !== 'incoming' && (
+        <FloatingCallBar
+          status={callStatus}
+          meta={callMeta}
+          elapsed={callElapsed}
+          micMuted={micMuted}
+          error={callError}
+          hasNpc={!!npcSession}
+          onEnd={onEndCall}
+          onMute={onToggleMic}
+          onOpenNpc={onToggle}
+        />
+      )}
+
+      {/* ── NPC chat panel (only when phone open during active NPC call) ── */}
+      {callStatus === 'active' && npcSession && phoneOpen && (
+        <div style={{ ...npcPanel, padding: '16px', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <span style={{ color: '#a78bfa', fontWeight: 800, fontSize: 13 }}>
+              {npcSession.name}
+            </span>
+            <button onClick={onToggle} style={{ ...BTN('transparent'), color: '#475569', fontSize: 16, width: 28, height: 28 }}>×</button>
           </div>
-          <div style={{ color: '#4ade80', fontSize: 12 }}>{fmtTime(callElapsed)}</div>
-        </div>
-
-        {/* NPC chat messages */}
-        {npcSession && (
           <div
             className="ph-scroll"
-            style={{
-              flex: 1, minHeight: 0, maxHeight: 200, overflowY: 'auto',
-              display: 'flex', flexDirection: 'column', gap: 6,
-              padding: '0 2px',
-            }}
+            style={{ flex: 1, minHeight: 0, maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}
           >
             {npcSession.messages.map((m, i) => {
               const isMe = m.role === 'user'
@@ -190,8 +160,7 @@ export default function Phone({
                     border: '1px solid ' + (isMe ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.1)'),
                     borderRadius: isMe ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
                     padding: '5px 10px', maxWidth: '82%',
-                    color: '#e2e8f0', fontSize: 11, lineHeight: 1.4,
-                    wordBreak: 'break-word',
+                    color: '#e2e8f0', fontSize: 11, lineHeight: 1.4, wordBreak: 'break-word',
                   }}>{m.text}</div>
                 </div>
               )
@@ -199,10 +168,6 @@ export default function Phone({
             {npcTyping && <div style={{ color: '#64748b', fontSize: 10, paddingLeft: 2 }}>typing…</div>}
             <div ref={npcBottomRef} />
           </div>
-        )}
-
-        {/* NPC input */}
-        {npcSession && (
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
             <input
               value={npcInput}
@@ -226,98 +191,155 @@ export default function Phone({
               style={{ ...BTN('rgba(124,58,237,0.4)'), padding: '6px 12px', fontSize: 11, opacity: npcTyping ? 0.5 : 1 }}
             >Send</button>
           </div>
-        )}
-
-        {/* Call controls */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 20, flexShrink: 0 }}>
-          {!npcSession && (
-            <button
-              onClick={onToggleMic}
-              style={{ ...BTN(micMuted ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.1)'), width: 48, height: 48, fontSize: 20 }}
-              title={micMuted ? 'Unmute' : 'Mute'}
-            >{micMuted ? '🔇' : '🎙️'}</button>
-          )}
-          <button onClick={onEndCall} style={{ ...BTN('#ef4444'), width: 56, height: 56, fontSize: 22 }}>📵</button>
         </div>
-      </div>
-    )
-  }
+      )}
 
-  // ── Idle: phone closed ─────────────────────────────────────────────────────
-  if (!phoneOpen) return null
-
-  const hour = timeWeatherState.timeOfDay ?? 12
-
-  return (
-    <>
-      <style>{phoneStyle}</style>
-      <div style={idlePanel}>
-        {/* Status bar — fixed height, never scrolls */}
-        <div style={{
-          background: 'rgba(124,58,237,0.15)',
-          padding: '10px 16px 8px',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          flexShrink: 0,
-        }}>
-          <span style={{ color: '#a78bfa', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-            {myName}
-          </span>
-          <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 800, letterSpacing: 1, flexShrink: 0 }}>
-            {fmtHour(hour)}
-          </span>
-          <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
-            <span style={{ color: '#4ade80', fontSize: 9 }}>●●●</span>
-            <span style={{ fontSize: 10 }}>🔋</span>
+      {/* ── Idle phone panel (contacts, missed) ────────────────────────────── */}
+      {callStatus === 'idle' && phoneOpen && (
+        <div style={idlePanel}>
+          {/* Status bar */}
+          <div style={{
+            background: 'rgba(124,58,237,0.15)',
+            padding: '10px 16px 8px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <span style={{ color: '#a78bfa', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
+              {myName}
+            </span>
+            <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 800, letterSpacing: 1, flexShrink: 0 }}>
+              {fmtHour(timeWeatherState.timeOfDay ?? 12)}
+            </span>
+            <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexShrink: 0 }}>
+              <span style={{ color: '#4ade80', fontSize: 9 }}>●●●</span>
+              <span style={{ fontSize: 10 }}>🔋</span>
+            </div>
           </div>
+
+          {/* Tab bar */}
+          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+            {[
+              ['contacts', '👥 Contacts'],
+              ['missed', `📵 Missed${missedCalls.length ? ` (${missedCalls.length})` : ''}`],
+            ].map(([key, label]) => (
+              <button key={key} onClick={() => setTab(key)} style={TAB_STYLE(tab === key)}>{label}</button>
+            ))}
+          </div>
+
+          {/* Scrollable content */}
+          <ScrollContent hasMany={(tab === 'contacts' ? 12 + onlinePlayers.length : missedCalls.length) > 5}>
+            {tab === 'contacts' && (
+              <ContactsList myId={myId} onlinePlayers={onlinePlayers} onCall={onMakeCall} onCallNPC={onCallNPC} />
+            )}
+            {tab === 'missed' && (
+              <MissedList missed={missedCalls} onClear={clearMissed} onCallback={onMakeCall} />
+            )}
+          </ScrollContent>
+
+          {/* Close */}
+          <button
+            onClick={onToggle}
+            style={{
+              ...BTN('rgba(255,255,255,0.04)'),
+              padding: '10px 16px', fontSize: 11, color: '#64748b',
+              borderTop: '1px solid rgba(255,255,255,0.06)', borderRadius: 0,
+              flexShrink: 0, width: '100%',
+            }}
+          >Close Phone</button>
         </div>
-
-        {/* Tab bar — fixed height, never scrolls */}
-        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-          {[
-            ['contacts', '👥 Contacts'],
-            ['missed', `📵 Missed${missedCalls.length ? ` (${missedCalls.length})` : ''}`],
-          ].map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} style={TAB_STYLE(tab === key)}>{label}</button>
-          ))}
-        </div>
-
-        {/* Scrollable content — flex: 1 so it fills remaining height */}
-        <ScrollContent hasMany={(tab === 'contacts' ? 12 + onlinePlayers.length : missedCalls.length) > 5}>
-          {tab === 'contacts' && (
-            <ContactsList myId={myId} onlinePlayers={onlinePlayers} onCall={onMakeCall} onCallNPC={onCallNPC} />
-          )}
-          {tab === 'missed' && (
-            <MissedList missed={missedCalls} onClear={clearMissed} onCallback={onMakeCall} />
-          )}
-        </ScrollContent>
-
-        {/* Close button — fixed at bottom, never scrolls */}
-        <button
-          onClick={onToggle}
-          style={{
-            ...BTN('rgba(255,255,255,0.04)'),
-            padding: '10px 16px', fontSize: 11, color: '#64748b',
-            borderTop: '1px solid rgba(255,255,255,0.06)', borderRadius: 0,
-            flexShrink: 0, width: '100%',
-          }}
-          className='z-50'
-        >Close Phone</button>
-      </div>
+      )}
     </>
   )
 }
 
-// ── Scrollable content wrapper with fade hint ─────────────────────────────────
+// ── Floating call bar — small persistent bar at top during any call ───────────
+function FloatingCallBar({ status, meta, elapsed, micMuted, error, hasNpc, onEnd, onMute, onOpenNpc }) {
+  const name = meta?.receiverName || meta?.callerName || '?'
+
+  let statusText = ''
+  let statusColor = '#64748b'
+  if (status === 'outgoing')   { statusText = 'Calling…'; statusColor = '#a78bfa' }
+  if (status === 'npc')        { statusText = 'Ringing…'; statusColor = '#a78bfa' }
+  if (status === 'connecting') { statusText = 'Connecting…'; statusColor = '#fbbf24' }
+  if (status === 'active')     { statusText = fmtTime(elapsed); statusColor = '#4ade80' }
+  if (status === 'ended')      { statusText = 'Call ended'; statusColor = '#ef4444' }
+  if (error)                   { statusText = error; statusColor = '#ef4444' }
+
+  const isActive  = status === 'active'
+  const isPending = status === 'outgoing' || status === 'npc' || status === 'connecting'
+  const isEnded   = status === 'ended'
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 500, pointerEvents: 'auto',
+      background: 'linear-gradient(180deg,#0d0726 0%,#0a0a1e 100%)',
+      border: '1px solid rgba(124,58,237,0.5)',
+      borderTop: 'none',
+      borderRadius: '0 0 18px 18px',
+      padding: '8px 18px 10px',
+      display: 'flex', alignItems: 'center', gap: 12,
+      minWidth: 220, maxWidth: 'calc(100vw - 32px)',
+      boxShadow: '0 6px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,58,237,0.15)',
+      fontFamily: 'Nunito, sans-serif',
+    }}>
+      <AvatarCircle name={name} size={34} pulse={isPending} />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          color: '#e2e8f0', fontWeight: 800, fontSize: 13,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {name}
+        </div>
+        <div style={{ color: statusColor, fontSize: 11, fontWeight: 600 }}>
+          {statusText}
+        </div>
+      </div>
+
+      {/* Open NPC chat (when NPC call active and phone closed) */}
+      {isActive && hasNpc && (
+        <button
+          onClick={onOpenNpc}
+          style={{ ...BTN('rgba(124,58,237,0.3)'), width: 34, height: 34, fontSize: 14 }}
+          title="Open chat"
+        >💬</button>
+      )}
+
+      {/* Mute toggle (real calls only) */}
+      {isActive && !hasNpc && (
+        <button
+          onClick={onMute}
+          style={{ ...BTN(micMuted ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.1)'), width: 38, height: 38, fontSize: 17 }}
+          title={micMuted ? 'Unmute' : 'Mute'}
+        >{micMuted ? '🔇' : '🎙️'}</button>
+      )}
+
+      {/* End call button — hidden during 'ended' state */}
+      {!isEnded && (
+        <button
+          onClick={onEnd}
+          style={{ ...BTN('#ef4444'), width: 42, height: 42, fontSize: 18 }}
+          title="End call"
+        >📵</button>
+      )}
+
+      <style>{`
+        @keyframes ph-bar-pulse {
+          0%,100% { opacity: 1; } 50% { opacity: 0.55; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Scrollable content wrapper ────────────────────────────────────────────────
 function ScrollContent({ children, hasMany }) {
   return (
     <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-      <div
-        className="ph-scroll"
-        style={{ height: '100%', overflowY: 'auto' }}
-      >
+      <div className="ph-scroll" style={{ height: '100%', overflowY: 'auto' }}>
         {children}
       </div>
-      {/* Fade gradient hinting more content below */}
       {hasMany && (
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0, height: 28,
@@ -385,7 +407,6 @@ function SectionLabel({ children }) {
   )
 }
 
-// ── ContactRow — fixed 52px height, text truncated ───────────────────────────
 function ContactRow({ name, badge, onCall }) {
   const [hover, setHover] = useState(false)
   return (
@@ -405,9 +426,7 @@ function ContactRow({ name, badge, onCall }) {
         flex: 1, minWidth: 0,
         color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginLeft: 10,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
-        {name}
-      </span>
+      }}>{name}</span>
       <span style={{ fontSize: 10, marginRight: 6, flexShrink: 0 }}>{badge}</span>
       <button
         onClick={onCall}
@@ -431,36 +450,25 @@ function MissedList({ missed, onClear, onCallback }) {
   return (
     <div style={{ padding: '6px 0 16px' }}>
       {missed.map((m, i) => (
-        <div key={i} style={{
-          height: 56, display: 'flex', alignItems: 'center',
-          padding: '0 12px', gap: 10, overflow: 'hidden',
-        }}>
+        <div key={i} style={{ height: 56, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10, overflow: 'hidden' }}>
           <AvatarCircle name={m.name} size={34} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: '#f87171', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {m.name}
-            </div>
+            <div style={{ color: '#f87171', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
             <div style={{ color: '#475569', fontSize: 10 }}>
               {new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
           {m.id && (
-            <button
-              onClick={() => onCallback(m.id, m.name)}
-              style={{ ...BTN('rgba(74,222,128,0.18)'), width: 30, height: 30, fontSize: 14, color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}
-            >📞</button>
+            <button onClick={() => onCallback(m.id, m.name)} style={{ ...BTN('rgba(74,222,128,0.18)'), width: 30, height: 30, fontSize: 14, color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' }}>📞</button>
           )}
-          <button
-            onClick={() => onClear(m.id || m.name)}
-            style={{ ...BTN('transparent'), width: 26, height: 26, fontSize: 16, color: '#475569' }}
-          >×</button>
+          <button onClick={() => onClear(m.id || m.name)} style={{ ...BTN('transparent'), width: 26, height: 26, fontSize: 16, color: '#475569' }}>×</button>
         </div>
       ))}
     </div>
   )
 }
 
-// ── Incoming call — centered overlay above all UI ─────────────────────────────
+// ── Incoming call — full-screen overlay ──────────────────────────────────────
 function IncomingOverlay({ meta, onAccept, onReject }) {
   return (
     <div style={{
@@ -474,12 +482,11 @@ function IncomingOverlay({ meta, onAccept, onReject }) {
       <AvatarCircle name={meta?.callerName || '?'} size={96} pulse />
       <div style={{
         color: '#e2e8f0', fontWeight: 800, fontSize: 24,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        maxWidth: 260,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260,
       }}>{meta?.callerName}</div>
       <div style={{ display: 'flex', gap: 48, marginTop: 12 }}>
         <CallAction emoji="📵" label="Decline" color="#ef4444" onClick={onReject} />
-        <CallAction emoji="📞" label="Accept" color="#22c55e" onClick={onAccept} />
+        <CallAction emoji="📞" label="Accept"  color="#22c55e" onClick={onAccept} />
       </div>
     </div>
   )
@@ -502,16 +509,12 @@ function CallAction({ emoji, label, color, onClick }) {
   )
 }
 
-// ── Phone toggle button ────────────────────────────────────────────────────────
-// Desktop: bottom left, right of GlobalChat button (~110px from left)
-// Mobile:  above the joystick (joystick top ≈ bottom:164px, so button at bottom:170)
+// ── Phone toggle button ───────────────────────────────────────────────────────
 export function PhoneButton({ onClick, callStatus, missedCount, isMobile }) {
   const ringing = callStatus === 'incoming'
-  const style = isMobile ? {
-    position: 'fixed', bottom: 178, left: 16, zIndex: 80,
-  } : {
-    position: 'fixed', bottom: 24, left: 116, zIndex: 80,
-  }
+  const style = isMobile
+    ? { position: 'fixed', bottom: 178, left: 16, zIndex: 80 }
+    : { position: 'fixed', bottom: 24, left: 116, zIndex: 80 }
 
   return (
     <button

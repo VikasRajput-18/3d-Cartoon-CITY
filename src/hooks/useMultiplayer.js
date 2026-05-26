@@ -7,14 +7,29 @@ import { voiceState } from '@/lib/voiceState'
 import { emitChatNotification } from '@/lib/chatNotifications'
 import { appendDmCache, getDmCache } from '@/lib/chatCache'
 
-const BROADCAST_MS   = 80     // position broadcast interval (ms)
+const BROADCAST_MS   = 80     // position broadcast interval (ms) — WebSocket only, not HTTP
 const OFFLINE_MS     = 15000  // prune players silent for 15 s
 
-// Module-level rate-limiter: never write to players table more than once per 3 s
+// Module-level heartbeat gate — no DB write more than once per 5 s when moving,
+// 10 s when idle, and only when position actually changed by > 0.5 units.
+let _hbTime  = 0
+let _hbX     = 0
+let _hbZ     = 0
+
+function shouldHeartbeat(x, z) {
+  const now   = Date.now()
+  const moved = Math.abs(x - _hbX) > 0.5 || Math.abs(z - _hbZ) > 0.5
+  const gap   = moved ? 5000 : 10000
+  if (now - _hbTime < gap) return false
+  _hbTime = now; _hbX = x; _hbZ = z
+  return true
+}
+
+// Kept for initial-connect upsert (fires once per connect)
 let lastDbUpsertTime = 0
 function canUpsert() {
   const now = Date.now()
-  if (now - lastDbUpsertTime < 3000) return false
+  if (now - lastDbUpsertTime < 5000) return false
   lastDbUpsertTime = now
   return true
 }
@@ -399,10 +414,10 @@ export function useMultiplayer({ userId, avatar }) {
       }
     }, BROADCAST_MS)
 
-    // ── Heartbeat: DB upsert every 3 s — minimal columns only ────────────
+    // ── Heartbeat: DB upsert — max 5 s when moving, 10 s when idle ──────
     const heartbeatInterval = setInterval(async () => {
       if (channelRef.current !== channel) return
-      if (!canUpsert()) return   // skip if already upserted < 3 s ago
+      if (!shouldHeartbeat(minimapState.playerX, minimapState.playerZ)) return
 
       try {
         const { error: hbErr } = await supabase.from('players').upsert({
@@ -435,7 +450,7 @@ export function useMultiplayer({ userId, avatar }) {
           }, { onConflict: 'vehicle_id' })
         } catch {}
       }
-    }, 3000)
+    }, 2000)   // tick every 2 s; actual writes gated by shouldHeartbeat()
 
     // ── Prune stale remote players every 5 s ─────────────────────────────
     const cleanupInterval = setInterval(() => {

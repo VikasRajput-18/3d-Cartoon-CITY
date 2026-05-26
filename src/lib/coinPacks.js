@@ -1,0 +1,48 @@
+const COIN_PACKS = [
+  {
+    id: 'starter',
+    name: 'Starter Pack',
+    coins: 500,
+    gems: 5,
+    price: 49,
+    popular: false,
+    icon: '🪙',
+    color: '#F59E0B',
+    perks: ['500 coins', '5 gems', 'Starter badge'],
+  },
+  {
+    id: 'popular',
+    name: 'Popular Pack',
+    coins: 1500,
+    gems: 20,
+    price: 99,
+    popular: true,
+    icon: '💎',
+    color: '#7C3AED',
+    perks: ['1500 coins', '20 gems', 'VIP badge 7 days', 'Exclusive outfit unlock'],
+  },
+  {
+    id: 'mega',
+    name: 'Mega Pack',
+    coins: 4000,
+    gems: 60,
+    price: 249,
+    popular: false,
+    icon: '🚀',
+    color: '#EC4899',
+    perks: ['4000 coins', '60 gems', 'VIP badge 30 days', '2 exclusive outfits', 'Custom name color'],
+  },
+  {
+    id: 'ultimate',
+    name: 'Ultimate Pack',
+    coins: 10000,
+    gems: 200,
+    price: 499,
+    popular: false,
+    icon: '👑',
+    color: '#F97316',
+    perks: ['10000 coins', '200 gems', 'Permanent VIP badge', '5 exclusive outfits', 'Custom name color', 'Priority support', 'Early access to new features'],
+  },
+]
+
+export default COIN_PACKS

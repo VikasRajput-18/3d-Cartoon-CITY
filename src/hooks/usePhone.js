@@ -1,11 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { sanitizePeerId } from '@/hooks/useVoiceChat'
 import { audioSystem } from '@/lib/audioSystem'
 import { groqChat, LANGUAGE_RULE } from '@/lib/groqChat'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 
-// NPC voice configs for SpeechSynthesis
+// Sanitize to valid PeerJS peer ID — alphanumeric only, max 50 chars
+function sanitize(id) {
+  return ('vcall' + String(id)).replace(/[^a-zA-Z0-9]/g, '').substring(0, 50)
+}
+
+const MIC_OPTS = {
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  video: false,
+}
+
 const NPC_VOICES = {
   Anaya:  { pitch: 1.45, rate: 1.05 },
   Rahul:  { pitch: 0.72, rate: 0.90 },
@@ -41,163 +49,287 @@ function speakNpc(text, npcName) {
   window.speechSynthesis.speak(utt)
 }
 
-export function usePhone({ userId, userName, onlinePlayers = [] }) {
-  const [phoneOpen,    setPhoneOpen]    = useState(false)
-  const [callStatus,   setCallStatus]   = useState('idle')    // idle|outgoing|incoming|active|npc
-  const [callMeta,     setCallMeta]     = useState(null)      // { callId, callerId, callerName, receiverId, receiverName }
-  const [callElapsed,  setCallElapsed]  = useState(0)
-  const [missedCalls,  setMissedCalls]  = useState([])
-  const [npcSession,   setNpcSession]   = useState(null)      // { name, messages: [] }
-  const [npcTyping,    setNpcTyping]    = useState(false)
-  const [micMuted,     setMicMuted]     = useState(false)
+// Create and open a PeerJS peer, resolve when peer is open
+function createPeer(peerId) {
+  return new Promise((resolve, reject) => {
+    import('peerjs').then(({ Peer }) => {
+      const peer = new Peer(peerId, {
+        host: '0.peerjs.com', port: 443, path: '/', secure: true,
+      })
+      peer.on('open', (id) => {
+        console.log('[Phone] PeerJS open, id:', id)
+        resolve(peer)
+      })
+      peer.on('error', (err) => {
+        console.error('[Phone] PeerJS peer error:', err.type, err)
+        reject(err)
+      })
+    }).catch(reject)
+  })
+}
 
-  const peerRef      = useRef(null)
+export function usePhone({ userId, userName, onlinePlayers = [] }) {
+  const [phoneOpen,   setPhoneOpen]   = useState(false)
+  const [callStatus,  setCallStatus]  = useState('idle')
+  // idle | outgoing | incoming | connecting | active | npc | ended
+  const [callMeta,    setCallMeta]    = useState(null)
+  const [callElapsed, setCallElapsed] = useState(0)
+  const [missedCalls, setMissedCalls] = useState([])
+  const [npcSession,  setNpcSession]  = useState(null)
+  const [npcTyping,   setNpcTyping]   = useState(false)
+  const [micMuted,    setMicMuted]    = useState(false)
+  const [callError,   setCallError]   = useState(null)
+
+  const peerRef      = useRef(null)   // PeerJS Peer instance
   const connRef      = useRef(null)   // active MediaConnection
-  const remoteAudRef = useRef(null)
-  const localStrmRef = useRef(null)
-  const elapsedTmrRef= useRef(null)
-  const pgSubRef     = useRef(null)
-  const callMetaRef  = useRef(null)
+  const localStrmRef = useRef(null)   // local mic stream
+  const remoteAudRef = useRef(null)   // HTML Audio for remote audio
+  const timerRef     = useRef(null)   // setInterval handle
+  const callMetaRef  = useRef(null)   // always up-to-date callMeta
+  const isCallerRef  = useRef(false)  // true when I initiated the call
+
   useEffect(() => { callMetaRef.current = callMeta }, [callMeta])
 
-  // ── PeerJS init (separate peer from voice chat) ───────────────────────────
-  useEffect(() => {
-    if (!userId) return
-    const pid = 'phone-' + sanitizePeerId(userId)
-    import('peerjs').then(({ Peer }) => {
-      const peer = new Peer(pid, { debug: 0 })
-      peerRef.current = peer
-
-      peer.on('call', (call) => {
-        // Only accept if we are idle — otherwise reject silently
-        if (callMetaRef.current) { call.close(); return }
-        // We parse meta from the call.metadata object
-        const meta = call.metadata || {}
-        connRef.current = call
-        setCallStatus('incoming')
-        setCallMeta({
-          callId:       meta.callId,
-          callerId:     meta.callerId,
-          callerName:   meta.callerName,
-          receiverId:   userId,
-          receiverName: userName,
-        })
-        audioSystem.playRingtone()
-        if (navigator.vibrate) navigator.vibrate([300, 200, 300])
-      })
-    }).catch(() => {})
-
-    return () => {
-      peerRef.current?.destroy()
-      peerRef.current = null
-    }
-  }, [userId, userName])
-
-  // ── Supabase signaling subscription ──────────────────────────────────────
-  useEffect(() => {
-    if (!supabase || !userId) return
-    const sub = supabase
-      .channel('phone-calls-' + userId)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'calls',
-        filter: `receiver_id=eq.${userId}`,
-      }, ({ eventType, new: row }) => {
-        if (eventType === 'INSERT' && row.status === 'ringing') {
-          // Incoming call signal from Supabase (fallback if PeerJS not yet connected)
-          if (!callMetaRef.current) {
-            setCallStatus('incoming')
-            setCallMeta({
-              callId:       row.id,
-              callerId:     row.caller_id,
-              callerName:   row.caller_name,
-              receiverId:   userId,
-              receiverName: userName,
-            })
-            audioSystem.playRingtone()
-            if (navigator.vibrate) navigator.vibrate([300, 200, 300])
-          }
-        }
-        if (eventType === 'UPDATE' && row.status === 'ended') {
-          _hangUp(false)
-        }
-        if (eventType === 'UPDATE' && row.status === 'declined') {
-          _hangUp(false)
-        }
-      })
-      .subscribe()
-    pgSubRef.current = sub
-    return () => { supabase.removeChannel(sub) }
-  }, [userId, userName])
-
-  // ── Elapsed timer ─────────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
   const _startTimer = useCallback(() => {
     setCallElapsed(0)
-    elapsedTmrRef.current = setInterval(() => setCallElapsed(s => s + 1), 1000)
+    timerRef.current = setInterval(() => setCallElapsed(s => s + 1), 1000)
   }, [])
 
   const _stopTimer = useCallback(() => {
-    clearInterval(elapsedTmrRef.current)
-    elapsedTmrRef.current = null
+    clearInterval(timerRef.current)
+    timerRef.current = null
   }, [])
 
-  // ── Get local mic stream ──────────────────────────────────────────────────
-  const _getLocalStream = useCallback(async () => {
+  const _getMic = useCallback(async () => {
     if (localStrmRef.current) return localStrmRef.current
+    console.log('[Phone] Requesting microphone...')
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      localStrmRef.current = s
-      return s
-    } catch (_) { return null }
-  }, [])
-
-  // ── Attach remote stream to audio ─────────────────────────────────────────
-  const _attachRemote = useCallback((stream) => {
-    if (!remoteAudRef.current) {
-      remoteAudRef.current = new Audio()
-      remoteAudRef.current.autoplay = true
+      const stream = await navigator.mediaDevices.getUserMedia(MIC_OPTS)
+      localStrmRef.current = stream
+      console.log('[Phone] Microphone obtained')
+      return stream
+    } catch (err) {
+      console.error('[Phone] Mic permission denied:', err)
+      setCallError('Microphone access needed for calls')
+      return null
     }
-    remoteAudRef.current.srcObject = stream
   }, [])
 
-  // ── Internal hang-up (cleans up connections) ──────────────────────────────
-  const _hangUp = useCallback((updateSupabase = true) => {
-    audioSystem.stopRingtone()
-    _stopTimer()
-    window.speechSynthesis?.cancel()
+  const _attachRemote = useCallback((stream) => {
+    console.log('[Phone] PeerJS call connected, attaching audio')
+    let el = remoteAudRef.current
+    if (!el) {
+      el = new Audio()
+      el.autoplay = true
+      remoteAudRef.current = el
+    }
+    el.srcObject = stream
+    el.play().catch(e => console.warn('[Phone] Audio autoplay blocked:', e))
+  }, [])
 
-    if (connRef.current) { try { connRef.current.close() } catch (_) {} }
-    connRef.current = null
+  // Get or create the PeerJS peer (lazy, one per session)
+  const _ensurePeer = useCallback(async () => {
+    const existing = peerRef.current
+    if (existing && !existing.destroyed && !existing.disconnected) return existing
+    if (existing && !existing.destroyed) {
+      existing.destroy()
+      peerRef.current = null
+    }
+    const pid = sanitize(userId)
+    console.log('[Phone] Initializing PeerJS peer:', pid)
+    try {
+      const peer = await createPeer(pid)
+      peerRef.current = peer
+      peer.on('disconnected', () => {
+        console.log('[Phone] PeerJS disconnected, reconnecting...')
+        try { peer.reconnect() } catch (_) {}
+      })
+      return peer
+    } catch (err) {
+      console.error('[Phone] Failed to create PeerJS peer:', err)
+      return null
+    }
+  }, [userId])
+
+  // Core hang-up: tears down audio, peer connection, Supabase row
+  const _hangUp = useCallback((updateDb = true) => {
+    console.log('[Phone] Call ended')
+    audioSystem.stopRingtone()
+    window.speechSynthesis?.cancel()
+    _stopTimer()
+    isCallerRef.current = false
+
+    if (connRef.current) {
+      try { connRef.current.close() } catch (_) {}
+      connRef.current = null
+    }
     if (localStrmRef.current) {
       localStrmRef.current.getTracks().forEach(t => t.stop())
       localStrmRef.current = null
     }
     if (remoteAudRef.current) {
       remoteAudRef.current.srcObject = null
+      remoteAudRef.current = null
     }
 
-    if (updateSupabase && supabase && callMetaRef.current?.callId) {
-      supabase.from('calls').update({ status: 'ended', ended_at: new Date().toISOString() })
-        .eq('id', callMetaRef.current.callId).then(() => {})
+    if (updateDb && supabase && callMetaRef.current?.callId) {
+      supabase.from('calls')
+        .update({ status: 'ended', ended_at: new Date().toISOString() })
+        .eq('id', callMetaRef.current.callId)
+        .then(() => {})
     }
 
-    setCallStatus('idle')
-    setCallMeta(null)
-    setCallElapsed(0)
-    setNpcSession(null)
-    setNpcTyping(false)
-    setMicMuted(false)
+    setCallStatus('ended')
+    setTimeout(() => {
+      setCallStatus('idle')
+      setCallMeta(null)
+      setCallElapsed(0)
+      setNpcSession(null)
+      setNpcTyping(false)
+      setMicMuted(false)
+      setCallError(null)
+    }, 2000)
   }, [_stopTimer])
 
-  // ── Make call to online player ────────────────────────────────────────────
+  // ── STEP 4: Caller makes the WebRTC call after receiver accepted ───────────
+  const _makeWebRTCCall = useCallback(async () => {
+    const meta = callMetaRef.current
+    if (!meta) return
+
+    const peer = await _ensurePeer()
+    if (!peer) {
+      setCallError('Could not connect voice, try again')
+      _hangUp(true)
+      return
+    }
+
+    const stream = await _getMic()
+    if (!stream) {
+      _hangUp(true)
+      return
+    }
+
+    const receiverPid = sanitize(meta.receiverId)
+    console.log('[Phone] Making PeerJS call to', receiverPid)
+
+    let call
+    try {
+      call = peer.call(receiverPid, stream)
+    } catch (err) {
+      console.error('[Phone] peer.call() threw:', err)
+      setCallError('Could not connect voice, try again')
+      _hangUp(true)
+      return
+    }
+
+    if (!call) {
+      console.error('[Phone] peer.call() returned null')
+      setCallError('Could not connect voice, try again')
+      _hangUp(true)
+      return
+    }
+
+    connRef.current = call
+
+    // Timeout if no stream within 10s
+    const timeout = setTimeout(() => {
+      console.error('[Phone] PeerJS stream timeout')
+      setCallError('Could not connect voice, try again')
+      _hangUp(true)
+    }, 10000)
+
+    call.on('stream', (remoteStream) => {
+      clearTimeout(timeout)
+      _attachRemote(remoteStream)
+      setCallStatus('active')
+      _startTimer()
+      if (supabase && meta.callId) {
+        supabase.from('calls')
+          .update({ status: 'active', answered_at: new Date().toISOString() })
+          .eq('id', meta.callId)
+          .then(() => {})
+      }
+    })
+    call.on('close', () => _hangUp(false))
+    call.on('error', (err) => {
+      console.error('[Phone] PeerJS call error:', err)
+      clearTimeout(timeout)
+      _hangUp(false)
+    })
+  }, [_ensurePeer, _getMic, _attachRemote, _startTimer, _hangUp])
+
+  // ── Supabase: receiver subscription — incoming calls + remote hang-up ─────
+  useEffect(() => {
+    if (!supabase || !userId) return
+
+    const sub = supabase
+      .channel('ph-recv-' + userId)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'calls',
+        filter: `receiver_id=eq.${userId}`,
+      }, ({ eventType, new: row }) => {
+        console.log('[Phone] Receiver sub:', eventType, row?.status)
+
+        if (eventType === 'INSERT' && row.status === 'ringing') {
+          if (callMetaRef.current) return  // already in a call
+          console.log('[Phone] Incoming call from', row.caller_name)
+          setCallStatus('incoming')
+          setCallMeta({
+            callId:       row.id,
+            callerId:     row.caller_id,
+            callerName:   row.caller_name,
+            receiverId:   userId,
+            receiverName: userName,
+          })
+          audioSystem.playRingtone()
+          if (navigator.vibrate) navigator.vibrate([300, 200, 300])
+        }
+
+        if (eventType === 'UPDATE' && (row.status === 'ended' || row.status === 'declined')) {
+          if (callMetaRef.current?.callId === row.id) _hangUp(false)
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(sub) }
+  }, [userId, userName, _hangUp])
+
+  // ── Supabase: caller subscription — watch for accepted / ended ────────────
+  useEffect(() => {
+    if (!supabase || !userId) return
+
+    const sub = supabase
+      .channel('ph-call-' + userId)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'calls',
+        filter: `caller_id=eq.${userId}`,
+      }, ({ new: row }) => {
+        console.log('[Phone] Caller sub update:', row?.status)
+
+        // Receiver accepted — now we initiate the WebRTC leg
+        if (row.status === 'accepted' && isCallerRef.current) {
+          setCallStatus('connecting')
+          // Small delay to let receiver's peer fully open before we call
+          setTimeout(() => _makeWebRTCCall(), 800)
+        }
+
+        if (row.status === 'ended' || row.status === 'declined') {
+          if (callMetaRef.current?.callId === row.id) _hangUp(false)
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(sub) }
+  }, [userId, _makeWebRTCCall, _hangUp])
+
+  // ── STEP 1: Caller initiates call ─────────────────────────────────────────
   const makeCall = useCallback(async (targetId, targetName) => {
-    if (!peerRef.current || !supabase || !userId) return
-    if (callMetaRef.current) return   // already in a call
+    if (callMetaRef.current) return
+    if (!supabase || !userId) return
+    console.log('[Phone] Call initiated to', targetName)
 
-    const stream = await _getLocalStream()
-    if (!stream) return
-
-    // Insert Supabase signaling row
-    const { data: row } = await supabase.from('calls').insert({
+    const { data: row, error } = await supabase.from('calls').insert({
       caller_id:     userId,
       caller_name:   userName,
       receiver_id:   targetId,
@@ -205,75 +337,113 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
       status:        'ringing',
     }).select().single()
 
+    if (error || !row) {
+      console.error('[Phone] Failed to insert call row:', error)
+      return
+    }
+
+    isCallerRef.current = true
     const meta = {
-      callId: row?.id, callerId: userId, callerName: userName,
-      receiverId: targetId, receiverName: targetName,
+      callId:       row.id,
+      callerId:     userId,
+      callerName:   userName,
+      receiverId:   targetId,
+      receiverName: targetName,
     }
     setCallMeta(meta)
     setCallStatus('outgoing')
+  }, [userId, userName])
 
-    // PeerJS call
-    const targetPid = 'phone-' + sanitizePeerId(targetId)
-    const call = peerRef.current.call(targetPid, stream, { metadata: meta })
-    connRef.current = call
-
-    call.on('stream', (remoteStream) => {
-      _attachRemote(remoteStream)
-      setCallStatus('active')
-      _startTimer()
-      if (row?.id) {
-        supabase.from('calls').update({ status: 'active', answered_at: new Date().toISOString() })
-          .eq('id', row.id).then(() => {})
-      }
-    })
-    call.on('close', () => _hangUp(false))
-    call.on('error', () => _hangUp(false))
-  }, [userId, userName, _getLocalStream, _attachRemote, _startTimer, _hangUp])
-
-  // ── Accept incoming call ──────────────────────────────────────────────────
+  // ── STEP 3: Receiver accepts ───────────────────────────────────────────────
   const acceptCall = useCallback(async () => {
     audioSystem.stopRingtone()
-    const call = connRef.current
-    if (!call) return
+    const meta = callMetaRef.current
+    if (!meta) return
+    console.log('[Phone] Call accepted, requesting microphone')
 
-    const stream = await _getLocalStream()
-    if (!stream) { _hangUp(); return }
+    setCallStatus('connecting')
 
-    call.answer(stream)
-    call.on('stream', (remoteStream) => {
-      _attachRemote(remoteStream)
-      setCallStatus('active')
-      _startTimer()
-      if (callMetaRef.current?.callId && supabase) {
-        supabase.from('calls').update({ status: 'active', answered_at: new Date().toISOString() })
-          .eq('id', callMetaRef.current.callId).then(() => {})
-      }
+    // Get mic first — show error if denied
+    const stream = await _getMic()
+    if (!stream) {
+      // Revert to incoming so they can try again (or just hang up)
+      setCallStatus('idle')
+      setCallMeta(null)
+      return
+    }
+
+    // Initialize peer and start listening for the WebRTC call from caller
+    console.log('[Phone] Microphone obtained, initializing peer')
+    const peer = await _ensurePeer()
+    if (!peer) {
+      setCallError('Could not connect voice, try again')
+      _hangUp(true)
+      return
+    }
+
+    // Register the call handler BEFORE updating Supabase so the caller's call won't be missed
+    const timeout = setTimeout(() => {
+      console.error('[Phone] Timeout waiting for caller WebRTC connection')
+      setCallError('Could not connect voice, try again')
+      _hangUp(true)
+    }, 15000)
+
+    peer.on('call', (call) => {
+      clearTimeout(timeout)
+      console.log('[Phone] PeerJS call received, answering')
+      // Remove this handler so it doesn't fire again
+      peer.off('call')
+      connRef.current = call
+      call.answer(stream)
+
+      call.on('stream', (remoteStream) => {
+        _attachRemote(remoteStream)
+        setCallStatus('active')
+        _startTimer()
+        if (supabase && meta.callId) {
+          supabase.from('calls')
+            .update({ status: 'active', answered_at: new Date().toISOString() })
+            .eq('id', meta.callId)
+            .then(() => {})
+        }
+      })
+      call.on('close', () => _hangUp(false))
+      call.on('error', (err) => {
+        console.error('[Phone] PeerJS call error on receiver:', err)
+        _hangUp(false)
+      })
     })
-    call.on('close', () => _hangUp(false))
-    call.on('error', () => _hangUp(false))
-  }, [_getLocalStream, _attachRemote, _startTimer, _hangUp])
 
-  // ── Reject incoming call ──────────────────────────────────────────────────
+    // Now tell the caller we're ready — this triggers _makeWebRTCCall on their side
+    console.log('[Phone] Updating Supabase to accepted')
+    if (supabase) {
+      await supabase.from('calls')
+        .update({ status: 'accepted' })
+        .eq('id', meta.callId)
+    }
+  }, [_getMic, _ensurePeer, _attachRemote, _startTimer, _hangUp])
+
+  // ── Receiver rejects ───────────────────────────────────────────────────────
   const rejectCall = useCallback(() => {
     audioSystem.stopRingtone()
-    if (callMetaRef.current?.callId && supabase) {
-      supabase.from('calls').update({ status: 'declined', ended_at: new Date().toISOString() })
-        .eq('id', callMetaRef.current.callId).then(() => {})
+    const meta = callMetaRef.current
+    if (meta?.callId && supabase) {
+      supabase.from('calls')
+        .update({ status: 'declined', ended_at: new Date().toISOString() })
+        .eq('id', meta.callId)
+        .then(() => {})
     }
-    // Add to missed list for caller (we track it locally for receiver too)
-    if (callMetaRef.current?.callerName) {
+    if (meta?.callerName) {
       setMissedCalls(prev => [
-        { name: callMetaRef.current.callerName, id: callMetaRef.current.callerId, ts: Date.now() },
+        { name: meta.callerName, id: meta.callerId, ts: Date.now() },
         ...prev.slice(0, 19),
       ])
     }
     _hangUp(false)
   }, [_hangUp])
 
-  // ── End active call ───────────────────────────────────────────────────────
   const endCall = useCallback(() => { _hangUp(true) }, [_hangUp])
 
-  // ── Toggle mic mute ───────────────────────────────────────────────────────
   const toggleMic = useCallback(() => {
     if (!localStrmRef.current) return
     const muted = !micMuted
@@ -281,14 +451,13 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
     setMicMuted(muted)
   }, [micMuted])
 
-  // ── NPC call ──────────────────────────────────────────────────────────────
+  // ── NPC call (AI + TTS, no WebRTC) ────────────────────────────────────────
   const callNPC = useCallback((npcName) => {
     if (callMetaRef.current) return
     setCallStatus('npc')
     setCallMeta({ callerId: userId, callerName: userName, receiverName: npcName })
     setNpcSession({ name: npcName, messages: [] })
     audioSystem.playRingtone()
-    // 2-second fake ring then "NPC answers"
     setTimeout(() => {
       audioSystem.stopRingtone()
       setCallStatus('active')
@@ -313,31 +482,22 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
       setNpcSession(s => ({ ...s, messages: [...s.messages, { role: 'npc', text: reply }] }))
       speakNpc(reply, npcSession.name)
     } catch (_) {
-      setNpcSession(s => ({ ...s, messages: [...s.messages, { role: 'npc', text: 'Sorry, bad signal...' }] }))
+      setNpcSession(s => ({ ...s, messages: [...s.messages, { role: 'npc', text: 'Sorry, bad signal…' }] }))
     } finally {
       setNpcTyping(false)
     }
   }, [npcSession])
 
   const clearMissed = useCallback((id) => {
-    setMissedCalls(prev => prev.filter(m => m.id !== id))
+    setMissedCalls(prev => prev.filter(m => m.id !== id && m.name !== id))
   }, [])
 
   return {
     phoneOpen, setPhoneOpen,
-    callStatus,
-    callMeta,
-    callElapsed,
+    callStatus, callMeta, callElapsed, callError,
     missedCalls, clearMissed,
-    npcSession,
-    npcTyping,
-    micMuted,
-    makeCall,
-    acceptCall,
-    rejectCall,
-    endCall,
-    toggleMic,
-    callNPC,
-    sendNpcMessage,
+    npcSession, npcTyping, micMuted,
+    makeCall, acceptCall, rejectCall, endCall, toggleMic,
+    callNPC, sendNpcMessage,
   }
 }

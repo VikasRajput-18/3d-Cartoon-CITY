@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { remotePlayersRef } from '@/lib/multiplayerState'
 import { minimapState } from '@/lib/minimapState'
 
-const ARROW_DIST = 22   // show edge arrow for players within this distance
-const NEARBY_DIST = 50  // "players nearby" counter radius
+const ARROW_DIST = 60   // show edge arrow for players within this distance
+const NEARBY_DIST = 60  // "players nearby" counter radius
 
 // Returns { x, y } position of a directional arrow on the screen edge
 function edgeArrow(angleRad, margin = 56) {

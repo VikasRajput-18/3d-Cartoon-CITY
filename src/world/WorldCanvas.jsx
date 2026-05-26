@@ -21,6 +21,9 @@ import RemoteVehicle from './RemoteVehicle'
 import ProceduralWorld from './ProceduralChunks'
 import NPCTraffic from './NPCTraffic'
 import { parkedVehicles, onParkedVehicleChange, notifyParkedVehicleChange } from '@/lib/parkedVehicleState'
+import { navState } from '@/lib/navState'
+import { isBlocked } from '@/lib/buildingColliders'
+import { timeWeatherState } from '@/lib/timeWeatherState'
 import EmotePicker from '@/components/EmotePicker'
 import BossCharacter from './BossCharacter'
 import MissionOrb from './MissionOrb'
@@ -289,7 +292,7 @@ const NPC = React.memo(function NPC({ startPos, skin, outfit, name, color, onCha
     if (!groupRef.current) return
     const pdx = currentPos.current.x - minimapState.playerX
     const pdz = currentPos.current.z - minimapState.playerZ
-    const nearPlayer = (pdx * pdx + pdz * pdz) < 1225
+    const nearPlayer = (pdx * pdx + pdz * pdz) < 1600
     groupRef.current.visible = nearPlayer
     npcVisRef.current = nearPlayer
     if (!nearPlayer) return
@@ -316,8 +319,34 @@ const NPC = React.memo(function NPC({ startPos, skin, outfit, name, color, onCha
       const dz   = targetVec.current.z - currentPos.current.z
       const len  = Math.sqrt(dx * dx + dz * dz)
       const step = Math.min(2.5 * dt, dist)
-      currentPos.current.x += (dx / len) * step
-      currentPos.current.z += (dz / len) * step
+      const nx   = (dx / len) * step
+      const nz   = (dz / len) * step
+      // Building collision — try intended direction, then 5 random escape angles
+      const tryX = currentPos.current.x + nx
+      const tryZ = currentPos.current.z + nz
+      if (!isBlocked(tryX, tryZ)) {
+        currentPos.current.x = tryX
+        currentPos.current.z = tryZ
+      } else {
+        let escaped = false
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const ang = Math.random() * Math.PI * 2
+          const ax  = currentPos.current.x + Math.cos(ang) * step
+          const az  = currentPos.current.z + Math.sin(ang) * step
+          if (!isBlocked(ax, az)) {
+            currentPos.current.x = ax
+            currentPos.current.z = az
+            escaped = true
+            break
+          }
+        }
+        if (!escaped) {
+          // Fully cornered — pick new wander target near spawn and pause briefly
+          const ang = Math.random() * Math.PI * 2
+          const r   = 4 + Math.random() * 8
+          setTarget([startPos[0] + Math.cos(ang) * r, 0, startPos[2] + Math.sin(ang) * r])
+        }
+      }
       groupRef.current.position.set(currentPos.current.x, 0, currentPos.current.z)
       groupRef.current.rotation.y = Math.atan2(dx, dz)
     }
@@ -1387,48 +1416,50 @@ function PlayerController({
 }
 
 // ── Places ────────────────────────────────────────────────────────────────────
+// Positions match CityMap.jsx building positions exactly
 const PLACES = [
-  { id: 'cafe',        pos: [-10, 0, -6],  emoji: '☕', label: 'Cafe',         color: '#F59E0B' },
-  { id: 'arcade',      pos: [10,  0, -6],  emoji: '🕹️', label: 'Arcade',       color: '#7C3AED' },
-  { id: 'beach',       pos: [0,   0,-14],  emoji: '🏖️', label: 'Beach Club',   color: '#38BDF8' },
-  { id: 'rooftop',     pos: [-14, 0,  4],  emoji: '🌙', label: 'Rooftop Bar',  color: '#6366F1' },
-  { id: 'musicroom',   pos: [14,  0,  4],  emoji: '🎵', label: 'Music Room',   color: '#EC4899' },
-  { id: 'park',        pos: [0,   0, 14],  emoji: '🌳', label: 'Park',         color: '#22C55E' },
-  { id: 'cityhall',    pos: [0,   0,-22],  emoji: '🏛️', label: 'City Hall',    color: '#94a3b8' },
-  { id: 'mall',        pos: [-16, 0,-28],  emoji: '🛍️', label: 'Shopping Mall',color: '#ec4899' },
-  { id: 'cinema',      pos: [16,  0,-28],  emoji: '🎬', label: 'Cinema',       color: '#7c3aed' },
-  { id: 'supermarket', pos: [-28, 0,-18],  emoji: '🛒', label: 'Supermarket',  color: '#16a34a' },
-  { id: 'bank',        pos: [28,  0,-18],  emoji: '🏦', label: 'Bank',         color: '#b45309' },
-  { id: 'hospital',    pos: [34,  0, -5],  emoji: '🏥', label: 'Hospital',     color: '#0ea5e9' },
-  { id: 'police',      pos: [34,  0, 10],  emoji: '👮', label: 'Police Dept',  color: '#1d4ed8' },
-  { id: 'firestation', pos: [34,  0, 22],  emoji: '🚒', label: 'Fire Station', color: '#dc2626' },
-  { id: 'school',      pos: [-34, 0, -5],  emoji: '🏫', label: 'School',       color: '#f59e0b' },
-  { id: 'library',     pos: [-34, 0,-20],  emoji: '📚', label: 'Library',      color: '#92400e' },
-  { id: 'gym',         pos: [-34, 0, 10],  emoji: '💪', label: 'Gym',          color: '#7c3aed' },
-  { id: 'restaurant',  pos: [12,  0, 28],  emoji: '🍕', label: 'Restaurant',   color: '#f97316' },
-  { id: 'gasstation',  pos: [-12, 0, 28],  emoji: '⛽', label: 'Gas Station',  color: '#ef4444' },
-  { id: 'church',      pos: [-25, 0, 18],  emoji: '⛪', label: 'Temple',       color: '#fbbf24' },
-  { id: 'postoffice',  pos: [12,  0, 18],  emoji: '📮', label: 'Post Office',  color: '#dc2626' },
-  { id: 'apartments',  pos: [-26, 0, 30],  emoji: '🏢', label: 'Apartments',   color: '#475569' },
-  { id: 'playground',  pos: [0,   0, 38],  emoji: '🎠', label: 'Playground',   color: '#22c55e' },
-  { id: 'house1',      pos: [26,  0, 29],  emoji: '🏠', label: 'Blue House',   color: '#3b82f6' },
-  { id: 'house2',      pos: [36,  0, 29],  emoji: '🏠', label: 'Yellow House', color: '#eab308' },
-  { id: 'gamearea',    pos: [22,  0,-10],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
+  { id: 'cafe',        pos: [-14, 0,-14],  emoji: '☕', label: 'Cafe',         color: '#F59E0B' },
+  { id: 'arcade',      pos: [ 14, 0,-14],  emoji: '🕹️', label: 'Arcade',       color: '#7C3AED' },
+  { id: 'beach',       pos: [  0, 0,-32],  emoji: '🏖️', label: 'Beach Club',   color: '#38BDF8' },
+  { id: 'rooftop',     pos: [-14, 0, 14],  emoji: '🌙', label: 'Rooftop Bar',  color: '#6366F1' },
+  { id: 'musicroom',   pos: [ 14, 0, 14],  emoji: '🎵', label: 'Music Room',   color: '#EC4899' },
+  { id: 'park',        pos: [  0, 0, 16],  emoji: '🌳', label: 'Park',         color: '#22C55E' },
+  { id: 'cityhall',    pos: [  0, 0,-24],  emoji: '🏛️', label: 'City Hall',    color: '#94a3b8' },
+  { id: 'mall',        pos: [ 30, 0, 46],  emoji: '🛍️', label: 'Shopping Mall',color: '#b45309' },
+  { id: 'cinema',      pos: [ 30, 0, 26],  emoji: '🎬', label: 'Cinema',       color: '#334155' },
+  { id: 'supermarket', pos: [-32, 0,-24],  emoji: '🛒', label: 'Supermarket',  color: '#4a7c59' },
+  { id: 'bank',        pos: [ 32, 0,-42],  emoji: '🏦', label: 'Bank',         color: '#92400e' },
+  { id: 'hospital',    pos: [ 32, 0,-24],  emoji: '🏥', label: 'Hospital',     color: '#0ea5e9' },
+  { id: 'police',      pos: [ 52, 0,-24],  emoji: '👮', label: 'Police Dept',  color: '#1d4ed8' },
+  { id: 'firestation', pos: [ 52, 0,-42],  emoji: '🚒', label: 'Fire Station', color: '#dc2626' },
+  { id: 'school',      pos: [-52, 0,-42],  emoji: '🏫', label: 'School',       color: '#c8b983' },
+  { id: 'library',     pos: [-52, 0,-24],  emoji: '📚', label: 'Library',      color: '#8b6914' },
+  { id: 'gym',         pos: [-50, 0, 26],  emoji: '💪', label: 'Gym',          color: '#1a2035' },
+  { id: 'restaurant',  pos: [ 50, 0, 26],  emoji: '🍕', label: 'Restaurant',   color: '#f97316' },
+  { id: 'gasstation',  pos: [-16, 0, 22],  emoji: '⛽', label: 'Gas Station',  color: '#ef4444' },
+  { id: 'church',      pos: [-30, 0, 26],  emoji: '⛪', label: 'Temple',       color: '#d4b896' },
+  { id: 'postoffice',  pos: [ 16, 0, 22],  emoji: '📮', label: 'Post Office',  color: '#8b6355' },
+  { id: 'apartments',  pos: [-30, 0, 46],  emoji: '🏢', label: 'Apartments',   color: '#475569' },
+  { id: 'playground',  pos: [  0, 0, 52],  emoji: '🎠', label: 'Playground',   color: '#22c55e' },
+  { id: 'house1',      pos: [ 40, 0, 50],  emoji: '🏠', label: 'Blue House',   color: '#3b82f6' },
+  { id: 'house2',      pos: [ 55, 0, 50],  emoji: '🏠', label: 'Yellow House', color: '#eab308' },
+  { id: 'gamearea',    pos: [  0, 0,-40],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
 ]
 
 const NPCS = [
-  { name: 'Anaya',  skin: '#D4956A', outfit: 'party',       color: '#F472B6', pos: [-8,  0,  2]  },
-  { name: 'Rahul',  skin: '#C68642', outfit: 'casual',      color: '#60A5FA', pos: [8,   0,  2]  },
-  { name: 'Zoya',   skin: '#F4C08A', outfit: 'school',      color: '#34D399', pos: [0,   0, -4]  },
-  { name: 'Kabir',  skin: '#8D5524', outfit: 'sports',      color: '#FBBF24', pos: [-5,  0,  8]  },
-  { name: 'Meera',  skin: '#FDDBB4', outfit: 'traditional', color: '#F87171', pos: [5,   0,  8]  },
-  { name: 'Arjun',  skin: '#C68642', outfit: 'casual',      color: '#a78bfa', pos: [-18, 0,-26]  },
-  { name: 'Priya',  skin: '#F4C08A', outfit: 'school',      color: '#86efac', pos: [18,  0,-26]  },
-  { name: 'Dev',    skin: '#8D5524', outfit: 'sports',      color: '#fdba74', pos: [34,  0, 2]   },
-  { name: 'Nisha',  skin: '#FDDBB4', outfit: 'party',       color: '#f9a8d4', pos: [-34, 0, 2]   },
-  { name: 'Rohan',  skin: '#D4956A', outfit: 'winter',      color: '#67e8f9', pos: [12,  0, 30]  },
-  { name: 'Sana',   skin: '#F4C08A', outfit: 'traditional', color: '#fcd34d', pos: [-12, 0, 30]  },
-  { name: 'Vivek',  skin: '#C68642', outfit: 'casual',      color: '#6ee7b7', pos: [30,  0, 28]  },
+  // All start on plaza island (r<7) or footpaths — never inside a building
+  { name: 'Anaya',  skin: '#D4956A', outfit: 'party',       color: '#F472B6', pos: [-4,  0,  3]  },
+  { name: 'Rahul',  skin: '#C68642', outfit: 'casual',      color: '#60A5FA', pos: [ 4,  0,  3]  },
+  { name: 'Zoya',   skin: '#F4C08A', outfit: 'school',      color: '#34D399', pos: [ 0,  0, -4]  },
+  { name: 'Kabir',  skin: '#8D5524', outfit: 'sports',      color: '#FBBF24', pos: [-3,  0,  5]  },
+  { name: 'Meera',  skin: '#FDDBB4', outfit: 'traditional', color: '#F87171', pos: [ 3,  0,  5]  },
+  { name: 'Arjun',  skin: '#C68642', outfit: 'casual',      color: '#a78bfa', pos: [-10, 0,  9]  },
+  { name: 'Priya',  skin: '#F4C08A', outfit: 'school',      color: '#86efac', pos: [ 10, 0,  9]  },
+  { name: 'Dev',    skin: '#8D5524', outfit: 'sports',      color: '#fdba74', pos: [ 9,  0, -10] },
+  { name: 'Nisha',  skin: '#FDDBB4', outfit: 'party',       color: '#f9a8d4', pos: [-9,  0, -10] },
+  { name: 'Rohan',  skin: '#D4956A', outfit: 'winter',      color: '#67e8f9', pos: [ 0,  0,  2]  },
+  { name: 'Sana',   skin: '#F4C08A', outfit: 'traditional', color: '#fcd34d', pos: [-6,  0,  0]  },
+  { name: 'Vivek',  skin: '#C68642', outfit: 'casual',      color: '#6ee7b7', pos: [ 6,  0,  0]  },
 ]
 
 // ── Parked vehicles — enterable; re-renders when any vehicle is entered/exited ─
@@ -1449,6 +1480,153 @@ function ParkedVehicles() {
         )
       })}
     </>
+  )
+}
+
+// ── Real-world clock tower — shows actual current time ────────────────────────
+// Placed on top of City Hall (world pos 0, 0, -22)
+function ClockTower() {
+  const hourRef = useRef()
+  const minRef  = useRef()
+  const tickRef = useRef(0)
+
+  useFrame((_, delta) => {
+    tickRef.current += delta
+    if (tickRef.current < 5) return   // update hands every 5 s
+    tickRef.current = 0
+    const now  = new Date()
+    const h    = (now.getHours() % 12) + now.getMinutes() / 60
+    const m    = now.getMinutes() + now.getSeconds() / 60
+    if (hourRef.current) hourRef.current.rotation.z = -(h / 12) * Math.PI * 2
+    if (minRef.current)  minRef.current.rotation.z  = -(m / 60) * Math.PI * 2
+  })
+
+  const lampOn = timeWeatherState.lampOn
+  const faceMat = new THREE.MeshToonMaterial({ color: '#fff8f0' })
+  const bodyMat = new THREE.MeshToonMaterial({ color: '#64748b' })
+  const handMat = new THREE.MeshToonMaterial({ color: '#1e293b' })
+
+  return (
+    <group position={[0, 0, -22]}>
+      {/* Tower body rising from City Hall roof */}
+      <mesh position={[0, 10, 0]}>
+        <boxGeometry args={[2.2, 8, 2.2]} />
+        <primitive object={bodyMat} attach="material" />
+      </mesh>
+      {/* Spire */}
+      <mesh position={[0, 15.5, 0]}>
+        <coneGeometry args={[1.3, 3, 4]} />
+        <meshToonMaterial color="#475569" />
+      </mesh>
+      {/* Clock face (front) */}
+      <mesh position={[0, 11.5, 1.12]}>
+        <circleGeometry args={[0.9, 24]} />
+        <primitive object={faceMat} attach="material" />
+      </mesh>
+      {/* Hour hand */}
+      <group ref={hourRef} position={[0, 11.5, 1.13]}>
+        <mesh position={[0, 0.26, 0]}>
+          <boxGeometry args={[0.07, 0.52, 0.03]} />
+          <primitive object={handMat} attach="material" />
+        </mesh>
+      </group>
+      {/* Minute hand */}
+      <group ref={minRef} position={[0, 11.5, 1.14]}>
+        <mesh position={[0, 0.33, 0]}>
+          <boxGeometry args={[0.045, 0.66, 0.03]} />
+          <primitive object={handMat} attach="material" />
+        </mesh>
+      </group>
+      {/* Clock face (back) */}
+      <mesh position={[0, 11.5, -1.12]} rotation={[0, Math.PI, 0]}>
+        <circleGeometry args={[0.9, 24]} />
+        <primitive object={faceMat} attach="material" />
+      </mesh>
+      {/* Decorative lamp on top of spire */}
+      <mesh position={[0, 17.5, 0]}>
+        <sphereGeometry args={[0.18, 8, 6]} />
+        <meshToonMaterial
+          color={lampOn ? '#fef9c3' : '#94a3b8'}
+          emissive={lampOn ? new THREE.Color('#ffe566') : new THREE.Color('#000')}
+          emissiveIntensity={lampOn ? 1.5 : 0}
+        />
+      </mesh>
+    </group>
+  )
+}
+
+// ── Navigation trail — glowing cyan dots from player to nav target ────────────
+const NAV_DOTS   = 30       // max sphere instances
+const DOT_STEP   = 2        // world units between dots
+const DOT_RADIUS = 0.18
+
+function NavTrail() {
+  const meshRef   = useRef()
+  const timerRef  = useRef(0)
+  const arrivedRef = useRef(false)
+  const dummy     = useMemo(() => new THREE.Object3D(), [])
+  const mat       = useMemo(() => new THREE.MeshBasicMaterial({ color: '#00e5ff', toneMapped: false }), [])
+  const geo       = useMemo(() => new THREE.SphereGeometry(DOT_RADIUS, 6, 4), [])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.code === 'Escape') navState.clearTarget() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useFrame((_, delta) => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    timerRef.current += delta
+
+    const tgt = navState.target
+    if (!tgt) {
+      mesh.count = 0
+      arrivedRef.current = false
+      return
+    }
+
+    const px = minimapState.playerX
+    const pz = minimapState.playerZ
+    const dx = tgt.x - px
+    const dz = tgt.z - pz
+    const dist = Math.sqrt(dx * dx + dz * dz)
+
+    // Arrival check
+    if (dist < 5) {
+      if (!arrivedRef.current) {
+        arrivedRef.current = true
+        audioSystem.playSuccess()
+        navState.clearTarget()
+      }
+      mesh.count = 0
+      return
+    }
+    arrivedRef.current = false
+
+    // Update dots every 0.5 s
+    if (timerRef.current < 0.5) return
+    timerRef.current = 0
+
+    const nx = dx / dist
+    const nz = dz / dist
+    const steps = Math.min(NAV_DOTS, Math.floor(dist / DOT_STEP))
+    const pulse = (Date.now() / 400) % 1   // 0-1 for animated scale
+
+    for (let i = 0; i < steps; i++) {
+      const t  = (i + 1) / (steps + 1)
+      const sc = 0.6 + 0.4 * Math.sin((t + pulse) * Math.PI * 2) * 0.5 + 0.5
+      dummy.position.set(px + nx * (i + 1) * DOT_STEP, 0.3, pz + nz * (i + 1) * DOT_STEP)
+      dummy.scale.setScalar(sc)
+      dummy.updateMatrix()
+      mesh.setMatrixAt(i, dummy.matrix)
+    }
+    mesh.count = steps
+    mesh.instanceMatrix.needsUpdate = true
+  })
+
+  return (
+    <instancedMesh ref={meshRef} args={[geo, mat, NAV_DOTS]} frustumCulled={false} />
   )
 }
 
@@ -1492,6 +1670,12 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
 
       {/* Game Zone arcade building + billboard */}
       <GameAreaScene />
+
+      {/* Real-world clock tower on City Hall */}
+      <ClockTower />
+
+      {/* Navigation trail */}
+      <NavTrail />
     </>
   )
 })

@@ -8,4 +8,5 @@ export const timeWeatherState = {
   fogDensity:    0,        // 0-1
   cloudOpacity:  0,        // 0-1
   rainSpeedMult: 1,        // NPC walk-speed multiplier (>1 when raining)
+  forcedWeather: null,     // set by TimeWeatherHUD from real-world API; consumed by WeatherSystem
 }

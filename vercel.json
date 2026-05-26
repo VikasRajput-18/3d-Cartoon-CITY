@@ -1,4 +1,8 @@
 {
+  "functions": {
+    "api/create-order.js":  { "memory": 128 },
+    "api/verify-payment.js": { "memory": 128 }
+  },
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
   "headers": [
     {

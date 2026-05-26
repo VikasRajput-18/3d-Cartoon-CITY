@@ -75,6 +75,14 @@ export default function WeatherSystem() {
   const _fogColor = useMemo(() => new THREE.Color(), [])
 
   useFrame((_, delta) => {
+    // ── Real-world weather override (from Open-Meteo API) ─────────────
+    if (timeWeatherState.forcedWeather && curWeather.current !== timeWeatherState.forcedWeather) {
+      nextWeather.current = timeWeatherState.forcedWeather
+      transT.current      = 0
+      timer.current       = 0
+      timeWeatherState.forcedWeather = null
+    }
+
     // ── Weather state machine ─────────────────────────────────────────
     timer.current += delta
 
