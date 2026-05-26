@@ -3,6 +3,19 @@ import { supabase } from '@/lib/supabase'
 import { audioSystem } from '@/lib/audioSystem'
 import { groqChat, LANGUAGE_RULE } from '@/lib/groqChat'
 import { timeWeatherState } from '@/lib/timeWeatherState'
+import { spendCoins, getEconomyState } from '@/lib/economyState'
+import { COSTS } from '@/lib/costs'
+
+// ── NPC free message tracking ─────────────────────────────────────────────────
+function _npcMsgKey(userId, npcName) {
+  return `npc_msgs_${userId}_${npcName}_${new Date().toDateString()}`
+}
+function getNpcFreeUsed(userId, npcName) {
+  try { return parseInt(localStorage.getItem(_npcMsgKey(userId, npcName)) || '0', 10) } catch { return 0 }
+}
+function incNpcFreeUsed(userId, npcName) {
+  try { localStorage.setItem(_npcMsgKey(userId, npcName), String(getNpcFreeUsed(userId, npcName) + 1)) } catch {}
+}
 
 // Sanitize to valid PeerJS peer ID — alphanumeric only, max 50 chars
 function sanitize(id) {
@@ -69,36 +82,72 @@ function createPeer(peerId) {
 }
 
 export function usePhone({ userId, userName, onlinePlayers = [] }) {
-  const [phoneOpen,   setPhoneOpen]   = useState(false)
-  const [callStatus,  setCallStatus]  = useState('idle')
+  const [phoneOpen,     setPhoneOpen]     = useState(false)
+  const [callStatus,    setCallStatus]    = useState('idle')
   // idle | outgoing | incoming | connecting | active | npc | ended
-  const [callMeta,    setCallMeta]    = useState(null)
-  const [callElapsed, setCallElapsed] = useState(0)
-  const [missedCalls, setMissedCalls] = useState([])
-  const [npcSession,  setNpcSession]  = useState(null)
-  const [npcTyping,   setNpcTyping]   = useState(false)
-  const [micMuted,    setMicMuted]    = useState(false)
-  const [callError,   setCallError]   = useState(null)
+  const [callMeta,      setCallMeta]      = useState(null)
+  const [callElapsed,   setCallElapsed]   = useState(0)
+  const [callCost,      setCallCost]      = useState(0)
+  const [lowCoins,      setLowCoins]      = useState(false)
+  const [missedCalls,   setMissedCalls]   = useState([])
+  const [npcSession,    setNpcSession]    = useState(null)
+  const [npcTyping,     setNpcTyping]     = useState(false)
+  const [npcFreeLeft,   setNpcFreeLeft]   = useState(COSTS.callFreeNPCMessages)
+  const [micMuted,      setMicMuted]      = useState(false)
+  const [callError,     setCallError]     = useState(null)
 
-  const peerRef      = useRef(null)   // PeerJS Peer instance
-  const connRef      = useRef(null)   // active MediaConnection
-  const localStrmRef = useRef(null)   // local mic stream
-  const remoteAudRef = useRef(null)   // HTML Audio for remote audio
-  const timerRef     = useRef(null)   // setInterval handle
-  const callMetaRef  = useRef(null)   // always up-to-date callMeta
-  const isCallerRef  = useRef(false)  // true when I initiated the call
+  const peerRef       = useRef(null)   // PeerJS Peer instance
+  const connRef       = useRef(null)   // active MediaConnection
+  const localStrmRef  = useRef(null)   // local mic stream
+  const remoteAudRef  = useRef(null)   // HTML Audio for remote audio
+  const timerRef      = useRef(null)   // setInterval handle for elapsed + cost
+  const callMetaRef   = useRef(null)   // always up-to-date callMeta
+  const isCallerRef   = useRef(false)  // true when I initiated the call
+  const callCostRef   = useRef(0)      // running call cost (coins)
 
   useEffect(() => { callMetaRef.current = callMeta }, [callMeta])
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const _startTimer = useCallback(() => {
     setCallElapsed(0)
-    timerRef.current = setInterval(() => setCallElapsed(s => s + 1), 1000)
+    setCallCost(0)
+    callCostRef.current = 0
+
+    // Deduct initial connection cost
+    spendCoins(COSTS.callPlayer)
+    callCostRef.current = COSTS.callPlayer
+    setCallCost(COSTS.callPlayer)
+
+    let seconds = 0
+    timerRef.current = setInterval(() => {
+      seconds++
+      setCallElapsed(s => s + 1)
+
+      // Deduct per-minute cost every 60 seconds
+      if (seconds % 60 === 0) {
+        const eco = getEconomyState()
+        if (eco.coins <= 0) {
+          // Auto-end call — no coins left
+          window.dispatchEvent(new CustomEvent('call-no-coins'))
+          return
+        }
+        spendCoins(COSTS.callMinute)
+        callCostRef.current += COSTS.callMinute
+        setCallCost(callCostRef.current)
+
+        // Warn when low
+        const afterSpend = getEconomyState()
+        if (afterSpend.coins < 30) {
+          setLowCoins(true)
+        }
+      }
+    }, 1000)
   }, [])
 
   const _stopTimer = useCallback(() => {
     clearInterval(timerRef.current)
     timerRef.current = null
+    setLowCoins(false)
   }, [])
 
   const _getMic = useCallback(async () => {
@@ -185,8 +234,12 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
       setCallStatus('idle')
       setCallMeta(null)
       setCallElapsed(0)
+      setCallCost(0)
+      callCostRef.current = 0
+      setLowCoins(false)
       setNpcSession(null)
       setNpcTyping(false)
+      setNpcFreeLeft(COSTS.callFreeNPCMessages)
       setMicMuted(false)
       setCallError(null)
     }, 2000)
@@ -323,10 +376,26 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
     return () => { supabase.removeChannel(sub) }
   }, [userId, _makeWebRTCCall, _hangUp])
 
+  // Auto-end call when coin event fires
+  useEffect(() => {
+    const handler = () => { _hangUp(true) }
+    window.addEventListener('call-no-coins', handler)
+    return () => window.removeEventListener('call-no-coins', handler)
+  }, [_hangUp])
+
   // ── STEP 1: Caller initiates call ─────────────────────────────────────────
   const makeCall = useCallback(async (targetId, targetName) => {
     if (callMetaRef.current) return
     if (!supabase || !userId) return
+
+    // Check coin balance before initiating
+    const eco = getEconomyState()
+    if (eco.coins < COSTS.callPlayer) {
+      setCallError(`Need ${COSTS.callPlayer} coins to call`)
+      setTimeout(() => setCallError(null), 3000)
+      return
+    }
+
     console.log('[Phone] Call initiated to', targetName)
 
     const { data: row, error } = await supabase.from('calls').insert({
@@ -457,6 +526,7 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
     setCallStatus('npc')
     setCallMeta({ callerId: userId, callerName: userName, receiverName: npcName })
     setNpcSession({ name: npcName, messages: [] })
+    setNpcFreeLeft(Math.max(0, COSTS.callFreeNPCMessages - getNpcFreeUsed(userId, npcName)))
     audioSystem.playRingtone()
     setTimeout(() => {
       audioSystem.stopRingtone()
@@ -470,6 +540,25 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
 
   const sendNpcMessage = useCallback(async (text) => {
     if (!npcSession) return
+
+    const used = getNpcFreeUsed(userId, npcSession.name)
+    const freeLeft = Math.max(0, COSTS.callFreeNPCMessages - used)
+
+    if (freeLeft === 0) {
+      // Paid message — check coins
+      const eco = getEconomyState()
+      if (eco.coins < COSTS.chatNPCExtra) {
+        setNpcSession(s => ({ ...s, messages: [...s.messages, {
+          role: 'npc', text: `[Not enough coins — need ${COSTS.chatNPCExtra} coins per message]`,
+        }] }))
+        return
+      }
+      spendCoins(COSTS.chatNPCExtra)
+    } else {
+      incNpcFreeUsed(userId, npcSession.name)
+      setNpcFreeLeft(Math.max(0, freeLeft - 1))
+    }
+
     const updated = [...npcSession.messages, { role: 'user', text }]
     setNpcSession(s => ({ ...s, messages: updated }))
     setNpcTyping(true)
@@ -486,7 +575,7 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
     } finally {
       setNpcTyping(false)
     }
-  }, [npcSession])
+  }, [npcSession, userId])
 
   const clearMissed = useCallback((id) => {
     setMissedCalls(prev => prev.filter(m => m.id !== id && m.name !== id))
@@ -494,9 +583,9 @@ export function usePhone({ userId, userName, onlinePlayers = [] }) {
 
   return {
     phoneOpen, setPhoneOpen,
-    callStatus, callMeta, callElapsed, callError,
+    callStatus, callMeta, callElapsed, callCost, lowCoins, callError,
     missedCalls, clearMissed,
-    npcSession, npcTyping, micMuted,
+    npcSession, npcTyping, npcFreeLeft, micMuted,
     makeCall, acceptCall, rejectCall, endCall, toggleMic,
     callNPC, sendNpcMessage,
   }

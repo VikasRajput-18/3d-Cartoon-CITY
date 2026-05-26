@@ -242,6 +242,12 @@ export async function completeMission(missionId) {
   emit()
 }
 
+export function skipMission(missionId) {
+  if (getMissionStatus(missionId) !== 'active') return { ok: false, reason: 'Mission is not active' }
+  completeMission(missionId)
+  return { ok: true }
+}
+
 export function completeDailyMission(id) {
   if (!_s.uid || _s.dailyCompleted[id]) return
   const dailyDef = DAILY_MISSIONS.find(d => d.id === id)

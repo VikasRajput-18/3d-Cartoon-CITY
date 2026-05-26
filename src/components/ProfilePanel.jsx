@@ -8,9 +8,9 @@ import { getMyStats, onGameUpdate, GAME_IDS, GAME_NAMES, GAME_EMOJIS } from '@/l
 
 const ALL_OUTFITS = [
   { id: 'casual',      label: 'Casual',      color: '#7C3AED', currency: 'coins', cost: 0,   free: true  },
-  { id: 'school',      label: 'School',      color: '#1D4ED8', currency: 'coins', cost: 100              },
+  { id: 'school',      label: 'School',      color: '#1D4ED8', currency: 'coins', cost: 150              },
   { id: 'sports',      label: 'Sports',      color: '#DC2626', currency: 'coins', cost: 150              },
-  { id: 'winter',      label: 'Winter',      color: '#0F766E', currency: 'coins', cost: 200              },
+  { id: 'winter',      label: 'Winter',      color: '#0F766E', currency: 'coins', cost: 350              },
   { id: 'party',       label: 'Party',       color: '#DB2777', currency: 'gems',  cost: 30               },
   { id: 'traditional', label: 'Traditional', color: '#D97706', currency: 'gems',  cost: 40               },
 ]
@@ -178,7 +178,7 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
                   onClick={() => { onClose(); onOpenFastTravel() }}
                   style={{ width: '100%', padding: '10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10, color: '#fbbf24', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}
                 >
-                  📍 Fast Travel — 10 coins/trip
+                  📍 Fast Travel — 25 coins/trip
                 </button>
               )}
 

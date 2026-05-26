@@ -4,6 +4,8 @@ import { useStore } from '@/store'
 import { GAME_DEFS } from './index'
 import { gameControls } from '@/lib/gameControls'
 import { audioSystem } from '@/lib/audioSystem'
+import { spendTicket, getEconomyState } from '@/lib/economyState'
+import { COSTS } from '@/lib/costs'
 
 const RacingGame   = lazy(() => import('./RacingGame'))
 const ShootingGame = lazy(() => import('./ShootingGame'))
@@ -29,12 +31,21 @@ export default function GameRunner({ gameId, onClose }) {
   const def      = GAME_DEFS[gameId]
   const GameComp = COMPONENTS[gameId]
 
-  const [result,  setResult]  = useState(null)
-  const [paused,  setPaused]  = useState(false)
-  const [gameKey, setGameKey] = useState(0)
+  const [result,       setResult]       = useState(null)
+  const [paused,       setPaused]       = useState(false)
+  const [gameKey,      setGameKey]      = useState(0)
+  const [ticketError,  setTicketError]  = useState(null)
 
   useEffect(() => {
     gameControls.enabled = false
+    // Spend 2 tickets to start game
+    const eco = getEconomyState()
+    if (eco.tickets < COSTS.playGame) {
+      setTicketError(`Need ${COSTS.playGame} tickets to play. You have ${eco.tickets}.`)
+    } else {
+      spendTicket()
+      if (COSTS.playGame >= 2) spendTicket()
+    }
     return () => { gameControls.enabled = true }
   }, [])
 
@@ -56,6 +67,24 @@ export default function GameRunner({ gameId, onClose }) {
     setResult(null)
     setPaused(false)
     setGameKey(k => k + 1)
+  }
+
+  if (ticketError) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 600,
+        background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'Nunito, sans-serif',
+      }}>
+        <div style={{ background: 'rgba(15,10,30,0.97)', border: '2px solid #ef4444', borderRadius: 20, padding: '28px 36px', textAlign: 'center', maxWidth: '88vw' }}>
+          <div style={{ fontSize: 44 }}>🎟️</div>
+          <div style={{ color: '#f87171', fontSize: 20, fontWeight: 800, marginTop: 8 }}>Not enough tickets</div>
+          <div style={{ color: '#94a3b8', fontSize: 14, marginTop: 8 }}>{ticketError}</div>
+          <div style={{ color: '#64748b', fontSize: 12, marginTop: 6 }}>Tickets refill every 2 hours, or log in daily for a bonus.</div>
+          <button onClick={onClose} style={{ marginTop: 20, background: '#7c3aed', border: 'none', borderRadius: 10, padding: '12px 32px', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>OK</button>
+        </div>
+      </div>
+    )
   }
 
   return (

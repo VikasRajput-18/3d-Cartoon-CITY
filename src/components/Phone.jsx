@@ -85,11 +85,13 @@ function usePanelStyles(isMobile) {
 export default function Phone({
   myId, myName, onlinePlayers = [],
   phoneOpen, onToggle,
-  callStatus, callMeta, callElapsed, callError,
+  callStatus, callMeta, callElapsed, callCost, lowCoins, callError,
   missedCalls, clearMissed,
-  npcSession, npcTyping, micMuted,
+  npcSession, npcTyping, npcFreeLeft, micMuted,
   onMakeCall, onAcceptCall, onRejectCall, onEndCall, onToggleMic,
   onCallNPC, onSendNpcMessage,
+  onOpenShop,
+  playerCoins = 0,
 }) {
   const isMobile = useMobile()
   const { idlePanel, npcPanel } = usePanelStyles(isMobile)
@@ -129,12 +131,15 @@ export default function Phone({
           status={callStatus}
           meta={callMeta}
           elapsed={callElapsed}
+          callCost={callCost}
+          lowCoins={lowCoins}
           micMuted={micMuted}
           error={callError}
           hasNpc={!!npcSession}
           onEnd={onEndCall}
           onMute={onToggleMic}
           onOpenNpc={onToggle}
+          onOpenShop={onOpenShop}
         />
       )}
 
@@ -145,7 +150,13 @@ export default function Phone({
             <span style={{ color: '#a78bfa', fontWeight: 800, fontSize: 13 }}>
               {npcSession.name}
             </span>
-            <button onClick={onToggle} style={{ ...BTN('transparent'), color: '#475569', fontSize: 16, width: 28, height: 28 }}>×</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {npcFreeLeft > 0
+                ? <span style={{ color: '#4ade80', fontSize: 10 }}>🆓 {npcFreeLeft} free left</span>
+                : <span style={{ color: '#fbbf24', fontSize: 10 }}>🪙 15/msg</span>
+              }
+              <button onClick={onToggle} style={{ ...BTN('transparent'), color: '#475569', fontSize: 16, width: 28, height: 28 }}>×</button>
+            </div>
           </div>
           <div
             className="ph-scroll"
@@ -253,7 +264,7 @@ export default function Phone({
 }
 
 // ── Floating call bar — small persistent bar at top during any call ───────────
-function FloatingCallBar({ status, meta, elapsed, micMuted, error, hasNpc, onEnd, onMute, onOpenNpc }) {
+function FloatingCallBar({ status, meta, elapsed, callCost, lowCoins, micMuted, error, hasNpc, onEnd, onMute, onOpenNpc, onOpenShop }) {
   const name = meta?.receiverName || meta?.callerName || '?'
 
   let statusText = ''
@@ -294,7 +305,20 @@ function FloatingCallBar({ status, meta, elapsed, micMuted, error, hasNpc, onEnd
         </div>
         <div style={{ color: statusColor, fontSize: 11, fontWeight: 600 }}>
           {statusText}
+          {status === 'active' && callCost > 0 && (
+            <span style={{ color: '#fbbf24', marginLeft: 6 }}>· 🪙 {callCost} spent</span>
+          )}
         </div>
+        {lowCoins && status === 'active' && (
+          <div style={{ color: '#ef4444', fontSize: 10, marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+            ⚠️ Low coins! Call will end soon.
+            {onOpenShop && (
+              <button onClick={onOpenShop} style={{ background: 'none', border: 'none', color: '#a78bfa', fontSize: 10, cursor: 'pointer', textDecoration: 'underline', padding: 0, fontFamily: 'Nunito, sans-serif' }}>
+                Buy coins
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Open NPC chat (when NPC call active and phone closed) */}
@@ -384,14 +408,14 @@ function ContactsList({ myId, onlinePlayers, onCall, onCallNPC }) {
         <>
           <SectionLabel>ONLINE PLAYERS</SectionLabel>
           {players.map(p => (
-            <ContactRow key={p.uid} name={p.name || p.uid} badge="🟢" onCall={() => onCall(p.uid, p.name || p.uid)} />
+            <ContactRow key={p.uid} name={p.name || p.uid} badge="🟢" callCost={10} onCall={() => onCall(p.uid, p.name || p.uid)} />
           ))}
         </>
       )}
       <SectionLabel>CITY RESIDENTS</SectionLabel>
       <div className="max-h-96 pb-10 overflow-auto">
         {NPCS.map(name => (
-          <ContactRow key={name} name={name} badge="🤖" onCall={() => onCallNPC(name)} />
+          <ContactRow key={name} name={name} badge="🤖" callCost={0} onCall={() => onCallNPC(name)} />
         ))}
       </div>
     </div>
@@ -407,7 +431,7 @@ function SectionLabel({ children }) {
   )
 }
 
-function ContactRow({ name, badge, onCall }) {
+function ContactRow({ name, badge, onCall, callCost }) {
   const [hover, setHover] = useState(false)
   return (
     <div
@@ -422,11 +446,11 @@ function ContactRow({ name, badge, onCall }) {
       }}
     >
       <AvatarCircle name={name} size={34} />
-      <span style={{
-        flex: 1, minWidth: 0,
-        color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginLeft: 10,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>{name}</span>
+      <div style={{ flex: 1, minWidth: 0, marginLeft: 10 }}>
+        <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+        {callCost > 0 && <span style={{ color: '#fbbf24', fontSize: 10 }}>🪙 {callCost} coins to call</span>}
+        {callCost === 0 && badge === '🤖' && <span style={{ color: '#4ade80', fontSize: 10 }}>Free NPC call</span>}
+      </div>
       <span style={{ fontSize: 10, marginRight: 6, flexShrink: 0 }}>{badge}</span>
       <button
         onClick={onCall}

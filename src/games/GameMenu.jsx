@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { GAME_DEFS } from './index'
 import { audioSystem } from '@/lib/audioSystem'
+import { COSTS } from '@/lib/costs'
 
 export default function GameMenu({ games, buildingName, onSelect, onClose }) {
   return (
@@ -44,7 +45,10 @@ export default function GameMenu({ games, buildingName, onSelect, onClose }) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{g.label}</div>
                   <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>{g.desc}</div>
-                  <div style={{ color: '#facc15', fontSize: 12, marginTop: 3 }}>Win: +{g.coins} coins</div>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 3 }}>
+                    <span style={{ color: '#fbbf24', fontSize: 12 }}>🎟️ {COSTS.playGame} tickets</span>
+                    <span style={{ color: '#4ade80', fontSize: 12 }}>Win: +{g.coins} coins</span>
+                  </div>
                 </div>
               </button>
             )

@@ -1,9 +1,18 @@
+import { useState, useEffect } from 'react'
 import { useStore } from '@/store'
 import { AnimatePresence, motion } from 'framer-motion'
+import { getEconomyState, onEconomyUpdate } from '@/lib/economyState'
 
-export default function HUD() {
+const LOW_COINS_THRESHOLD = 50
+
+export default function HUD({ onOpenShop }) {
   const avatar = useStore(s => s.avatar)
   const toasts = useStore(s => s.toasts)
+  const [coins, setCoins] = useState(getEconomyState().coins)
+
+  useEffect(() => onEconomyUpdate(eco => setCoins(eco.coins)), [])
+
+  const lowCoins = coins < LOW_COINS_THRESHOLD
 
   return (
     <>
@@ -19,6 +28,33 @@ export default function HUD() {
       }}>
         {avatar.name}
       </div>
+
+      {/* Low coins warning */}
+      <AnimatePresence>
+        {lowCoins && (
+          <motion.button
+            key="low-coins"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            onClick={onOpenShop}
+            style={{
+              position: 'fixed', top: 50, left: 12, zIndex: 41,
+              background: 'rgba(217,119,6,0.88)',
+              border: '1px solid rgba(251,191,36,0.5)',
+              borderRadius: 7, padding: '4px 10px',
+              color: '#fff', fontSize: 12, fontWeight: 700,
+              fontFamily: 'Nunito, sans-serif',
+              cursor: onOpenShop ? 'pointer' : 'default',
+              display: 'flex', alignItems: 'center', gap: 5,
+              userSelect: 'none',
+            }}
+          >
+            🪙 Low coins! <span style={{ color: '#fde68a' }}>{coins}</span>
+            {onOpenShop && <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>· Buy</span>}
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Toast notifications */}
       <div style={{

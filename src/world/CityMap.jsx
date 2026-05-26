@@ -1125,7 +1125,7 @@ function DynamicLighting() {
     windowMat.opacity = on ? 0.95 : 0.55
     lampGlobeMat.color.setStyle(on ? '#FEF9C3' : '#1e293b')
     lampGlobeMat.emissive.setStyle(on ? '#FFE566' : '#000000')
-    lampGlobeMat.emissiveIntensity = on ? 1.2 : 0
+    lampGlobeMat.emissiveIntensity = on ? 2.2 : 0
   })
   return null
 }

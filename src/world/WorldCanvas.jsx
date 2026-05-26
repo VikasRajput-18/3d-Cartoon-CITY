@@ -31,6 +31,8 @@ import GameAreaScene, { GAME_AREA_POS, GAME_AREA_ID } from './GameAreaBuilding'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
+import { spendCoins, getEconomyState } from '@/lib/economyState'
+import { COSTS } from '@/lib/costs'
 
 // ── Collision system ──────────────────────────────────────────────────────────
 const CHAR_R = 0.28
@@ -427,6 +429,7 @@ function PlayerController({
   const coopTimerRef  = useRef(0)   // seconds near 2+ players while m1_4 active
   const vehDetectTick = useRef(0)
   const speedThrottle = useRef(0)
+  const boostTimeAcc  = useRef(0)   // accumulated boost seconds for coin drain
   const speedKmhRef   = useRef(0)
 
   // ── Parked vehicle driving ────────────────────────────────────────────────
@@ -815,7 +818,21 @@ function PlayerController({
       const bwd   = keys.current.has('KeyS') || keys.current.has('ArrowDown')
       const left  = keys.current.has('KeyA') || keys.current.has('ArrowLeft')
       const right = keys.current.has('KeyD') || keys.current.has('ArrowRight')
-      const boost = keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')
+      const hasCoinBoost = getEconomyState().coins > 0
+      const boost = (keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')) && hasCoinBoost
+
+      // Drain COSTS.vehicleBoost coins every 10 seconds of active boost
+      if (boost) {
+        boostTimeAcc.current += delta
+        if (boostTimeAcc.current >= 10) {
+          boostTimeAcc.current -= 10
+          spendCoins(COSTS.vehicleBoost)
+          window.dispatchEvent(new CustomEvent('boost-drain', { detail: { amount: COSTS.vehicleBoost } }))
+        }
+      } else {
+        boostTimeAcc.current = 0
+      }
+
       const maxSpd = cfg.maxSpeed * (boost ? cfg.boostMult : 1)
 
       if (fwd) {
@@ -1772,11 +1789,23 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
   const [nearParkedVeh, setNearParkedVeh] = useState(null)
   const [showFps,      setShowFps]      = useState(false)
   const [fpsDisplay,   setFpsDisplay]   = useState(0)
+  const [boostDrainMsg, setBoostDrainMsg] = useState(null)
 
   useEffect(() => {
     const onKey = (e) => { if (e.code === 'F3') { e.preventDefault(); setShowFps(s => !s) } }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    let tid = null
+    const handler = (e) => {
+      setBoostDrainMsg(`-${e.detail.amount} coins`)
+      clearTimeout(tid)
+      tid = setTimeout(() => setBoostDrainMsg(null), 1500)
+    }
+    window.addEventListener('boost-drain', handler)
+    return () => { window.removeEventListener('boost-drain', handler); clearTimeout(tid) }
   }, [])
 
   useEffect(() => {
@@ -1862,8 +1891,18 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
             <strong>E</strong> — Exit &nbsp;|&nbsp;
             <strong>W/S</strong> Accel/Brake &nbsp;|&nbsp;
             <strong>A/D</strong> Steer &nbsp;|&nbsp;
-            <strong>Shift</strong> Boost
+            <strong>Shift</strong> Boost (🪙 {COSTS.vehicleBoost}/10s)
           </div>
+          {boostDrainMsg && (
+            <div style={{
+              position: 'absolute', top: 60, left: '50%', transform: 'translateX(-50%)',
+              background: 'rgba(234,179,8,0.9)', color: '#000', padding: '4px 12px',
+              borderRadius: 6, fontFamily: 'Nunito, sans-serif', fontWeight: 800,
+              fontSize: 13, pointerEvents: 'none',
+            }}>
+              ⚡ Boost {boostDrainMsg}
+            </div>
+          )}
           <Speedometer kmh={speedKmh} />
         </>
       )}

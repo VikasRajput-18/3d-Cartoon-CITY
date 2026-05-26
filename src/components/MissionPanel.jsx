@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
-import { onMissionUpdate, getMissionState, DAILY_MISSIONS, getActiveMission, getMissionStatus, getChapterProgress, calcLevel } from '@/lib/missionState'
+import { onMissionUpdate, getMissionState, DAILY_MISSIONS, getActiveMission, getMissionStatus, getChapterProgress, calcLevel, skipMission } from '@/lib/missionState'
+import { spendCoins, getEconomyState, onEconomyUpdate } from '@/lib/economyState'
+import { COSTS } from '@/lib/costs'
 
 const STATUS_ICON = {
   locked:    { icon: '🔒', color: '#475569' },
@@ -15,9 +17,22 @@ function MsProgress({ value }) {
   )
 }
 
-function MissionItem({ mission, status }) {
+function MissionItem({ mission, status, coins }) {
   const si = STATUS_ICON[status] || STATUS_ICON.locked
   const isActive = status === 'active'
+  const [skipMsg, setSkipMsg] = useState('')
+
+  const handleSkip = () => {
+    if (coins < COSTS.missionSkip) {
+      setSkipMsg(`Need ${COSTS.missionSkip} coins`)
+      setTimeout(() => setSkipMsg(''), 2000)
+      return
+    }
+    spendCoins(COSTS.missionSkip)
+    skipMission(mission.id)
+    setSkipMsg('Skipped!')
+  }
+
   return (
     <div style={{
       background: isActive ? 'rgba(124,58,237,0.12)' : 'rgba(255,255,255,0.03)',
@@ -36,9 +51,24 @@ function MissionItem({ mission, status }) {
         </div>
       </div>
       {isActive && (
-        <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.4, paddingLeft: 24 }}>
-          {mission.description}
-        </div>
+        <>
+          <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.4, paddingLeft: 24 }}>
+            {mission.description}
+          </div>
+          <div style={{ paddingLeft: 24, marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={handleSkip}
+              style={{
+                background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)',
+                borderRadius: 6, padding: '4px 10px', color: '#f87171',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Nunito, sans-serif',
+              }}
+            >
+              ⏭ Skip (🪙 {COSTS.missionSkip})
+            </button>
+            {skipMsg && <span style={{ fontSize: 11, color: skipMsg.includes('Need') ? '#f87171' : '#4ade80' }}>{skipMsg}</span>}
+          </div>
+        </>
       )}
     </div>
   )
@@ -70,8 +100,10 @@ function DailyItem({ daily, completed, resetAt }) {
 export default function MissionPanel({ open, onClose }) {
   const [tab, setTab] = useState('story')
   const [ms, setMs]   = useState(getMissionState())
+  const [coins, setCoins] = useState(getEconomyState().coins)
 
   useEffect(() => onMissionUpdate(setMs), [])
+  useEffect(() => onEconomyUpdate(eco => setCoins(eco.coins)), [])
 
   if (!open) return null
 
@@ -147,7 +179,7 @@ export default function MissionPanel({ open, onClose }) {
           <>
             {!initialized && <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center', marginTop: 30 }}>Loading missions…</div>}
             {missions.map(m => (
-              <MissionItem key={m.id} mission={m} status={getMissionStatus(m.id)} />
+              <MissionItem key={m.id} mission={m} status={getMissionStatus(m.id)} coins={coins} />
             ))}
             {missions.length === 0 && initialized && (
               <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center', marginTop: 30 }}>No missions yet</div>

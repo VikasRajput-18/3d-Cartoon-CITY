@@ -395,7 +395,7 @@ export default function Game() {
       )}
 
       {/* HUD overlay (player name + store toasts) */}
-      <HUD />
+      <HUD onOpenShop={() => setShowShop(true)} />
 
       {/* Mission system overlays */}
       <BossHealthBar />
@@ -707,6 +707,7 @@ export default function Game() {
       <FastTravel
         open={showFastTravel}
         onClose={() => setShowFastTravel(false)}
+        onOpenShop={() => { setShowFastTravel(false); setShowShop(true) }}
         onTravel={(msg) => {
           const id = ++toastIdRef.current
           setMsgToasts(prev => [...prev.slice(-2), { id, type: 'global', fromName: '📍 Travel', text: msg, onClick: null }])
@@ -779,6 +780,9 @@ export default function Game() {
         clearMissed={phone.clearMissed}
         npcSession={phone.npcSession}
         npcTyping={phone.npcTyping}
+        npcFreeLeft={phone.npcFreeLeft}
+        callCost={phone.callCost}
+        lowCoins={phone.lowCoins}
         micMuted={phone.micMuted}
         onMakeCall={phone.makeCall}
         onAcceptCall={phone.acceptCall}
@@ -787,6 +791,8 @@ export default function Game() {
         onToggleMic={phone.toggleMic}
         onCallNPC={phone.callNPC}
         onSendNpcMessage={phone.sendNpcMessage}
+        onOpenShop={() => setShowShop(true)}
+        playerCoins={getEconomyState().coins}
       />
 
       {/* Fade overlay for building transitions */}

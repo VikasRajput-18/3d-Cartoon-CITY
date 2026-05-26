@@ -23,20 +23,20 @@ const SKY_STOPS = [
   [24,   '#000d1a'],
 ]
 
-// Ambient light stops [hour, intensity, colour]
+// Ambient light stops [hour, intensity, colour] — night minimum is 0.3 for playability
 const AMB_STOPS = [
-  [0,    0.04, '#506090'],
-  [5,    0.05, '#708090'],
-  [5.5,  0.18, '#ff9060'],
-  [6,    0.32, '#ffb080'],
-  [7,    0.56, '#fff5e8'],
+  [0,    0.30, '#7080b0'],
+  [5,    0.32, '#8090a8'],
+  [5.5,  0.40, '#ff9060'],
+  [6,    0.42, '#ffb080'],
+  [7,    0.58, '#fff5e8'],
   [9,    0.65, '#fff8f0'],
   [12,   0.70, '#fff5e0'],
   [17,   0.65, '#ffe8d0'],
-  [18,   0.38, '#ff8040'],
-  [18.9, 0.15, '#8040a0'],
-  [20,   0.05, '#2040a0'],
-  [24,   0.04, '#506090'],
+  [18,   0.42, '#ff8040'],
+  [18.9, 0.35, '#9060c0'],
+  [20,   0.30, '#4060c0'],
+  [24,   0.30, '#7080b0'],
 ]
 
 // Reusable colour temporaries — avoids per-frame allocation
@@ -67,12 +67,14 @@ function lerpStops(stops, hour, getColor) {
 export default function DayNightCycle() {
   const { scene } = useThree()
 
-  const bgColor     = useRef(new THREE.Color('#4db8f5'))
-  const ambRef      = useRef()
-  const sunRef      = useRef()
-  const moonRef     = useRef()
-  const hemiRef     = useRef()
-  const starsMatRef = useRef()
+  const bgColor      = useRef(new THREE.Color('#4db8f5'))
+  const ambRef       = useRef()
+  const sunRef       = useRef()
+  const moonRef      = useRef()
+  const hemiRef      = useRef()
+  const starsMatRef  = useRef()
+  const moonSphereRef= useRef()
+  const moonHaloRef  = useRef()
 
   // Star positions — upper hemisphere, fixed for the session
   const starPositions = useMemo(() => {
@@ -134,10 +136,16 @@ export default function DayNightCycle() {
       ambRef.current.color.copy(amb.color)
     }
 
-    // Hemisphere light follows ambient intensity (sky-fill light)
+    // Hemisphere light — daytime follows sky, night uses deep blue tones
     if (hemiRef.current) {
-      hemiRef.current.intensity = amb.intensity * 0.55 * weatherDim
-      hemiRef.current.color.copy(bgColor.current)
+      const isNight = hour < 6.5 || hour >= 19.5
+      hemiRef.current.intensity = isNight ? 0.4 * weatherDim : amb.intensity * 0.55 * weatherDim
+      if (isNight) {
+        hemiRef.current.color.set('#1a1a3e')
+        hemiRef.current.groundColor?.set('#0a0a1e')
+      } else {
+        hemiRef.current.color.copy(bgColor.current)
+      }
     }
 
     // ── Sun: arc east→west during 5-20 ───────────────────────────────
@@ -154,16 +162,26 @@ export default function DayNightCycle() {
     }
 
     // ── Moon: arc during 19-6 ────────────────────────────────────────
+    const moonVisible = hour < 6.5 || hour >= 19
+    const nightFrac   = hour >= 19 ? (hour - 19) / 11 : (hour + 5) / 11
+    const mArc        = Math.max(0, Math.min(1, nightFrac)) * Math.PI
+    const moonX       = Math.cos(mArc) * -25
+    const moonY       = Math.max(3, Math.sin(mArc) * 40)
+    const moonZ       = -10
+    const moonIntens  = moonVisible ? Math.max(0, 0.4 - timeWeatherState.cloudOpacity * 0.18) : 0
+
     if (moonRef.current) {
-      const nightFrac = hour >= 19 ? (hour - 19) / 11 : (hour + 5) / 11
-      const mArc = Math.max(0, Math.min(1, nightFrac)) * Math.PI
-      moonRef.current.visible = hour < 6.5 || hour >= 19
-      moonRef.current.position.set(
-        Math.cos(mArc) * -25, Math.max(0.1, Math.sin(mArc) * 20), -10,
-      )
-      moonRef.current.intensity = moonRef.current.visible
-        ? 0.22 - timeWeatherState.cloudOpacity * 0.14
-        : 0
+      moonRef.current.visible = moonVisible
+      moonRef.current.position.set(moonX, moonY, moonZ)
+      moonRef.current.intensity = moonIntens
+    }
+    if (moonSphereRef.current) {
+      moonSphereRef.current.visible = moonVisible
+      moonSphereRef.current.position.set(moonX, moonY, moonZ)
+    }
+    if (moonHaloRef.current) {
+      moonHaloRef.current.visible = moonVisible
+      moonHaloRef.current.position.set(moonX, moonY, moonZ)
     }
 
     // ── Ambience (birds / crickets / city hum / synth music) ─────────────
@@ -189,8 +207,19 @@ export default function DayNightCycle() {
     <>
       <ambientLight ref={ambRef} intensity={0.65} color="#fff8f0" />
       <directionalLight ref={sunRef} position={[-35, 28, -8]} intensity={1.3} color="#fff8dc" />
-      <directionalLight ref={moonRef} position={[10, 18, -10]} intensity={0.22} color="#8090c0" />
+      {/* Moonlight — position tracks the moon sphere in useFrame */}
+      <directionalLight ref={moonRef} position={[-25, 40, -10]} intensity={0.4} color="#B0C4DE" castShadow={false} />
       <hemisphereLight ref={hemiRef} skyColor="#87ceeb" groundColor="#2d5a1e" intensity={0.35} />
+      {/* Visible moon sphere */}
+      <mesh ref={moonSphereRef} position={[-25, 40, -10]}>
+        <sphereGeometry args={[2, 16, 12]} />
+        <meshStandardMaterial color="#f0f4ff" emissive="#d0dcff" emissiveIntensity={1.8} roughness={0.8} metalness={0} />
+      </mesh>
+      {/* Moon glow halo — slightly larger transparent sphere */}
+      <mesh ref={moonHaloRef} position={[-25, 40, -10]}>
+        <sphereGeometry args={[3.2, 16, 12]} />
+        <meshStandardMaterial color="#b0c4de" transparent opacity={0.12} emissive="#a0b8e0" emissiveIntensity={0.6} depthWrite={false} />
+      </mesh>
       {/* Night stars — opacity-controlled Points */}
       <points frustumCulled={false}>
         <bufferGeometry>
