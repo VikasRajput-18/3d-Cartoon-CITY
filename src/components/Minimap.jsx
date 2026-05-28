@@ -3,6 +3,7 @@ import { minimapState, npcLivePositions } from '@/lib/minimapState'
 import { remotePlayersRef } from '@/lib/multiplayerState'
 import { gameControls } from '@/lib/gameControls'
 import { navState } from '@/lib/navState'
+import { getHouseState, onHouseUpdate } from '@/lib/houseService'
 
 const SMALL_SCALE = 1.8   // px per world unit on small map
 const EX_RANGE   = 70     // world units shown each side in expanded map
@@ -69,8 +70,9 @@ export default function Minimap({ isMobile = false }) {
   const [expanded, setExpanded] = useState(false)
   const [navTarget, setNavTarget] = useState(null)    // mirrors navState.target for render
   const [navDist,   setNavDist]   = useState(null)
+  const [homeDist,  setHomeDist]  = useState(null)    // distance to own house
 
-  // Sync navState.target into React state each interval
+  // Sync navState.target + home distance into React state each interval
   useEffect(() => {
     const id = setInterval(() => {
       const t = navState.target
@@ -81,6 +83,13 @@ export default function Minimap({ isMobile = false }) {
         setNavDist(Math.round(Math.sqrt(dx * dx + dz * dz)))
       } else {
         setNavDist(null)
+      }
+      // Update home distance
+      const hs = getHouseState()
+      if (hs.ready && hs.position) {
+        const hdx = minimapState.playerX - hs.position.x
+        const hdz = minimapState.playerZ - hs.position.z
+        setHomeDist(Math.round(Math.sqrt(hdx * hdx + hdz * hdz)))
       }
     }, 300)
     return () => clearInterval(id)
@@ -161,6 +170,25 @@ export default function Minimap({ isMobile = false }) {
         ctx.strokeRect(bx - b.hw * SMALL_SCALE, by - b.hd * SMALL_SCALE, b.hw * 2 * SMALL_SCALE, b.hd * 2 * SMALL_SCALE)
       }
 
+      // Player's house marker (small map)
+      const house = getHouseState()
+      if (house.ready && house.position) {
+        const hx = mx(house.position.x, playerX)
+        const hz = my(house.position.z, playerZ)
+        const hc = house.status === 'evicted' ? '#ef4444' : house.status !== 'ok' ? '#f97316' : '#fbbf24'
+        ctx.fillStyle = hc
+        ctx.shadowColor = hc
+        ctx.shadowBlur = 6
+        ctx.fillRect(hx - 3, hz, 6, 5)
+        ctx.beginPath()
+        ctx.moveTo(hx - 4, hz)
+        ctx.lineTo(hx, hz - 5)
+        ctx.lineTo(hx + 4, hz)
+        ctx.closePath()
+        ctx.fill()
+        ctx.shadowBlur = 0
+      }
+
       // Nav target dot
       const tgt = navState.target
       if (tgt) {
@@ -234,6 +262,33 @@ export default function Minimap({ isMobile = false }) {
         ctx.shadowBlur = 0
       }
       ctx.restore()
+
+      // Home arrow — if house is outside the minimap view, draw edge arrow
+      const homeState = getHouseState()
+      if (homeState.ready && homeState.position) {
+        const hmx = mx(homeState.position.x, playerX)
+        const hmy = my(homeState.position.z, playerZ)
+        const hdist = Math.hypot(hmx, hmy)
+        const EDGE_R = RADIUS - 9
+        if (hdist > RADIUS - 4) {
+          // Outside minimap — draw amber arrow at edge
+          const angle = Math.atan2(hmy, hmx)
+          const ax = HALF + Math.cos(angle) * EDGE_R
+          const ay = HALF + Math.sin(angle) * EDGE_R
+          ctx.save()
+          ctx.translate(ax, ay)
+          ctx.rotate(angle + Math.PI / 2)
+          ctx.fillStyle = '#fbbf24'
+          ctx.shadowColor = '#fbbf24'
+          ctx.shadowBlur = 7
+          ctx.beginPath()
+          ctx.moveTo(0, -6); ctx.lineTo(-4, 4); ctx.lineTo(4, 4)
+          ctx.closePath()
+          ctx.fill()
+          ctx.shadowBlur = 0
+          ctx.restore()
+        }
+      }
 
       // Border ring
       ctx.beginPath()
@@ -310,6 +365,30 @@ export default function Minimap({ isMobile = false }) {
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(b.name, bx, by)
+      }
+
+      // Player's house marker (expanded map)
+      const house = getHouseState()
+      if (house.ready && house.position) {
+        const hx = ex(house.position.x, W, SCALE)
+        const hz = ey(house.position.z, H, SCALE)
+        const hc = house.status === 'evicted' ? '#ef4444' : house.status !== 'ok' ? '#f97316' : '#fbbf24'
+        ctx.fillStyle = hc
+        ctx.shadowColor = hc
+        ctx.shadowBlur = 10
+        ctx.fillRect(hx - 5, hz, 10, 8)
+        ctx.beginPath()
+        ctx.moveTo(hx - 7, hz)
+        ctx.lineTo(hx, hz - 9)
+        ctx.lineTo(hx + 7, hz)
+        ctx.closePath()
+        ctx.fill()
+        ctx.shadowBlur = 0
+        ctx.font = 'bold 10px Nunito, sans-serif'
+        ctx.fillStyle = hc
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'top'
+        ctx.fillText(`🏠 ${house.number}`, hx, hz + 11)
       }
 
       // Nav target line
@@ -425,6 +504,19 @@ export default function Minimap({ isMobile = false }) {
       navState.setTarget({ x: hit.x, z: hit.z, name: hit.name })
       setNavTarget({ x: hit.x, z: hit.z, name: hit.name })
       setExpanded(false)
+      return
+    }
+
+    // Also check player's own house icon
+    const house = getHouseState()
+    if (house.ready && house.position) {
+      const hx = ex(house.position.x, W, SCALE)
+      const hz = ey(house.position.z, H, SCALE)
+      if (Math.hypot(cx - hx, cy - hz) < 18) {
+        navState.setTarget({ x: house.position.x, z: house.position.z, name: 'My House' })
+        setNavTarget({ x: house.position.x, z: house.position.z, name: 'My House' })
+        setExpanded(false)
+      }
     }
   }, [])
 
@@ -435,21 +527,19 @@ export default function Minimap({ isMobile = false }) {
     600
   )
 
-  const wrap = isMobile
-    ? { position: 'absolute', top: 72, right: 8, zIndex: 50, pointerEvents: 'auto', fontFamily: 'Nunito, monospace' }
-    : { position: 'absolute', bottom: 24, right: 24, zIndex: 50, pointerEvents: 'auto', fontFamily: 'Nunito, monospace' }
+  const wrapCls = isMobile
+    ? 'absolute top-[72px] right-2 z-50 pointer-events-auto font-body'
+    : 'absolute bottom-6 right-6 z-50 pointer-events-auto font-body'
 
   if (!visible && !expanded) {
     return (
-      <div style={wrap}>
+      <div className={wrapCls}>
         <div
           onClick={() => setVisible(true)}
+          className="rounded-lg py-1 px-2.5 text-slate-600 text-[11px] tracking-[0.08em] cursor-pointer"
           style={{
             background: 'rgba(8,6,18,0.82)',
             border: '1px solid rgba(124,58,237,0.35)',
-            borderRadius: 8, padding: '4px 10px',
-            color: '#475569', fontSize: 11, letterSpacing: '0.08em',
-            cursor: 'pointer',
           }}
         >
           {isMobile ? 'MAP' : '[M] MAP'}
@@ -462,42 +552,37 @@ export default function Minimap({ isMobile = false }) {
     <>
       {/* Expanded map overlay */}
       {expanded && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 200,
-          background: 'rgba(0,0,0,0.7)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          pointerEvents: 'auto',
-        }}>
-          <div style={{
-            position: 'relative',
-            background: '#080612',
-            borderRadius: 16,
-            border: '2px solid rgba(124,58,237,0.6)',
-            boxShadow: '0 0 40px rgba(124,58,237,0.3)',
-            padding: 0,
-            overflow: 'hidden',
-          }}>
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-auto"
+          style={{ background: 'rgba(0,0,0,0.7)' }}
+        >
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              background: '#080612',
+              border: '2px solid rgba(124,58,237,0.6)',
+              boxShadow: '0 0 40px rgba(124,58,237,0.3)',
+            }}
+          >
             {/* Title bar */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '8px 14px',
-              background: 'rgba(124,58,237,0.15)',
-              borderBottom: '1px solid rgba(124,58,237,0.3)',
-            }}>
-              <span style={{ color: '#a78bfa', fontWeight: 700, fontSize: 13, letterSpacing: '0.12em' }}>
+            <div
+              className="flex justify-between items-center px-[14px] py-2"
+              style={{
+                background: 'rgba(124,58,237,0.15)',
+                borderBottom: '1px solid rgba(124,58,237,0.3)',
+              }}
+            >
+              <span className="text-violet-400 font-bold text-[13px] tracking-[0.12em]">
                 CITY MAP
               </span>
-              <span style={{ color: '#64748b', fontSize: 11 }}>
+              <span className="text-slate-500 text-[11px]">
                 {navState.target
                   ? `→ ${navState.target.name}  [Esc to cancel]`
                   : 'Click a building to navigate · Esc to close'}
               </span>
               <button
                 onClick={() => setExpanded(false)}
-                style={{
-                  background: 'none', border: 'none', color: '#94a3b8',
-                  fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 4px',
-                }}
+                className="bg-transparent border-0 text-slate-400 text-lg cursor-pointer leading-none px-1"
               >×</button>
             </div>
 
@@ -507,21 +592,22 @@ export default function Minimap({ isMobile = false }) {
               width={exSize}
               height={exSize}
               onClick={onExpandedClick}
-              style={{ display: 'block', cursor: 'crosshair' }}
+              className="block cursor-crosshair"
             />
 
             {/* Legend */}
-            <div style={{
-              display: 'flex', gap: 16, padding: '6px 14px',
-              background: 'rgba(0,0,0,0.4)',
-              borderTop: '1px solid rgba(124,58,237,0.2)',
-              fontSize: 10, color: '#64748b',
-            }}>
-              <span><span style={{ color: '#facc15' }}>●</span> You</span>
+            <div
+              className="flex gap-4 px-[14px] py-[6px] text-[10px] text-slate-500"
+              style={{
+                background: 'rgba(0,0,0,0.4)',
+                borderTop: '1px solid rgba(124,58,237,0.2)',
+              }}
+            >
+              <span><span className="text-yellow-400">●</span> You</span>
               <span><span style={{ color: '#00e5ff' }}>●</span> Player</span>
-              <span><span style={{ color: '#94a3b8' }}>●</span> NPC</span>
+              <span><span className="text-slate-400">●</span> NPC</span>
               {navState.target && (
-                <span style={{ color: '#00e5ff', marginLeft: 'auto' }}>
+                <span className="ml-auto" style={{ color: '#00e5ff' }}>
                   Navigating to {navState.target.name}
                 </span>
               )}
@@ -531,17 +617,41 @@ export default function Minimap({ isMobile = false }) {
       )}
 
       {/* Small map */}
-      <div style={wrap}>
+      <div className={wrapCls}>
+        {/* Home distance badge — always visible when house assigned */}
+        {homeDist !== null && !navTarget && (
+          <div
+            className="rounded-lg text-[10px] font-bold text-center mb-1 whitespace-nowrap cursor-pointer"
+            style={{
+              background: 'rgba(251,191,36,0.12)',
+              border: '1px solid rgba(251,191,36,0.4)',
+              color: '#fbbf24',
+              padding: '3px 8px',
+              maxWidth: SIZE,
+            }}
+            onClick={() => {
+              const hs = getHouseState()
+              if (hs.position) {
+                navState.setTarget({ x: hs.position.x, z: hs.position.z, name: 'My House' })
+                setNavTarget({ x: hs.position.x, z: hs.position.z, name: 'My House' })
+              }
+            }}
+          >
+            🏠 Home · {homeDist}m
+          </div>
+        )}
         {/* Nav distance badge */}
         {navTarget && navDist !== null && (
-          <div style={{
-            background: 'rgba(0,229,255,0.15)',
-            border: '1px solid rgba(0,229,255,0.5)',
-            borderRadius: 8, padding: '3px 8px',
-            color: '#00e5ff', fontSize: 10, fontWeight: 700,
-            textAlign: 'center', marginBottom: 4,
-            whiteSpace: 'nowrap', maxWidth: SIZE,
-          }}>
+          <div
+            className="rounded-lg text-[10px] font-bold text-center mb-1 whitespace-nowrap"
+            style={{
+              background: 'rgba(0,229,255,0.15)',
+              border: '1px solid rgba(0,229,255,0.5)',
+              color: '#00e5ff',
+              padding: '3px 8px',
+              maxWidth: SIZE,
+            }}
+          >
             → {navTarget.name} · {navDist}m
           </div>
         )}
@@ -550,28 +660,20 @@ export default function Minimap({ isMobile = false }) {
         <div
           onClick={() => setExpanded(true)}
           title="Click to open full map"
-          style={{ position: 'relative', cursor: 'pointer', display: 'inline-block' }}
+          className="relative cursor-pointer inline-block"
         >
           <canvas
             ref={canvasRef}
             width={SIZE}
             height={SIZE}
-            style={{
-              display: 'block', borderRadius: '50%',
-              boxShadow: '0 0 0 2px rgba(124,58,237,0.55)',
-              transition: 'box-shadow 0.2s',
-            }}
+            className="block rounded-full transition-[box-shadow] duration-200"
+            style={{ boxShadow: '0 0 0 2px rgba(124,58,237,0.55)' }}
           />
           {/* Expand hint overlay — bottom of circle */}
-          <div style={{
-            position: 'absolute', bottom: 6, left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(124,58,237,0.75)',
-            borderRadius: 4, padding: '1px 7px',
-            color: '#fff', fontSize: 9, fontWeight: 700,
-            letterSpacing: '0.08em', whiteSpace: 'nowrap',
-            pointerEvents: 'none',
-          }}>
+          <div
+            className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-white text-[9px] font-bold tracking-[0.08em] whitespace-nowrap pointer-events-none rounded-[4px]"
+            style={{ background: 'rgba(124,58,237,0.75)', padding: '1px 7px' }}
+          >
             ⤢ EXPAND
           </div>
         </div>
@@ -580,11 +682,7 @@ export default function Minimap({ isMobile = false }) {
         {navTarget && (
           <div
             onClick={() => { navState.clearTarget(); setNavTarget(null); setNavDist(null) }}
-            style={{
-              marginTop: 4, textAlign: 'center',
-              color: '#64748b', fontSize: 9, cursor: 'pointer',
-              letterSpacing: '0.08em',
-            }}
+            className="mt-1 text-center text-slate-500 text-[9px] cursor-pointer tracking-[0.08em]"
           >
             [Esc] cancel nav
           </div>

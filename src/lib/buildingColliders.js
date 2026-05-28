@@ -60,7 +60,7 @@ const CITY_BUILDINGS = [
   { cx: 52,  cz:-42,  hw:3.8, hd:2.8 }, // Fire Station
   { cx:-30,  cz: 26,  hw:3.2, hd:3.8 }, // Church
   { cx:-50,  cz: 26,  hw:3.2, hd:3.2 }, // Gym
-  { cx:-16,  cz: 22,  hw:2.8, hd:2.2 }, // Gas Station
+  { cx:-16,  cz:20.5, hw:2.2, hd:1.7 }, // Gas Station (mesh at local z=-1.5 → world z=20.5)
   { cx:-30,  cz: 46,  hw:2.8, hd:2.2 }, // Apartments
   { cx: 30,  cz: 26,  hw:5.2, hd:3.8 }, // Cinema
   { cx: 30,  cz: 46,  hw:7.2, hd:4.2 }, // Mall
@@ -71,10 +71,14 @@ const CITY_BUILDINGS = [
   { cx: 0,   cz:-32,  hw:3.2, hd:2.2 }, // Beach Club
   { cx:-14,  cz: 14,  hw:2.2, hd:2.2 }, // Rooftop Bar
   { cx: 14,  cz: 14,  hw:2.2, hd:2.2 }, // Music Room
-  { cx: 0,   cz: 16,  hw:3.8, hd:2.8 }, // Park building
+  { cx: 0,   cz:20.2, hw:3.8, hd:2.8 }, // Park building (mesh at local z=4.2 → world z=20.2)
   { cx: 0,   cz:-40,  hw:3.2, hd:2.2 }, // Game Zone
-  { cx: 40,  cz: 50,  hw:1.8, hd:1.8 }, // House 1
-  { cx: 55,  cz: 50,  hw:1.8, hd:1.8 }, // House 2
+  { cx: 40,  cz: 50,  hw:1.65,hd:1.65}, // House 1
+  { cx: 55,  cz: 50,  hw:1.65,hd:1.65}, // House 2
+  { cx: 40,  cz: 60,  hw:1.65,hd:1.65}, // House 3
+  { cx: 55,  cz: 60,  hw:1.65,hd:1.65}, // House 4
+  { cx: 25,  cz: 50,  hw:1.65,hd:1.65}, // House 5
+  { cx: 25,  cz: 60,  hw:1.65,hd:1.65}, // House 6
 ]
 
 CITY_BUILDINGS.forEach(({ cx, cz, hw, hd }) => registerFixed(cx, cz, hw, hd))

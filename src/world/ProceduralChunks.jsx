@@ -3,6 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { minimapState } from '@/lib/minimapState'
 import { registerChunk, unregisterChunk } from '@/lib/buildingColliders'
+import { addCollider, removeCollidersWithPrefix } from '@/lib/playerColliders'
+import { registerChunkTrees, unregisterChunkTrees } from '@/lib/chunkTreeState'
 
 const CHUNK_SIZE = 60
 const HALF       = CHUNK_SIZE / 2
@@ -26,29 +28,11 @@ function makeMat(color) {
   return new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0 })
 }
 
-function addTree(group, x, z, rng) {
-  const sc = 0.7 + rng() * 0.6
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.15, 0.25, 2.5, 6),
-    makeMat('#78350f')
-  )
-  trunk.position.set(x, 1.25 * sc, z)
-  trunk.scale.setScalar(sc)
-  group.add(trunk)
-  const leaf = new THREE.Mesh(new THREE.ConeGeometry(1.1, 3.2, 7), makeMat('#16a34a'))
-  leaf.position.set(x, (2.5 + 1.6) * sc, z)
-  leaf.scale.setScalar(sc)
-  group.add(leaf)
-  const leaf2 = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2.5, 7), makeMat('#15803d'))
-  leaf2.position.set(x, (2.5 + 3.0) * sc, z)
-  leaf2.scale.setScalar(sc)
-  group.add(leaf2)
-}
-
-// Returns { group, colliders } for this chunk.
+// Returns { group, colliders, playerBox, trees } for this chunk.
 // GRID RULE: exactly ONE building per eligible chunk, placed at the chunk centre.
 // CHECKERBOARD: only chunks where (cx + cz) is even get buildings — guarantees
 // at least one empty chunk (60 world units) between any two buildings.
+// Trees are collected as world-space positions and returned for ChunkTrees to render.
 function buildChunkMesh(cx, cz) {
   if (isCityChunk(cx, cz)) return null
 
@@ -70,6 +54,18 @@ function buildChunkMesh(cx, cz) {
 
   const isNSRoad = cx % 3 === 0
   const isEWRoad = cz % 3 === 0
+
+  // Trees for this chunk — world-space positions, consumed by ChunkTrees renderer
+  const treeList = []
+
+  // Local addTree records position instead of creating geometry.
+  // Consumes exactly one rng() call (for scale) — same as the old primitive version.
+  function addTree(localX, localZ) {
+    const s  = 0.7 + rng() * 0.6
+    // Deterministic yaw variety without extra rng calls
+    const ry = treeList.length * 1.61803
+    treeList.push({ x: wx + localX, z: wz + localZ, s, ry })
+  }
 
   if (isNSRoad) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(4, CHUNK_SIZE), makeMat('#22252e'))
@@ -105,16 +101,17 @@ function buildChunkMesh(cx, cz) {
       const side  = rng() > 0.5 ? 1 : -1
       const along = (rng() - 0.5) * CHUNK_SIZE
       const away  = side * (4 + rng() * (HALF - 5))
-      if (isNSRoad) addTree(group, away, along, rng)
-      else          addTree(group, along, away, rng)
+      if (isNSRoad) addTree(away, along)
+      else          addTree(along, away)
     }
     group.userData.birthTime = -1
-    return { group, colliders: [] }
+    return { group, colliders: [], trees: treeList }
   }
 
   // Non-road chunks — determine content type
   const type = rng()
   const colliders = []
+  let playerBox = null
 
   // ── GRID PLACEMENT: checkerboard — only even (cx+cz) chunks get a building ──
   const eligible = (cx + cz) % 2 === 0
@@ -151,13 +148,14 @@ function buildChunkMesh(cx, cz) {
       minX: wx - hw - PAD, maxX: wx + hw + PAD,
       minZ: wz - hd - PAD, maxZ: wz + hd + PAD,
     })
+    playerBox = { x: wx, z: wz, w, d }
 
     // Sidewalk trees around building
     const treeCount = 2 + Math.floor(rng() * 3)
     for (let i = 0; i < treeCount; i++) {
       const ang  = rng() * Math.PI * 2
       const dist = 6 + rng() * 6
-      addTree(group, Math.cos(ang) * dist, Math.sin(ang) * dist, rng)
+      addTree(Math.cos(ang) * dist, Math.sin(ang) * dist)
     }
 
   } else if (type < 0.75) {
@@ -171,18 +169,18 @@ function buildChunkMesh(cx, cz) {
     group.add(parkGrass)
     const count = 5 + Math.floor(rng() * 8)
     for (let i = 0; i < count; i++) {
-      addTree(group, (rng() - 0.5) * (CHUNK_SIZE - 8), (rng() - 0.5) * (CHUNK_SIZE - 8), rng)
+      addTree((rng() - 0.5) * (CHUNK_SIZE - 8), (rng() - 0.5) * (CHUNK_SIZE - 8))
     }
   } else {
     // ── Empty chunk: just a few scattered trees ───────────────────────────────
     const count = 1 + Math.floor(rng() * 3)
     for (let i = 0; i < count; i++) {
-      addTree(group, (rng() - 0.5) * (CHUNK_SIZE - 8), (rng() - 0.5) * (CHUNK_SIZE - 8), rng)
+      addTree((rng() - 0.5) * (CHUNK_SIZE - 8), (rng() - 0.5) * (CHUNK_SIZE - 8))
     }
   }
 
   group.userData.birthTime = -1
-  return { group, colliders }
+  return { group, colliders, playerBox, trees: treeList }
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -215,7 +213,7 @@ export default function ProceduralWorld() {
         }
       }
 
-      // Dispose out-of-range chunks and unregister their colliders
+      // Dispose out-of-range chunks and unregister their colliders + trees
       for (const [key, entry] of chunksRef.current) {
         if (!needed.has(key)) {
           if (entry) {
@@ -224,6 +222,8 @@ export default function ProceduralWorld() {
               if (child.isMesh) { child.geometry.dispose(); child.material.dispose() }
             })
             unregisterChunk(key)
+            removeCollidersWithPrefix(`chunk:${key}:`)
+            unregisterChunkTrees(key)
           }
           chunksRef.current.delete(key)
         }
@@ -237,12 +237,14 @@ export default function ProceduralWorld() {
 
       const result = buildChunkMesh(cx, cz)
       if (result) {
-        const { group, colliders } = result
+        const { group, colliders, playerBox, trees } = result
         const birthTime = performance.now() / 1000
         group.userData.birthTime = birthTime
         worldRef.current.add(group)
         chunksRef.current.set(key, { group, birthTime, colliders })
         if (colliders.length > 0) registerChunk(key, colliders)
+        if (playerBox) addCollider(playerBox.x, playerBox.z, playerBox.w, playerBox.d, `chunk:${key}:bldg`)
+        registerChunkTrees(key, trees || [])
       } else {
         chunksRef.current.set(key, null)  // city area — no mesh
       }

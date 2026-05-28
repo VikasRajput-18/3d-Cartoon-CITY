@@ -249,10 +249,7 @@ export default function RunnerGame({ paused, onResult }) {
     <canvas
       ref={canvasRef}
       width={W} height={H}
-      style={{
-        display: 'block', width: '100%', height: '100%',
-        objectFit: 'contain', cursor: 'pointer', touchAction: 'none',
-      }}
+      className="block w-full h-full object-contain cursor-pointer touch-none"
     />
   )
 }

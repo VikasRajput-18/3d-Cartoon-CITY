@@ -94,73 +94,60 @@ export default function MemoryGame({ paused, onResult }) {
   }, [])
 
   return (
-    <div style={{
-      width: '100%', height: '100%',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      background: '#0f172a', gap: 16,
-      fontFamily: 'Nunito, sans-serif',
-      userSelect: 'none',
-    }}>
+    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 gap-4 font-body select-none">
       {/* HUD */}
-      <div style={{ display: 'flex', gap: 28, fontSize: 14, fontWeight: 700 }}>
+      <div className="flex gap-7 text-[14px] font-bold">
         <span style={{ color: '#a78bfa' }}>🃏 {pairs}/6 pairs</span>
         <span style={{ color: '#4ade80' }}>⏱ {elapsed}s</span>
         <span style={{ color: '#facc15' }}>🎯 {moves} moves</span>
       </div>
 
       {/* 4×3 card grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(4, 80px)',
-        gridTemplateRows: 'repeat(3, 80px)',
-        gap: 10,
-      }}>
+      <div
+        className="grid gap-[10px]"
+        style={{ gridTemplateColumns: 'repeat(4, 80px)', gridTemplateRows: 'repeat(3, 80px)' }}
+      >
         {cards.map((card, idx) => (
           <div
             key={card.id}
             onClick={() => handleClick(idx)}
-            style={{
-              width: 80, height: 80,
-              perspective: '600px',
-              cursor: card.matched ? 'default' : 'pointer',
-            }}
+            className="w-20 h-20"
+            style={{ perspective: '600px', cursor: card.matched ? 'default' : 'pointer' }}
           >
-            <div style={{
-              width: '100%', height: '100%',
-              position: 'relative',
-              transformStyle: 'preserve-3d',
-              transform: (card.flipped || card.matched) ? 'rotateY(180deg)' : 'rotateY(0deg)',
-              transition: 'transform 0.42s ease',
-            }}>
+            <div
+              className="w-full h-full relative"
+              style={{
+                transformStyle: 'preserve-3d',
+                transform: (card.flipped || card.matched) ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                transition: 'transform 0.42s ease',
+              }}
+            >
               {/* Back face */}
-              <div style={{
-                position: 'absolute', inset: 0,
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: 'linear-gradient(135deg, rgba(124,58,237,0.35), rgba(59,130,246,0.2))',
-                border: '2px solid rgba(124,58,237,0.45)',
-                borderRadius: 12,
-                fontSize: 30,
-              }}>
+              <div
+                className="absolute inset-0 flex items-center justify-center rounded-xl text-[30px]"
+                style={{
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                  background: 'linear-gradient(135deg, rgba(124,58,237,0.35), rgba(59,130,246,0.2))',
+                  border: '2px solid rgba(124,58,237,0.45)',
+                }}
+              >
                 ❓
               </div>
               {/* Front face */}
-              <div style={{
-                position: 'absolute', inset: 0,
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-                transform: 'rotateY(180deg)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: card.matched
-                  ? 'linear-gradient(135deg, rgba(74,222,128,0.28), rgba(74,222,128,0.1))'
-                  : 'linear-gradient(135deg, rgba(167,139,250,0.28), rgba(236,72,153,0.18))',
-                border: `2px solid ${card.matched ? 'rgba(74,222,128,0.65)' : 'rgba(167,139,250,0.65)'}`,
-                borderRadius: 12,
-                fontSize: 38,
-                boxShadow: card.matched ? '0 0 12px rgba(74,222,128,0.25)' : 'none',
-              }}>
+              <div
+                className="absolute inset-0 flex items-center justify-center rounded-xl text-[38px]"
+                style={{
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                  transform: 'rotateY(180deg)',
+                  background: card.matched
+                    ? 'linear-gradient(135deg, rgba(74,222,128,0.28), rgba(74,222,128,0.1))'
+                    : 'linear-gradient(135deg, rgba(167,139,250,0.28), rgba(236,72,153,0.18))',
+                  border: `2px solid ${card.matched ? 'rgba(74,222,128,0.65)' : 'rgba(167,139,250,0.65)'}`,
+                  boxShadow: card.matched ? '0 0 12px rgba(74,222,128,0.25)' : 'none',
+                }}
+              >
                 {card.emoji}
               </div>
             </div>
@@ -168,7 +155,7 @@ export default function MemoryGame({ paused, onResult }) {
         ))}
       </div>
 
-      <div style={{ color: '#475569', fontSize: 12, textAlign: 'center' }}>
+      <div className="text-slate-600 text-[12px] text-center">
         Tap cards to flip · Match all 6 pairs · Fewer moves = higher score
       </div>
     </div>

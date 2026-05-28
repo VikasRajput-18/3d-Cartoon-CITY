@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useUser } from '@clerk/clerk-react'
 import { useStore } from '@/store'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -145,6 +145,15 @@ export default function Onboarding() {
           )}
         </motion.div>
       </AnimatePresence>
+
+      {/* Footer links */}
+      <div className="absolute bottom-4 left-0 right-0 flex items-center justify-center gap-3 flex-wrap px-4">
+        <Link to="/about-us" className="text-slate-700 hover:text-slate-500 transition-colors text-[10px] no-underline">About Us</Link>
+        <span className="text-slate-800 text-[10px]">·</span>
+        <Link to="/privacy-policy" className="text-slate-700 hover:text-slate-500 transition-colors text-[10px] no-underline">Privacy Policy</Link>
+        <span className="text-slate-800 text-[10px]">·</span>
+        <Link to="/terms-and-conditions" className="text-slate-700 hover:text-slate-500 transition-colors text-[10px] no-underline">Terms &amp; Conditions</Link>
+      </div>
     </div>
   )
 }

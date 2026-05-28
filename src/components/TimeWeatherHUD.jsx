@@ -51,6 +51,9 @@ function getTimeContext(h) {
   return 'night'
 }
 
+const chipCls  = 'flex items-center gap-1.5 font-body pointer-events-none rounded-lg py-1 px-2.5'
+const chipBase = { background: 'rgba(8,6,18,0.82)', border: '1px solid rgba(124,58,237,0.30)' }
+
 export default function TimeWeatherHUD() {
   const [time,       setTime]       = useState(getRealTimeLabel())
   const [weather,    setWeather]    = useState('clear')
@@ -110,19 +113,6 @@ export default function TimeWeatherHUD() {
     return () => clearInterval(id)
   }, [])
 
-  // ── Styles ─────────────────────────────────────────────────────────────────
-  const chip = {
-    background: 'rgba(8,6,18,0.82)',
-    border: '1px solid rgba(124,58,237,0.30)',
-    borderRadius: 8,
-    padding: '4px 10px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    fontFamily: 'Nunito, monospace',
-    pointerEvents: 'none',
-  }
-
   const hour = new Date().getHours()
   const ctx  = getTimeContext(hour)
 
@@ -133,53 +123,50 @@ export default function TimeWeatherHUD() {
     ctx === 'night'     ? '#c4b5fd' : '#e2e8f0'
 
   return (
-    <div style={{
-      position: 'fixed', top: 46, left: 12, zIndex: 40,
-      display: 'flex', flexDirection: 'column', gap: 4,
-      pointerEvents: 'none',
-    }}>
+    <div className="fixed top-[46px] left-3 z-40 flex flex-col gap-1 pointer-events-none">
       {/* Real time chip */}
-      <div style={{ ...chip, color: timeColor, fontSize: 14, fontWeight: 800 }}>
+      <div className={`${chipCls} text-sm font-extrabold`} style={{ ...chipBase, color: timeColor }}>
         <span>{isNight ? '🌙' : ctx === 'sunrise' ? '🌅' : ctx === 'sunset' ? '🌇' : '☀️'}</span>
         <span>{time}</span>
       </div>
 
       {/* Weather chip — real-world weather takes priority */}
-      <div style={{ ...chip, color: '#94a3b8', fontSize: 11 }}>
+      <div className={`${chipCls} text-[11px] text-slate-400`} style={chipBase}>
         <span>{WEATHER_ICON[realWeather ?? weather] ?? '☀️'}</span>
         <span>{WEATHER_LABEL[realWeather ?? weather]}</span>
         {realWeather && (
-          <span style={{ color: '#475569', fontSize: 9 }}>live</span>
+          <span className="text-[9px] text-slate-600">live</span>
         )}
       </div>
 
       {/* Weekend banner */}
       {weekend && (
-        <div style={{
-          ...chip,
-          color: '#fbbf24', fontSize: 10, fontWeight: 700,
-          border: '1px solid rgba(251,191,36,0.35)',
-        }}>
+        <div
+          className={`${chipCls} text-[10px] font-bold text-yellow-400`}
+          style={{ ...chipBase, border: '1px solid rgba(251,191,36,0.35)' }}
+        >
           🎉 Weekend Vibes!
         </div>
       )}
 
       {/* Festival banner */}
       {festival && (
-        <div style={{
-          ...chip,
-          color: '#f472b6', fontSize: 11, fontWeight: 800,
-          border: '1px solid rgba(244,114,182,0.45)',
-          background: 'rgba(244,114,182,0.12)',
-          animation: 'twHudPulse 2s ease-in-out infinite',
-        }}>
+        <div
+          className={`${chipCls} text-[11px] font-extrabold text-pink-400`}
+          style={{
+            ...chipBase,
+            border: '1px solid rgba(244,114,182,0.45)',
+            background: 'rgba(244,114,182,0.12)',
+            animation: 'twHudPulse 2s ease-in-out infinite',
+          }}
+        >
           {festival.name}
         </div>
       )}
 
       {/* Late-night quiet hours indicator */}
       {(hour >= 23 || hour < 4) && (
-        <div style={{ ...chip, color: '#64748b', fontSize: 10 }}>
+        <div className={`${chipCls} text-[10px] text-slate-500`} style={chipBase}>
           🌃 Quiet Hours
         </div>
       )}

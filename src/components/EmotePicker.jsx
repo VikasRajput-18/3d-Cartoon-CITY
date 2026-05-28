@@ -31,43 +31,29 @@ export default function EmotePicker() {
   }
 
   return (
-    <div ref={popupRef} style={{ position: 'fixed', bottom: 170, right: 16, zIndex: 350 }}>
+    <div ref={popupRef} className="fixed bottom-[170px] right-4 z-[350]">
       {/* Emote picker popup */}
       {open && (
-        <div style={{
-          position: 'absolute', bottom: 64, right: 0,
-          background: 'rgba(8,4,20,0.96)',
-          border: '1px solid rgba(124,58,237,0.35)',
-          borderRadius: 14, padding: '8px 6px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          minWidth: 130,
-        }}>
-          <div style={{
-            color: '#a78bfa', fontSize: 10, fontWeight: 700,
-            textTransform: 'uppercase', letterSpacing: 1,
-            padding: '2px 10px 6px', fontFamily: 'Nunito, sans-serif',
-          }}>
+        <div
+          className="absolute bottom-16 right-0 rounded-[14px] min-w-[130px] py-2 px-1.5"
+          style={{
+            background: 'rgba(8,4,20,0.96)',
+            border: '1px solid rgba(124,58,237,0.35)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          }}
+        >
+          <div className="text-violet-400 text-[10px] font-bold uppercase tracking-[1px] px-2.5 pt-0.5 pb-1.5 font-body">
             Emotes
           </div>
           {EMOTES.map(e => (
             <button
               key={e.name}
               onClick={() => trigger(e.name)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                width: '100%', padding: '10px 12px',
-                background: 'none', border: 'none', borderRadius: 9,
-                cursor: 'pointer', textAlign: 'left',
-                fontFamily: 'Nunito, sans-serif',
-                minHeight: 48,
-                transition: 'background 0.12s',
-              }}
-              onMouseEnter={el => { el.currentTarget.style.background = 'rgba(124,58,237,0.2)' }}
-              onMouseLeave={el => { el.currentTarget.style.background = 'none' }}
+              className="flex items-center gap-[10px] w-full py-[10px] px-3 bg-transparent border-0 rounded-[9px] cursor-pointer text-left font-body min-h-[48px] transition-[background] duration-[120ms] hover:bg-[rgba(124,58,237,0.2)]"
             >
-              <span style={{ fontSize: 22, lineHeight: 1 }}>{e.emoji}</span>
-              <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, flex: 1 }}>{e.label}</span>
-              <span style={{ color: '#475569', fontSize: 11, fontFamily: 'monospace' }}>[{e.key}]</span>
+              <span className="text-[22px] leading-none">{e.emoji}</span>
+              <span className="text-slate-200 text-[13px] font-bold flex-1">{e.label}</span>
+              <span className="text-slate-600 text-[11px] font-mono">[{e.key}]</span>
             </button>
           ))}
         </div>
@@ -77,13 +63,10 @@ export default function EmotePicker() {
       <button
         onClick={() => setOpen(s => !s)}
         title="Emotes"
+        className="w-14 h-14 rounded-full cursor-pointer text-2xl leading-none flex items-center justify-center transition-[border-color,background] duration-200"
         style={{
-          width: 56, height: 56, borderRadius: '50%',
           background: open ? 'rgba(124,58,237,0.3)' : 'rgba(8,4,20,0.82)',
           border: `2px solid ${open ? 'rgba(124,58,237,0.7)' : 'rgba(124,58,237,0.3)'}`,
-          cursor: 'pointer', fontSize: 24, lineHeight: 1,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'border-color 0.2s, background 0.2s',
           boxShadow: open ? '0 0 12px rgba(124,58,237,0.4)' : 'none',
         }}
       >

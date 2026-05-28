@@ -236,10 +236,8 @@ export default function ShootingGame({ paused, onResult }) {
     <canvas
       ref={canvasRef}
       width={W} height={H}
-      style={{
-        display: 'block', width: '100%', height: '100%',
-        objectFit: 'contain', cursor: mobile ? 'default' : 'none', touchAction: 'none',
-      }}
+      className="block w-full h-full object-contain touch-none"
+      style={{ cursor: mobile ? 'default' : 'none' }}
     />
   )
 }

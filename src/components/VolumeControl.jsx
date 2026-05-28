@@ -9,9 +9,7 @@ export default function VolumeControl() {
 
   const icon = muted || vol === 0 ? '🔇' : vol < 0.4 ? '🔉' : '🔊'
 
-  const keepOpen = () => {
-    clearTimeout(hideTimer.current)
-  }
+  const keepOpen    = () => clearTimeout(hideTimer.current)
   const scheduleClose = () => {
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => setOpen(false), 1200)
@@ -19,13 +17,8 @@ export default function VolumeControl() {
 
   const handleClick = () => {
     audioSystem.unlock()
-    if (!open) {
-      setOpen(true)
-      scheduleClose()
-      return
-    }
-    const m = audioSystem.toggleMute()
-    setMuted(m)
+    if (!open) { setOpen(true); scheduleClose(); return }
+    setMuted(audioSystem.toggleMute())
     audioSystem.playClick()
   }
 
@@ -33,10 +26,7 @@ export default function VolumeControl() {
     const v = parseFloat(e.target.value)
     setVol(v)
     audioSystem.setVolume(v)
-    if (muted && v > 0) {
-      audioSystem.toggleMute()
-      setMuted(false)
-    }
+    if (muted && v > 0) { audioSystem.toggleMute(); setMuted(false) }
     scheduleClose()
   }
 
@@ -44,46 +34,38 @@ export default function VolumeControl() {
     <div
       onMouseEnter={keepOpen}
       onMouseLeave={scheduleClose}
-      style={{
-        position: 'fixed', top: 12, right: 12, zIndex: 200,
-        display: 'flex', alignItems: 'center', gap: 8,
-        fontFamily: 'monospace',
-      }}
+      className="fixed top-3 right-3 z-[200] flex items-center gap-2 font-mono"
     >
-      {/* Slider — slides in when open */}
       {open && (
-        <div style={{
-          background: 'rgba(8,6,18,0.88)',
-          border: '1px solid rgba(124,58,237,0.35)',
-          borderRadius: 20, padding: '4px 12px',
-          display: 'flex', alignItems: 'center', gap: 8,
-          backdropFilter: 'blur(8px)',
-        }}>
-          <span style={{ color: '#94a3b8', fontSize: 10 }}>VOL</span>
+        <div
+          className="flex items-center gap-2 backdrop-blur-sm"
+          style={{
+            background: 'rgba(8,6,18,0.88)',
+            border: '1px solid rgba(124,58,237,0.35)',
+            borderRadius: 20, padding: '4px 12px',
+          }}
+        >
+          <span className="text-slate-400" style={{ fontSize: 10 }}>VOL</span>
           <input
             type="range" min={0} max={1} step={0.02} value={vol}
             onChange={handleVolChange}
-            style={{ width: 80, accentColor: '#7c3aed', cursor: 'pointer' }}
+            className="w-20 cursor-pointer"
+            style={{ accentColor: '#7c3aed' }}
           />
-          <span style={{ color: '#94a3b8', fontSize: 10, width: 24, textAlign: 'right' }}>
+          <span className="text-slate-400 text-right" style={{ fontSize: 10, width: 24 }}>
             {Math.round(vol * 100)}
           </span>
         </div>
       )}
 
-      {/* Speaker button */}
       <button
         onClick={handleClick}
         title="Volume (click to mute)"
+        className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer backdrop-blur-sm text-white transition-[border-color] duration-150"
         style={{
-          width: 36, height: 36, borderRadius: '50%',
           background: 'rgba(8,6,18,0.82)',
           border: '1px solid rgba(124,58,237,0.35)',
-          backdropFilter: 'blur(8px)',
-          color: '#fff', fontSize: 16,
-          cursor: 'pointer', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          transition: 'border-color 0.15s',
+          fontSize: 16,
         }}
       >
         {icon}

@@ -29,37 +29,40 @@ const STATION_COLORS = ['#7c3aed','#ec4899','#f59e0b','#10b981','#3b82f6']
 
 function GameLoading() {
   return (
-    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#a78bfa', fontFamily: 'Nunito, sans-serif', fontSize: 16, fontWeight: 700 }}>
+    <div className="flex-1 flex items-center justify-center bg-black text-violet-400 font-body text-base font-bold">
       Loading game…
     </div>
   )
 }
 
 function ScoreRow({ rank, name, score, isMe }) {
+  const rankColor = rank === 1 ? '#facc15' : rank === 2 ? '#94a3b8' : rank === 3 ? '#b45309' : '#475569'
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
-      background: isMe ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.03)',
-      borderRadius: 8, marginBottom: 4,
-      border: isMe ? '1px solid rgba(167,139,250,0.3)' : '1px solid rgba(255,255,255,0.04)',
-    }}>
-      <span style={{ color: rank === 1 ? '#facc15' : rank === 2 ? '#94a3b8' : rank === 3 ? '#b45309' : '#475569', fontSize: 14, fontWeight: 800, width: 22, textAlign: 'center' }}>
+    <div
+      className="flex items-center gap-2 rounded-lg mb-1"
+      style={{
+        padding: '6px 10px',
+        background: isMe ? 'rgba(167,139,250,0.12)' : 'rgba(255,255,255,0.03)',
+        border: isMe ? '1px solid rgba(167,139,250,0.3)' : '1px solid rgba(255,255,255,0.04)',
+      }}
+    >
+      <span className="text-[14px] font-extrabold w-[22px] text-center" style={{ color: rankColor }}>
         {rank === 1 ? '👑' : rank}
       </span>
-      <span style={{ flex: 1, color: isMe ? '#a78bfa' : '#e2e8f0', fontSize: 13, fontWeight: isMe ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span className={`flex-1 text-[13px] overflow-hidden text-ellipsis whitespace-nowrap ${isMe ? 'text-violet-400 font-bold' : 'text-slate-200 font-medium'}`}>
         {name}
       </span>
-      <span style={{ color: '#facc15', fontSize: 13, fontWeight: 700 }}>{score}</span>
+      <span className="text-yellow-400 text-[13px] font-bold">{score}</span>
     </div>
   )
 }
 
 export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myName }) {
-  const [view,       setView]       = useState('hub')   // hub | game | result | leaderboard | challenges | sendChallenge
+  const [view,       setView]       = useState('hub')
   const [activeGame, setActiveGame] = useState(null)
   const [gameKey,    setGameKey]    = useState(0)
   const [paused,     setPaused]     = useState(false)
-  const [result,     setResult]     = useState(null)   // { score, isNewBest, coinsEarned, globalBest, myRank }
+  const [result,     setResult]     = useState(null)
   const [lbGame,     setLbGame]     = useState('snake')
   const [, forceUpdate]             = useState(0)
   const [challengeGame,  setChallengeGame]  = useState(null)
@@ -67,7 +70,7 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   const [activeChallengeId, setActiveChallengeId] = useState(null)
   const [sending,       setSending]       = useState(false)
   const [sentTo,        setSentTo]        = useState(null)
-  const [fetchedPlayers, setFetchedPlayers] = useState(null)  // null=loading, []+=loaded
+  const [fetchedPlayers, setFetchedPlayers] = useState(null)
   const [loadingPlayers, setLoadingPlayers] = useState(false)
 
   useEffect(() => onGameUpdate(() => forceUpdate(n => n + 1)), [])
@@ -85,7 +88,6 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
     return () => window.removeEventListener('keydown', onKey)
   }, [open, view])
 
-  // Fetch fresh online players whenever the challenge picker opens
   useEffect(() => {
     if (view !== 'sendChallenge') return
     setSentTo(null)
@@ -95,7 +97,6 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
       setFetchedPlayers(players)
       setLoadingPlayers(false)
     }).catch(() => {
-      // Fallback to the prop list
       setFetchedPlayers(onlinePlayers.filter(p => p.uid !== myUid))
       setLoadingPlayers(false)
     })
@@ -113,7 +114,6 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   const handleGameEnd = useCallback(async (score) => {
     const res = await submitScore(activeGame, score)
     setResult({ score, ...res, gameId: activeGame })
-
     if (activeChallengeId) {
       const cRes = await resolveChallenge(activeChallengeId, score)
       if (cRes) setResult(prev => ({ ...prev, challengeResult: cRes }))
@@ -144,31 +144,52 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   if (view === 'game') {
     const GameComp = GAME_COMPONENTS[activeGame]
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: '#000', display: 'flex', flexDirection: 'column', fontFamily: 'Nunito, sans-serif' }}>
-        {/* Header */}
-        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', padding: '6px 12px', background: 'rgba(0,0,0,0.95)', gap: 10, minHeight: 50, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <span style={{ fontSize: 22 }}>{GAME_EMOJIS[activeGame]}</span>
-          <span style={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>{GAME_NAMES[activeGame]}</span>
-          {activeChallengeId && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>⚔️ CHALLENGE</span>}
-          <div style={{ flex: 1 }} />
-          <button onClick={() => setPaused(p => !p)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '7px 14px', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, minHeight: 38 }}>
+      <div className="fixed inset-0 z-[600] bg-black flex flex-col font-body">
+        <div
+          className="shrink-0 flex items-center gap-[10px] min-h-[50px]"
+          style={{ padding: '6px 12px', background: 'rgba(0,0,0,0.95)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <span className="text-[22px]">{GAME_EMOJIS[activeGame]}</span>
+          <span className="text-white font-extrabold text-base">{GAME_NAMES[activeGame]}</span>
+          {activeChallengeId && (
+            <span className="bg-red-600 text-white rounded-[6px] text-[11px] font-bold" style={{ padding: '2px 8px' }}>
+              ⚔️ CHALLENGE
+            </span>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={() => setPaused(p => !p)}
+            className="border-0 rounded-lg text-white cursor-pointer text-[13px] font-semibold min-h-[38px] font-body"
+            style={{ background: 'rgba(255,255,255,0.1)', padding: '7px 14px' }}
+          >
             {paused ? '▶ Resume' : '⏸ Pause'}
           </button>
-          <button onClick={() => { setView('hub'); setPaused(false) }} style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid #ef4444', borderRadius: 8, padding: '7px 12px', color: '#ef4444', cursor: 'pointer', fontSize: 13, fontWeight: 600, minHeight: 38 }}>
+          <button
+            onClick={() => { setView('hub'); setPaused(false) }}
+            className="rounded-lg cursor-pointer text-red-500 text-[13px] font-semibold min-h-[38px] font-body"
+            style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid #ef4444', padding: '7px 12px' }}
+          >
             ✕ Exit
           </button>
         </div>
 
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <div className="flex-1 relative overflow-hidden">
           <Suspense fallback={<GameLoading />}>
             <GameComp key={gameKey} paused={paused} onResult={handleGameEnd} />
           </Suspense>
 
           {paused && (
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, zIndex: 10 }}>
-              <div style={{ fontSize: 42 }}>⏸</div>
-              <div style={{ color: '#fff', fontSize: 26, fontWeight: 800 }}>PAUSED</div>
-              <button onClick={() => setPaused(false)} style={{ background: '#7c3aed', border: 'none', borderRadius: 14, padding: '13px 40px', color: '#fff', fontSize: 17, fontWeight: 700, cursor: 'pointer', minHeight: 54 }}>
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-5 z-10"
+              style={{ background: 'rgba(0,0,0,0.72)' }}
+            >
+              <div className="text-[42px]">⏸</div>
+              <div className="text-white text-[26px] font-extrabold">PAUSED</div>
+              <button
+                onClick={() => setPaused(false)}
+                className="bg-violet-600 border-0 rounded-[14px] text-white text-[17px] font-bold cursor-pointer min-h-[54px] font-body"
+                style={{ padding: '13px 40px' }}
+              >
                 ▶ Resume
               </button>
             </div>
@@ -182,69 +203,97 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   if (view === 'result' && result) {
     const cr = result.challengeResult
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Nunito, sans-serif' }}>
-        <div style={{ background: 'rgba(8,4,20,0.98)', border: `2px solid ${result.isNewBest ? '#facc15' : '#7c3aed'}`, borderRadius: 20, padding: '28px 32px', textAlign: 'center', maxWidth: 340, width: '90vw' }}>
-          <div style={{ fontSize: 48, marginBottom: 6 }}>{result.isNewBest ? '🏆' : result.score > 0 ? '⭐' : '💀'}</div>
-          <div style={{ color: '#fff', fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{GAME_NAMES[result.gameId]}</div>
+      <div
+        className="fixed inset-0 z-[600] flex items-center justify-center font-body"
+        style={{ background: 'rgba(0,0,0,0.92)' }}
+      >
+        <div
+          className="rounded-[20px] text-center max-w-[340px] w-[90vw]"
+          style={{
+            background: 'rgba(8,4,20,0.98)',
+            border: `2px solid ${result.isNewBest ? '#facc15' : '#7c3aed'}`,
+            padding: '28px 32px',
+          }}
+        >
+          <div className="text-[48px] mb-[6px]">{result.isNewBest ? '🏆' : result.score > 0 ? '⭐' : '💀'}</div>
+          <div className="text-white text-[22px] font-extrabold mb-1">{GAME_NAMES[result.gameId]}</div>
 
-          <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '12px 16px', margin: '12px 0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ color: '#94a3b8', fontSize: 13 }}>Your score</span>
-              <span style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>{result.score}</span>
+          <div className="rounded-xl my-3" style={{ background: 'rgba(255,255,255,0.04)', padding: '12px 16px' }}>
+            <div className="flex justify-between mb-[6px]">
+              <span className="text-slate-400 text-[13px]">Your score</span>
+              <span className="text-white font-extrabold text-lg">{result.score}</span>
             </div>
             {result.isNewBest && (
-              <div style={{ color: '#facc15', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🌟 New Personal Best!</div>
+              <div className="text-yellow-400 text-[13px] font-bold mb-[6px]">🌟 New Personal Best!</div>
             )}
             {result.myRank > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ color: '#94a3b8', fontSize: 13 }}>Your rank</span>
-                <span style={{ color: '#a78bfa', fontWeight: 700, fontSize: 14 }}>#{result.myRank}</span>
+              <div className="flex justify-between mb-[6px]">
+                <span className="text-slate-400 text-[13px]">Your rank</span>
+                <span className="text-violet-400 font-bold text-[14px]">#{result.myRank}</span>
               </div>
             )}
             {result.globalBest && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#94a3b8', fontSize: 13 }}>Global best</span>
-                <span style={{ color: '#64748b', fontSize: 13 }}>{result.globalBest.score} by {result.globalBest.player_name}</span>
+              <div className="flex justify-between">
+                <span className="text-slate-400 text-[13px]">Global best</span>
+                <span className="text-slate-500 text-[13px]">{result.globalBest.score} by {result.globalBest.player_name}</span>
               </div>
             )}
           </div>
 
-          <div style={{ color: '#4ade80', fontSize: 15, fontWeight: 700, marginBottom: result.dailyBonus ? 4 : 14 }}>
+          <div className={`text-green-400 text-[15px] font-bold ${result.dailyBonus ? 'mb-1' : 'mb-[14px]'}`}>
             🪙 +{result.coinsEarned} coins earned!
           </div>
           {result.dailyBonus > 0 && (
-            <div style={{ color: '#fbbf24', fontSize: 12, marginBottom: 14 }}>🎁 +{result.dailyBonus} daily first-game bonus included!</div>
+            <div className="text-yellow-300 text-[12px] mb-[14px]">🎁 +{result.dailyBonus} daily first-game bonus included!</div>
           )}
 
-          {/* Challenge result */}
           {cr && (
-            <div style={{ background: cr.won ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, border: `1px solid ${cr.won ? 'rgba(74,222,128,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
-              <div style={{ color: cr.won ? '#4ade80' : '#f87171', fontWeight: 800, fontSize: 15 }}>
+            <div
+              className="rounded-[10px] mb-[14px]"
+              style={{
+                background: cr.won ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.1)',
+                border: `1px solid ${cr.won ? 'rgba(74,222,128,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                padding: '10px 14px',
+              }}
+            >
+              <div className={`font-extrabold text-[15px] ${cr.won ? 'text-green-400' : 'text-red-400'}`}>
                 {cr.won ? '🎉 You won the challenge!' : '😅 You lost the challenge!'}
               </div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+              <div className="text-slate-500 text-[12px] mt-1">
                 Their score: {cr.challengerScore} · Yours: {result.score}
               </div>
-              <div style={{ color: '#facc15', fontSize: 12 }}>+{cr.reward} coins</div>
+              <div className="text-yellow-400 text-[12px]">+{cr.reward} coins</div>
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={playAgain} style={{ background: '#7c3aed', border: 'none', borderRadius: 12, padding: '12px 0', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer', minHeight: 48 }}>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={playAgain}
+              className="bg-violet-600 border-0 rounded-xl py-3 text-white font-bold text-[15px] cursor-pointer min-h-[48px] font-body"
+            >
               🔄 Play Again
             </button>
             {!cr && (
               <button
                 onClick={() => { setChallengeGame(result.gameId); setChallengeScore(result.score); setView('sendChallenge') }}
-                style={{ background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.4)', borderRadius: 12, padding: '12px 0', color: '#f9a8d4', fontWeight: 700, fontSize: 15, cursor: 'pointer', minHeight: 48 }}
+                className="rounded-xl py-3 text-pink-300 font-bold text-[15px] cursor-pointer min-h-[48px] font-body border-0"
+                style={{ background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.4)' }}
               >
                 ⚔️ Challenge a Friend
               </button>
             )}
-            <button onClick={() => setView('leaderboard')} style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 12, padding: '12px 0', color: '#fbbf24', fontWeight: 700, fontSize: 14, cursor: 'pointer', minHeight: 44 }}>
+            <button
+              onClick={() => setView('leaderboard')}
+              className="rounded-xl py-3 text-yellow-400 font-bold text-[14px] cursor-pointer min-h-[44px] font-body border-0"
+              style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)' }}
+            >
               🏆 View Leaderboard
             </button>
-            <button onClick={() => setView('hub')} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '10px 0', color: '#64748b', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+            <button
+              onClick={() => setView('hub')}
+              className="rounded-xl py-[10px] text-slate-500 font-semibold text-[14px] cursor-pointer font-body border-0"
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
               ← Back to Game Zone
             </button>
           </div>
@@ -256,44 +305,54 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   // ── View: SEND CHALLENGE ─────────────────────────────────────────────────
   if (view === 'sendChallenge') {
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Nunito, sans-serif' }}>
-        <div style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(236,72,153,0.4)', borderRadius: 20, padding: '24px 28px', maxWidth: 320, width: '90vw' }}>
-          <div style={{ color: '#f9a8d4', fontWeight: 800, fontSize: 17, marginBottom: 4 }}>⚔️ Challenge a Friend</div>
-          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 16 }}>
-            {GAME_EMOJIS[challengeGame]} {GAME_NAMES[challengeGame]} · Beat your score: <strong style={{ color: '#fff' }}>{challengeScore}</strong>
+      <div
+        className="fixed inset-0 z-[600] flex items-center justify-center font-body"
+        style={{ background: 'rgba(0,0,0,0.88)' }}
+      >
+        <div
+          className="rounded-[20px] max-w-[320px] w-[90vw]"
+          style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(236,72,153,0.4)', padding: '24px 28px' }}
+        >
+          <div className="text-pink-300 font-extrabold text-[17px] mb-1">⚔️ Challenge a Friend</div>
+          <div className="text-slate-500 text-[12px] mb-4">
+            {GAME_EMOJIS[challengeGame]} {GAME_NAMES[challengeGame]} · Beat your score: <strong className="text-white">{challengeScore}</strong>
           </div>
 
           {sentTo ? (
-            <div style={{ color: '#4ade80', textAlign: 'center', fontWeight: 700, fontSize: 15, padding: '20px 0' }}>
+            <div className="text-green-400 text-center font-bold text-[15px] py-5">
               ✅ Challenge sent to {sentTo}!
             </div>
           ) : (
-            <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+            <div className="max-h-[280px] overflow-y-auto">
               {loadingPlayers ? (
-                <div style={{ color: '#475569', textAlign: 'center', padding: 20 }}>Loading players…</div>
+                <div className="text-slate-600 text-center p-5">Loading players…</div>
               ) : (fetchedPlayers !== null && fetchedPlayers.length === 0) ? (
-                <div style={{ color: '#475569', textAlign: 'center', padding: 20, fontSize: 13, lineHeight: 1.5 }}>
+                <div className="text-slate-600 text-center p-5 text-[13px] leading-[1.5]">
                   No players online right now.<br />Share your score to challenge friends later!
                 </div>
               ) : (
                 (fetchedPlayers || []).map(p => (
-                  <button key={p.uid} onClick={() => handleSendChallenge(p)} disabled={sending} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 12px', marginBottom: 6,
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10,
-                    cursor: sending ? 'wait' : 'pointer', color: '#e2e8f0', fontSize: 14, fontWeight: 600, fontFamily: 'Nunito, sans-serif',
-                  }}>
-                    <span style={{ fontSize: 18 }}>👤</span>
-                    <span style={{ flex: 1, textAlign: 'left' }}>{p.name || p.uid?.slice(-6)}</span>
-                    <span style={{ color: '#a78bfa', fontSize: 12 }}>Challenge →</span>
+                  <button
+                    key={p.uid}
+                    onClick={() => handleSendChallenge(p)}
+                    disabled={sending}
+                    className={`flex items-center gap-[10px] w-full rounded-[10px] mb-[6px] text-slate-200 text-[14px] font-semibold font-body border-0 ${sending ? 'cursor-wait' : 'cursor-pointer'}`}
+                    style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <span className="text-lg">👤</span>
+                    <span className="flex-1 text-left">{p.name || p.uid?.slice(-6)}</span>
+                    <span className="text-violet-400 text-[12px]">Challenge →</span>
                   </button>
                 ))
               )}
             </div>
           )}
 
-          <button onClick={() => setView('result')} style={{ marginTop: 12, width: '100%', padding: '10px 0', background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#64748b', cursor: 'pointer', fontSize: 14 }}>
-            ← Back
-          </button>
+          <button
+            onClick={() => setView('result')}
+            className="mt-3 w-full py-[10px] bg-transparent rounded-[10px] text-slate-500 cursor-pointer text-[14px] font-body border-0"
+            style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+          >← Back</button>
         </div>
       </div>
     )
@@ -303,32 +362,49 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   if (view === 'leaderboard') {
     const lb = getLeaderboard(lbGame)
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Nunito, sans-serif' }}>
-        <div style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(251,191,36,0.35)', borderRadius: 20, width: 340, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Header */}
-          <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ color: '#facc15', fontWeight: 800, fontSize: 17 }}>🏆 Leaderboard</div>
-            <button onClick={() => setView(result ? 'result' : 'hub')} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+      <div
+        className="fixed inset-0 z-[600] flex items-center justify-center font-body"
+        style={{ background: 'rgba(0,0,0,0.88)' }}
+      >
+        <div
+          className="w-[340px] max-h-[85vh] flex flex-col overflow-hidden rounded-[20px]"
+          style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(251,191,36,0.35)' }}
+        >
+          <div
+            className="flex items-center justify-between"
+            style={{ padding: '16px 18px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="text-yellow-400 font-extrabold text-[17px]">🏆 Leaderboard</div>
+            <button
+              onClick={() => setView(result ? 'result' : 'hub')}
+              className="bg-transparent border-0 text-slate-500 text-xl cursor-pointer"
+            >✕</button>
           </div>
 
-          {/* Game tabs */}
-          <div style={{ display: 'flex', overflowX: 'auto', padding: '8px 12px', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div
+            className="flex overflow-x-auto gap-[6px]"
+            style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+          >
             {GAME_IDS.map(gid => (
-              <button key={gid} onClick={() => setLbGame(gid)} style={{
-                padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-                background: lbGame === gid ? '#7c3aed' : 'rgba(255,255,255,0.06)',
-                border: lbGame === gid ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                color: lbGame === gid ? '#fff' : '#94a3b8',
-              }}>
+              <button
+                key={gid}
+                onClick={() => setLbGame(gid)}
+                className="rounded-lg text-[12px] font-bold cursor-pointer whitespace-nowrap font-body border-0"
+                style={{
+                  padding: '5px 12px',
+                  background: lbGame === gid ? '#7c3aed' : 'rgba(255,255,255,0.06)',
+                  border: lbGame === gid ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                  color: lbGame === gid ? '#fff' : '#94a3b8',
+                }}
+              >
                 {GAME_EMOJIS[gid]} {GAME_NAMES[gid]}
               </button>
             ))}
           </div>
 
-          {/* Scores */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
+          <div className="flex-1 overflow-y-auto" style={{ padding: '10px 14px' }}>
             {lb.length === 0 ? (
-              <div style={{ color: '#475569', textAlign: 'center', padding: 24, fontSize: 14 }}>No scores yet — be the first!</div>
+              <div className="text-slate-600 text-center p-6 text-[14px]">No scores yet — be the first!</div>
             ) : (
               lb.map((entry, i) => (
                 <ScoreRow key={entry.player_uid} rank={i + 1} name={entry.player_name} score={entry.score} isMe={entry.player_uid === myUid} />
@@ -337,7 +413,10 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
           </div>
 
           <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <button onClick={() => startGame(lbGame)} style={{ width: '100%', padding: '11px 0', background: '#7c3aed', border: 'none', borderRadius: 10, color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+            <button
+              onClick={() => startGame(lbGame)}
+              className="w-full py-[11px] bg-violet-600 border-0 rounded-[10px] text-white font-bold text-[15px] cursor-pointer font-body"
+            >
               {GAME_EMOJIS[lbGame]} Play {GAME_NAMES[lbGame]}
             </button>
           </div>
@@ -349,32 +428,45 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   // ── View: CHALLENGES ─────────────────────────────────────────────────────
   if (view === 'challenges') {
     const pending   = getMyChallenges().filter(c => c.challenged_uid === myUid && c.status === 'pending')
-    const sent      = getMyChallenges().filter(c => c.challenger_uid === myUid)
     const resolved  = getMyChallenges().filter(c => c.status !== 'pending' && (c.challenged_uid === myUid || c.challenger_uid === myUid))
 
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Nunito, sans-serif' }}>
-        <div style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(124,58,237,0.35)', borderRadius: 20, width: 340, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ color: '#a78bfa', fontWeight: 800, fontSize: 17 }}>⚔️ Challenges</div>
-            <button onClick={() => setView('hub')} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer' }}>✕</button>
+      <div
+        className="fixed inset-0 z-[600] flex items-center justify-center font-body"
+        style={{ background: 'rgba(0,0,0,0.88)' }}
+      >
+        <div
+          className="w-[340px] max-h-[85vh] flex flex-col overflow-hidden rounded-[20px]"
+          style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(124,58,237,0.35)' }}
+        >
+          <div
+            className="flex items-center justify-between"
+            style={{ padding: '16px 18px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="text-violet-400 font-extrabold text-[17px]">⚔️ Challenges</div>
+            <button onClick={() => setView('hub')} className="bg-transparent border-0 text-slate-500 text-xl cursor-pointer">✕</button>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px' }}>
+          <div className="flex-1 overflow-y-auto" style={{ padding: '10px 14px' }}>
             {pending.length > 0 && (
               <>
-                <div style={{ color: '#f87171', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>INCOMING ({pending.length})</div>
+                <div className="text-red-400 text-[12px] font-bold mb-2">INCOMING ({pending.length})</div>
                 {pending.map(c => (
-                  <div key={c.id} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
-                    <div style={{ color: '#f9a8d4', fontSize: 13, fontWeight: 700 }}>
+                  <div
+                    key={c.id}
+                    className="rounded-[10px] mb-2"
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', padding: '10px 12px' }}
+                  >
+                    <div className="text-pink-300 text-[13px] font-bold">
                       {GAME_EMOJIS[c.game_id]} {c.challenger_name} challenged you!
                     </div>
-                    <div style={{ color: '#94a3b8', fontSize: 12 }}>Beat {GAME_NAMES[c.game_id]} · Their score: {c.challenger_score}</div>
+                    <div className="text-slate-400 text-[12px]">Beat {GAME_NAMES[c.game_id]} · Their score: {c.challenger_score}</div>
                     <button
                       onClick={() => startGame(c.game_id, c.id, c.challenger_score)}
-                      style={{ marginTop: 8, padding: '7px 16px', background: '#dc2626', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                      className="mt-2 bg-red-600 border-0 rounded-lg text-white font-bold cursor-pointer text-[13px] font-body"
+                      style={{ padding: '7px 16px' }}
                     >
-                      ⚔️ Accept & Play
+                      ⚔️ Accept &amp; Play
                     </button>
                   </div>
                 ))}
@@ -383,18 +475,18 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
 
             {resolved.length > 0 && (
               <>
-                <div style={{ color: '#64748b', fontSize: 12, fontWeight: 700, marginBottom: 8, marginTop: 8 }}>COMPLETED</div>
+                <div className="text-slate-500 text-[12px] font-bold mb-2 mt-2">COMPLETED</div>
                 {resolved.slice(0, 6).map(c => {
                   const iAm = c.challenged_uid === myUid ? 'challenged' : 'challenger'
                   const won = (iAm === 'challenged' && c.status === 'challenged_won') || (iAm === 'challenger' && c.status === 'challenger_won')
                   return (
-                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, marginBottom: 5 }}>
-                      <span style={{ fontSize: 16 }}>{won ? '🏆' : '💀'}</span>
-                      <div style={{ flex: 1, fontSize: 12 }}>
-                        <div style={{ color: '#e2e8f0' }}>{GAME_EMOJIS[c.game_id]} vs {iAm === 'challenged' ? c.challenger_name : c.challenged_name}</div>
-                        <div style={{ color: '#64748b' }}>{c.challenger_score} vs {c.challenged_score ?? '?'}</div>
+                    <div key={c.id} className="flex items-center gap-2 rounded-lg mb-[5px]" style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)' }}>
+                      <span className="text-base">{won ? '🏆' : '💀'}</span>
+                      <div className="flex-1 text-[12px]">
+                        <div className="text-slate-200">{GAME_EMOJIS[c.game_id]} vs {iAm === 'challenged' ? c.challenger_name : c.challenged_name}</div>
+                        <div className="text-slate-500">{c.challenger_score} vs {c.challenged_score ?? '?'}</div>
                       </div>
-                      <span style={{ color: won ? '#4ade80' : '#f87171', fontSize: 12, fontWeight: 700 }}>{won ? 'WON' : 'LOST'}</span>
+                      <span className={`text-[12px] font-bold ${won ? 'text-green-400' : 'text-red-400'}`}>{won ? 'WON' : 'LOST'}</span>
                     </div>
                   )
                 })}
@@ -402,7 +494,7 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
             )}
 
             {pending.length === 0 && resolved.length === 0 && (
-              <div style={{ color: '#475569', textAlign: 'center', padding: 32, fontSize: 14 }}>
+              <div className="text-slate-600 text-center p-8 text-[14px]">
                 No challenges yet!<br />Play a game and challenge friends.
               </div>
             )}
@@ -416,51 +508,76 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
   const pendingCount = getMyChallenges().filter(c => c.challenged_uid === myUid && c.status === 'pending').length
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Nunito, sans-serif' }}>
-      <div style={{ background: 'rgba(8,4,20,0.98)', border: '1.5px solid rgba(124,58,237,0.35)', borderRadius: 24, width: 380, maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 80px rgba(0,0,0,0.9)' }}>
+    <div
+      className="fixed inset-0 z-[600] flex items-center justify-center font-body"
+      style={{ background: 'rgba(0,0,0,0.88)' }}
+    >
+      <div
+        className="w-[380px] max-h-[88vh] flex flex-col overflow-hidden rounded-[24px]"
+        style={{
+          background: 'rgba(8,4,20,0.98)',
+          border: '1.5px solid rgba(124,58,237,0.35)',
+          boxShadow: '0 20px 80px rgba(0,0,0,0.9)',
+        }}
+      >
         {/* Header */}
-        <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: '18px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        >
           <div>
-            <div style={{ color: '#a78bfa', fontWeight: 900, fontSize: 20 }}>🎮 Game Zone</div>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Cartoon Arcade · 5 Quick Games</div>
+            <div className="text-violet-400 font-black text-xl">🎮 Game Zone</div>
+            <div className="text-slate-500 text-[12px] mt-[2px]">Cartoon Arcade · 5 Quick Games</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="flex gap-2 items-center">
             {pendingCount > 0 && (
-              <button onClick={() => setView('challenges')} style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8, padding: '6px 10px', color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer', position: 'relative' }}>
+              <button
+                onClick={() => setView('challenges')}
+                className="relative rounded-lg text-red-400 font-bold text-[12px] cursor-pointer font-body border-0"
+                style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)', padding: '6px 10px' }}
+              >
                 ⚔️ {pendingCount}
               </button>
             )}
-            <button onClick={() => setView('leaderboard')} style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, padding: '6px 10px', color: '#fbbf24', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+            <button
+              onClick={() => setView('leaderboard')}
+              className="rounded-lg text-yellow-400 font-bold text-[12px] cursor-pointer font-body border-0"
+              style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)', padding: '6px 10px' }}
+            >
               🏆 LB
             </button>
             {pendingCount === 0 && (
-              <button onClick={() => setView('challenges')} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '6px 10px', color: '#94a3b8', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+              <button
+                onClick={() => setView('challenges')}
+                className="rounded-lg text-slate-400 font-bold text-[12px] cursor-pointer font-body border-0"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 10px' }}
+              >
                 ⚔️ Challenges
               </button>
             )}
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            <button onClick={onClose} className="bg-transparent border-0 text-slate-500 text-[22px] cursor-pointer leading-none">✕</button>
           </div>
         </div>
 
         {/* My best scores row */}
         {myStats && (
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto' }}>
+          <div className="flex overflow-x-auto" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             {GAME_IDS.map(gid => (
-              <div key={gid} style={{ flex: '0 0 auto', padding: '8px 14px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: 16 }}>{GAME_EMOJIS[gid]}</div>
-                <div style={{ color: '#facc15', fontSize: 12, fontWeight: 700 }}>{myStats[`best_${gid}`] || 0}</div>
+              <div key={gid} className="shrink-0 text-center" style={{ padding: '8px 14px', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+                <div className="text-base">{GAME_EMOJIS[gid]}</div>
+                <div className="text-yellow-400 text-[12px] font-bold">{myStats[`best_${gid}`] || 0}</div>
               </div>
             ))}
-            <div style={{ flex: '0 0 auto', padding: '8px 14px', textAlign: 'center' }}>
-              <div style={{ fontSize: 16 }}>🪙</div>
-              <div style={{ color: '#4ade80', fontSize: 12, fontWeight: 700 }}>{myStats.coins_earned_from_games || 0}</div>
+            <div className="shrink-0 text-center" style={{ padding: '8px 14px' }}>
+              <div className="text-base">🪙</div>
+              <div className="text-green-400 text-[12px] font-bold">{myStats.coins_earned_from_games || 0}</div>
             </div>
           </div>
         )}
 
         {/* Game stations */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px 16px' }}>
-          <div style={{ color: '#475569', fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>GAME STATIONS</div>
+        <div className="flex-1 overflow-y-auto" style={{ padding: '12px 14px 16px' }}>
+          <div className="text-slate-600 text-[11px] font-bold tracking-[1px] mb-[10px]">GAME STATIONS</div>
           {GAME_IDS.map((gid, idx) => {
             const lb      = getLeaderboard(gid)
             const top     = lb[0]
@@ -470,39 +587,41 @@ export default function GameHub({ open, onClose, onlinePlayers = [], myUid, myNa
               <div
                 key={gid}
                 onClick={() => startGame(gid)}
+                className="flex items-center gap-3 rounded-xl mb-2 cursor-pointer transition-[background] duration-150"
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                  padding: '12px 14px',
                   background: 'rgba(255,255,255,0.03)',
                   border: `1px solid ${color}33`,
                   borderLeft: `3px solid ${color}`,
-                  borderRadius: 12, marginBottom: 8, cursor: 'pointer',
-                  transition: 'background 0.15s',
                 }}
                 onMouseEnter={e => e.currentTarget.style.background = `${color}18`}
                 onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
               >
-                <span style={{ fontSize: 28, flexShrink: 0 }}>{GAME_EMOJIS[gid]}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700 }}>{GAME_NAMES[gid]}</div>
-                  <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>{GAME_DESC[gid]}</div>
-                  <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                    <span style={{ color: '#64748b', fontSize: 11 }}>My best: <span style={{ color: '#facc15' }}>{myBest}</span></span>
-                    {top && <span style={{ color: '#64748b', fontSize: 11 }}>Global: <span style={{ color: '#a78bfa' }}>{top.score}</span></span>}
+                <span className="text-[28px] shrink-0">{GAME_EMOJIS[gid]}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-slate-200 text-[14px] font-bold">{GAME_NAMES[gid]}</div>
+                  <div className="text-slate-600 text-[11px] mt-[2px]">{GAME_DESC[gid]}</div>
+                  <div className="flex gap-3 mt-1">
+                    <span className="text-slate-500 text-[11px]">My best: <span className="text-yellow-400">{myBest}</span></span>
+                    {top && <span className="text-slate-500 text-[11px]">Global: <span className="text-violet-400">{top.score}</span></span>}
                   </div>
                 </div>
-                <div style={{ color: color, fontSize: 18 }}>▶</div>
+                <div className="text-lg" style={{ color }}>▶</div>
               </div>
             )
           })}
         </div>
 
-        {/* Footer: my stats summary */}
+        {/* Footer */}
         {myStats && (
-          <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 20, justifyContent: 'center' }}>
-            <span style={{ color: '#4ade80', fontSize: 12, fontWeight: 700 }}>🏆 {myStats.total_wins}W</span>
-            <span style={{ color: '#f87171', fontSize: 12, fontWeight: 700 }}>💀 {myStats.total_losses}L</span>
-            <span style={{ color: '#94a3b8', fontSize: 12 }}>{myStats.total_games} games</span>
-            <span style={{ color: '#fbbf24', fontSize: 12, fontWeight: 700 }}>🪙 {myStats.coins_earned_from_games} earned</span>
+          <div
+            className="flex gap-5 justify-center"
+            style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <span className="text-green-400 text-[12px] font-bold">🏆 {myStats.total_wins}W</span>
+            <span className="text-red-400 text-[12px] font-bold">💀 {myStats.total_losses}L</span>
+            <span className="text-slate-400 text-[12px]">{myStats.total_games} games</span>
+            <span className="text-yellow-400 text-[12px] font-bold">🪙 {myStats.coins_earned_from_games} earned</span>
           </div>
         )}
       </div>

@@ -17,15 +17,13 @@ export default function HUD({ onOpenShop }) {
   return (
     <>
       {/* Player name — minimal chip, top-left */}
-      <div style={{
-        position: 'fixed', top: 12, left: 12, zIndex: 40,
-        background: 'rgba(8,6,18,0.78)',
-        border: '1px solid rgba(124,58,237,0.28)',
-        borderRadius: 8, padding: '5px 12px',
-        color: '#e2e8f0', fontSize: 13, fontWeight: 700,
-        fontFamily: 'monospace', letterSpacing: '0.04em',
-        pointerEvents: 'none', userSelect: 'none',
-      }}>
+      <div
+        className="fixed top-3 left-3 z-40 rounded-lg py-[5px] px-3 text-slate-200 text-[13px] font-bold font-mono tracking-[0.04em] pointer-events-none select-none"
+        style={{
+          background: 'rgba(8,6,18,0.78)',
+          border: '1px solid rgba(124,58,237,0.28)',
+        }}
+      >
         {avatar.name}
       </div>
 
@@ -38,31 +36,20 @@ export default function HUD({ onOpenShop }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             onClick={onOpenShop}
+            className={`fixed top-[50px] left-3 z-[41] rounded-[7px] py-1 px-2.5 text-white text-xs font-bold font-body flex items-center gap-[5px] select-none ${onOpenShop ? 'cursor-pointer' : 'cursor-default'}`}
             style={{
-              position: 'fixed', top: 50, left: 12, zIndex: 41,
               background: 'rgba(217,119,6,0.88)',
               border: '1px solid rgba(251,191,36,0.5)',
-              borderRadius: 7, padding: '4px 10px',
-              color: '#fff', fontSize: 12, fontWeight: 700,
-              fontFamily: 'Nunito, sans-serif',
-              cursor: onOpenShop ? 'pointer' : 'default',
-              display: 'flex', alignItems: 'center', gap: 5,
-              userSelect: 'none',
             }}
           >
-            🪙 Low coins! <span style={{ color: '#fde68a' }}>{coins}</span>
-            {onOpenShop && <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>· Buy</span>}
+            🪙 Low coins! <span className="text-yellow-200">{coins}</span>
+            {onOpenShop && <span className="text-[10px] text-white/70">· Buy</span>}
           </motion.button>
         )}
       </AnimatePresence>
 
       {/* Toast notifications */}
-      <div style={{
-        position: 'fixed', top: 56, left: 12, right: 12,
-        zIndex: 50, maxWidth: 320,
-        display: 'flex', flexDirection: 'column', gap: 8,
-        pointerEvents: 'none',
-      }}>
+      <div className="fixed top-14 left-3 right-3 z-50 max-w-[320px] flex flex-col gap-2 pointer-events-none">
         <AnimatePresence>
           {toasts.map(t => (
             <motion.div
@@ -70,16 +57,14 @@ export default function HUD({ onOpenShop }) {
               initial={{ opacity: 0, x: -16, scale: 0.92 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: -16 }}
+              className="py-[10px] px-4 rounded-[10px] text-[13px] font-bold text-white font-body"
               style={{
-                padding: '10px 16px', borderRadius: 10, fontSize: 13,
-                fontWeight: 700, color: '#fff',
                 background:
                   t.type === 'success' ? 'rgba(13,148,136,0.92)' :
                   t.type === 'error'   ? 'rgba(220,38,38,0.92)'  :
                   t.type === 'warning' ? 'rgba(217,119,6,0.92)'  :
                                          'rgba(109,40,217,0.92)',
                 border: '1px solid rgba(255,255,255,0.10)',
-                fontFamily: 'Nunito, sans-serif',
               }}
             >
               {t.msg}

@@ -4,12 +4,7 @@ export default function MsgToast({ toasts, onDismiss }) {
   if (!toasts || toasts.length === 0) return null
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 86, left: 16,
-      zIndex: 700, display: 'flex', flexDirection: 'column-reverse', gap: 8,
-      alignItems: 'flex-start', pointerEvents: 'none',
-      maxWidth: 300,
-    }}>
+    <div className="fixed bottom-[86px] left-4 z-[700] flex flex-col-reverse gap-2 items-start pointer-events-none max-w-[300px]">
       {toasts.map(t => (
         <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
       ))}
@@ -48,43 +43,38 @@ function ToastItem({ toast, onDismiss }) {
   return (
     <div
       onClick={handleBodyClick}
+      className="flex flex-col gap-1.5 font-body pointer-events-auto w-[280px] rounded-[10px]"
       style={{
         background: 'rgba(8,4,20,0.96)',
         border: `1px solid ${borderColor}`,
-        borderRadius: 10,
         padding: toast.actions ? '8px 12px 10px' : '8px 12px',
-        display: 'flex', flexDirection: 'column', gap: 6,
-        fontFamily: 'Nunito, sans-serif',
         boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
         cursor: (!toast.actions && toast.onClick) ? 'pointer' : 'default',
-        pointerEvents: 'all',
-        width: 280,
         animation: 'toastIn 0.22s ease',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: 2, flexShrink: 0 }}>{icon}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: nameColor, marginBottom: 2 }}>
+      <div className="flex items-start gap-2">
+        <span className="text-base leading-none mt-0.5 shrink-0">{icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-extrabold mb-0.5" style={{ color: nameColor }}>
             {toast.fromName}
           </div>
-          <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.3 }}>{preview}</div>
+          <div className="text-xs text-slate-400 leading-[1.3]">{preview}</div>
         </div>
       </div>
 
       {/* Action buttons */}
       {toast.actions && (
-        <div style={{ display: 'flex', gap: 6, marginLeft: 24 }}>
+        <div className="flex gap-1.5 ml-6">
           {toast.actions.map((a, i) => (
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); onDismiss(toast.id); a.action() }}
+              className="flex-1 py-[5px] text-[11px] font-bold cursor-pointer rounded-[7px]"
               style={{
-                flex: 1, padding: '5px 0',
                 background: a.primary ? '#7c3aed' : 'rgba(255,255,255,0.08)',
                 border: a.primary ? 'none' : '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 7, color: a.primary ? '#fff' : '#94a3b8',
-                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                color: a.primary ? '#fff' : '#94a3b8',
               }}
             >
               {a.label}

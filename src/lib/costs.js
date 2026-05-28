@@ -1,5 +1,6 @@
 export const COSTS = {
   fastTravel:       25,
+  houseTravel:       5,
   callPlayer:       10,
   callMinute:        5,
   chatNPC:           0,

@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useUser } from '@clerk/clerk-react'
 import { addCoins, addGems } from '@/lib/economyState'
 import COIN_PACKS from '@/lib/coinPacks'
 
-const FONT = 'Nunito, sans-serif'
 const LS_KEY = 'shop_ever_purchased'
 
-// ── Load Razorpay checkout script on demand ────────────────────────────────
 function loadRazorpay() {
   return new Promise(resolve => {
     if (window.Razorpay) return resolve(true)
@@ -18,12 +17,11 @@ function loadRazorpay() {
   })
 }
 
-// ── Confetti ───────────────────────────────────────────────────────────────
 function Confetti() {
   const COLORS = ['#fbbf24','#7c3aed','#ec4899','#22c55e','#38bdf8','#f97316','#a78bfa','#34d399']
   const pieces = Array.from({ length: 72 }, (_, i) => i)
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1100, pointerEvents: 'none', overflow: 'hidden' }}>
+    <div className="fixed inset-0 z-[1100] pointer-events-none overflow-hidden">
       <style>{`
         @keyframes conf-fall {
           0%   { transform: translateY(-30px) rotate(0deg) scale(1);   opacity: 1; }
@@ -42,11 +40,9 @@ function Confetti() {
           <div
             key={i}
             style={{
-              position: 'absolute',
-              top: '-30px',
+              position: 'absolute', top: '-30px',
               left: `${(i * 1.41) % 100}%`,
-              width:  size,
-              height: isCircle ? size : size * 0.6,
+              width: size, height: isCircle ? size : size * 0.6,
               backgroundColor: COLORS[i % COLORS.length],
               borderRadius: isCircle ? '50%' : 2,
               animation: `conf-fall ${2 + (i % 4) * 0.5}s ${(i * 0.038) % 2.2}s linear forwards,
@@ -59,11 +55,10 @@ function Confetti() {
   )
 }
 
-// ── Floating coin animation on success ────────────────────────────────────
 function FloatingCoins() {
   const coins = Array.from({ length: 12 }, (_, i) => i)
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+    <div className="absolute inset-0 pointer-events-none overflow-hidden">
       <style>{`
         @keyframes coin-rise {
           0%   { transform: translateY(0) scale(0.5); opacity: 0; }
@@ -75,21 +70,17 @@ function FloatingCoins() {
         <div
           key={i}
           style={{
-            position: 'absolute',
-            bottom: '30%',
+            position: 'absolute', bottom: '30%',
             left: `${20 + (i * 7) % 60}%`,
             fontSize: 22 + (i % 3) * 6,
             animation: `coin-rise ${1.2 + (i % 3) * 0.4}s ${i * 0.12}s ease-out forwards`,
           }}
-        >
-          🪙
-        </div>
+        >🪙</div>
       ))}
     </div>
   )
 }
 
-// ── Single pack card ───────────────────────────────────────────────────────
 function PackCard({ pack, onBuy, buying }) {
   const [hovered, setHovered] = useState(false)
   const isLoading = buying === pack.id || buying === pack.id + '_verify'
@@ -98,19 +89,14 @@ function PackCard({ pack, onBuy, buying }) {
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      className="relative flex flex-col gap-[10px]"
       style={{
-        position: 'relative',
         background: hovered
-          ? `linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03))`
+          ? 'linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03))'
           : 'rgba(255,255,255,0.04)',
-        border: pack.popular
-          ? `2px solid ${pack.color}`
-          : '1.5px solid rgba(255,255,255,0.1)',
+        border: pack.popular ? `2px solid ${pack.color}` : '1.5px solid rgba(255,255,255,0.1)',
         borderRadius: 18,
         padding: '22px 18px 18px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
         transition: 'all 0.18s ease',
         transform: hovered ? 'translateY(-3px)' : 'none',
         boxShadow: pack.popular
@@ -119,67 +105,50 @@ function PackCard({ pack, onBuy, buying }) {
         cursor: 'default',
       }}
     >
-      {/* Popular badge */}
       {pack.popular && (
-        <div style={{
-          position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
-          background: `linear-gradient(90deg, ${pack.color}, #a78bfa)`,
-          borderRadius: 20, padding: '3px 14px',
-          color: '#fff', fontSize: 11, fontWeight: 800,
-          letterSpacing: '0.08em', whiteSpace: 'nowrap',
-          boxShadow: `0 2px 12px ${pack.color}66`,
-          fontFamily: FONT,
-        }}>
+        <div
+          className="absolute font-body text-white font-extrabold text-[11px] tracking-[0.08em] whitespace-nowrap"
+          style={{
+            top: -13, left: '50%', transform: 'translateX(-50%)',
+            background: `linear-gradient(90deg, ${pack.color}, #a78bfa)`,
+            borderRadius: 20, padding: '3px 14px',
+            boxShadow: `0 2px 12px ${pack.color}66`,
+          }}
+        >
           ⭐ MOST POPULAR
         </div>
       )}
 
-      {/* Icon + name */}
-      <div style={{ textAlign: 'center', paddingTop: pack.popular ? 4 : 0 }}>
-        <div style={{ fontSize: 38, lineHeight: 1, marginBottom: 6 }}>{pack.icon}</div>
-        <div style={{ color: '#f1f5f9', fontWeight: 800, fontSize: 15, fontFamily: FONT }}>{pack.name}</div>
+      <div className={`text-center ${pack.popular ? 'pt-1' : ''}`}>
+        <div className="text-[38px] leading-none mb-[6px]">{pack.icon}</div>
+        <div className="text-slate-100 font-extrabold text-[15px] font-body">{pack.name}</div>
       </div>
 
-      {/* Price */}
-      <div style={{ textAlign: 'center' }}>
-        <span style={{
-          color: pack.color, fontWeight: 900, fontSize: 28,
-          fontFamily: FONT, letterSpacing: '-0.5px',
-        }}>
+      <div className="text-center">
+        <span className="font-black text-[28px] font-body" style={{ color: pack.color, letterSpacing: '-0.5px' }}>
           ₹{pack.price}
         </span>
       </div>
 
-      {/* Perks */}
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <ul className="list-none m-0 p-0 flex flex-col gap-[5px]">
         {pack.perks.map((perk, i) => (
-          <li key={i} style={{
-            display: 'flex', alignItems: 'center', gap: 7,
-            color: '#cbd5e1', fontSize: 12, fontFamily: FONT,
-          }}>
-            <span style={{ color: '#4ade80', fontSize: 11, flexShrink: 0 }}>✔</span>
+          <li key={i} className="flex items-center gap-[7px] text-slate-300 text-[12px] font-body">
+            <span className="text-green-400 text-[11px] shrink-0">✔</span>
             {perk}
           </li>
         ))}
       </ul>
 
-      {/* Buy button */}
       <button
         onClick={() => !isLoading && onBuy(pack)}
         disabled={!!buying}
+        className="w-full mt-1 border-0 font-body"
         style={{
-          marginTop: 4,
-          width: '100%',
           padding: '11px 0',
-          background: buying
-            ? 'rgba(255,255,255,0.08)'
-            : `linear-gradient(135deg, ${pack.color}, ${pack.color}cc)`,
-          border: 'none',
+          background: buying ? 'rgba(255,255,255,0.08)' : `linear-gradient(135deg, ${pack.color}, ${pack.color}cc)`,
           borderRadius: 12,
           color: buying ? '#64748b' : '#fff',
-          fontWeight: 800,
-          fontSize: 14,
-          fontFamily: FONT,
+          fontWeight: 800, fontSize: 14,
           cursor: buying ? 'not-allowed' : 'pointer',
           transition: 'all 0.15s',
           boxShadow: buying ? 'none' : `0 4px 16px ${pack.color}55`,
@@ -187,7 +156,7 @@ function PackCard({ pack, onBuy, buying }) {
         }}
       >
         {isLoading ? (
-          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <span className="flex items-center justify-center gap-2">
             <Spinner /> {buying === pack.id + '_verify' ? 'Verifying…' : 'Opening…'}
           </span>
         ) : 'Buy Now'}
@@ -198,79 +167,54 @@ function PackCard({ pack, onBuy, buying }) {
 
 function Spinner() {
   return (
-    <span style={{
-      display: 'inline-block', width: 14, height: 14,
-      border: '2px solid rgba(255,255,255,0.3)',
-      borderTop: '2px solid #fff',
-      borderRadius: '50%',
-      animation: 'spin 0.7s linear infinite',
-    }} />
+    <span
+      className="inline-block w-[14px] h-[14px] rounded-full"
+      style={{
+        border: '2px solid rgba(255,255,255,0.3)',
+        borderTop: '2px solid #fff',
+        animation: 'spin 0.7s linear infinite',
+      }}
+    />
   )
 }
 
-// ── Success screen ─────────────────────────────────────────────────────────
 function SuccessScreen({ result, onClose }) {
   return (
-    <div style={{
-      position: 'relative',
-      background: 'linear-gradient(145deg, rgba(10,6,28,0.99), rgba(20,10,40,0.99))',
-      border: '2px solid rgba(74,222,128,0.5)',
-      borderRadius: 24,
-      padding: '44px 36px',
-      textAlign: 'center',
-      maxWidth: 420,
-      width: '92%',
-      boxShadow: '0 0 60px rgba(74,222,128,0.2), 0 24px 64px rgba(0,0,0,0.8)',
-      fontFamily: FONT,
-      overflow: 'hidden',
-    }}>
+    <div
+      className="relative rounded-3xl text-center max-w-[420px] w-[92%] overflow-hidden font-body"
+      style={{
+        background: 'linear-gradient(145deg, rgba(10,6,28,0.99), rgba(20,10,40,0.99))',
+        border: '2px solid rgba(74,222,128,0.5)',
+        padding: '44px 36px',
+        boxShadow: '0 0 60px rgba(74,222,128,0.2), 0 24px 64px rgba(0,0,0,0.8)',
+      }}
+    >
       <FloatingCoins />
-
-      {/* Success icon */}
-      <div style={{ fontSize: 56, marginBottom: 12, position: 'relative', zIndex: 1 }}>
-        {result.pack.icon}
-      </div>
-      <div style={{
-        color: '#4ade80', fontWeight: 900, fontSize: 24, marginBottom: 8,
-        position: 'relative', zIndex: 1,
-      }}>
-        Payment Successful!
-      </div>
-      <div style={{
-        color: '#e2e8f0', fontSize: 15, marginBottom: 20,
-        position: 'relative', zIndex: 1,
-      }}>
+      <div className="text-[56px] mb-3 relative z-[1]">{result.pack.icon}</div>
+      <div className="text-green-400 font-black text-2xl mb-2 relative z-[1]">Payment Successful!</div>
+      <div className="text-slate-200 text-[15px] mb-5 relative z-[1]">
         You got <strong style={{ color: '#fbbf24' }}>{result.pack.coins.toLocaleString()} coins</strong>
         {' '}+<strong style={{ color: '#a78bfa' }}> {result.pack.gems} gems</strong>!
       </div>
 
-      {/* Perks received */}
-      <div style={{
-        background: 'rgba(74,222,128,0.08)',
-        border: '1px solid rgba(74,222,128,0.2)',
-        borderRadius: 14,
-        padding: '16px 20px',
-        marginBottom: 24,
-        textAlign: 'left',
-        position: 'relative', zIndex: 1,
-      }}>
-        <div style={{ color: '#86efac', fontWeight: 700, fontSize: 12, marginBottom: 10, letterSpacing: '0.08em' }}>
+      <div
+        className="rounded-[14px] text-left relative z-[1] mb-6"
+        style={{
+          background: 'rgba(74,222,128,0.08)',
+          border: '1px solid rgba(74,222,128,0.2)',
+          padding: '16px 20px',
+        }}
+      >
+        <div className="text-green-300 font-bold text-[12px] mb-[10px] tracking-[0.08em]">
           WHAT YOU RECEIVED
         </div>
         {result.pack.perks.map((perk, i) => (
-          <div key={i} style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            color: '#cbd5e1', fontSize: 13, marginBottom: 6,
-          }}>
-            <span style={{ color: '#4ade80', fontSize: 12 }}>✔</span> {perk}
+          <div key={i} className="flex items-center gap-2 text-slate-300 text-[13px] mb-[6px]">
+            <span className="text-green-400 text-[12px]">✔</span> {perk}
           </div>
         ))}
         {result.vipUntil && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            color: '#fbbf24', fontSize: 13, marginTop: 4,
-            fontWeight: 700,
-          }}>
+          <div className="flex items-center gap-2 text-yellow-400 text-[13px] mt-1 font-bold">
             <span>👑</span>
             {result.vipUntil === '2099-12-31T23:59:59.000Z'
               ? 'Permanent VIP activated!'
@@ -279,24 +223,18 @@ function SuccessScreen({ result, onClose }) {
         )}
       </div>
 
-      {/* Wallet updated note */}
-      <div style={{
-        color: '#64748b', fontSize: 12, marginBottom: 20,
-        position: 'relative', zIndex: 1,
-      }}>
+      <div className="text-slate-500 text-[12px] mb-5 relative z-[1]">
         💰 Wallet updated — coins appear in your HUD above
       </div>
 
       <button
         onClick={onClose}
+        className="w-full border-0 font-black text-[15px] cursor-pointer rounded-[14px] relative z-[1] font-body"
         style={{
-          width: '100%', padding: '13px 0',
+          padding: '13px 0',
           background: 'linear-gradient(135deg, #4ade80, #22c55e)',
-          border: 'none', borderRadius: 14,
-          color: '#052e16', fontWeight: 900, fontSize: 15,
-          cursor: 'pointer', fontFamily: FONT,
+          color: '#052e16',
           boxShadow: '0 4px 20px rgba(74,222,128,0.4)',
-          position: 'relative', zIndex: 1,
         }}
       >
         🎉 Awesome!
@@ -305,12 +243,11 @@ function SuccessScreen({ result, onClose }) {
   )
 }
 
-// ── Main Shop ──────────────────────────────────────────────────────────────
 export default function Shop({ open, onClose }) {
   const { user } = useUser()
-  const [buying,       setBuying]       = useState(null)   // packId | packId+'_verify'
+  const [buying,       setBuying]       = useState(null)
   const [error,        setError]        = useState(null)
-  const [success,      setSuccess]      = useState(null)   // { pack, vipUntil }
+  const [success,      setSuccess]      = useState(null)
   const [showConfetti, setShowConfetti] = useState(false)
   const confettiTimer = useRef(null)
 
@@ -326,28 +263,23 @@ export default function Shop({ open, onClose }) {
   const handleBuy = useCallback(async (pack) => {
     setError(null)
     setBuying(pack.id)
-
     try {
-      // ── Step 1: Create order on server ──────────────────────────────────
       const orderRes = await fetch('/api/create-order', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ packId: pack.id, playerId: user?.id }),
       })
-
       if (!orderRes.ok) {
         const err = await orderRes.json().catch(() => ({}))
         throw new Error(err.error || 'Failed to create order. Please try again.')
       }
       const orderData = await orderRes.json()
 
-      // ── Step 2: Load Razorpay SDK ────────────────────────────────────────
       const loaded = await loadRazorpay()
       if (!loaded) throw new Error('Payment system unavailable. Check your internet connection.')
 
-      setBuying(null)  // stop loading spinner while checkout is open
+      setBuying(null)
 
-      // ── Step 3: Open Razorpay checkout ───────────────────────────────────
       const options = {
         key:      import.meta.env.VITE_RAZORPAY_KEY_ID,
         amount:   orderData.amount,
@@ -360,13 +292,8 @@ export default function Shop({ open, onClose }) {
           email: user?.emailAddresses?.[0]?.emailAddress || '',
         },
         theme: { color: '#7C3AED' },
-        modal: {
-          ondismiss: () => {
-            // User closed checkout — not an error
-          },
-        },
+        modal: { ondismiss: () => {} },
         handler: async (response) => {
-          // ── Step 4: Verify on server — NEVER trust frontend ─────────────
           setBuying(pack.id + '_verify')
           try {
             const verifyRes = await fetch('/api/verify-payment', {
@@ -374,19 +301,11 @@ export default function Shop({ open, onClose }) {
               headers: { 'Content-Type': 'application/json' },
               body:    JSON.stringify(response),
             })
-
             const verified = await verifyRes.json()
-
-            if (!verifyRes.ok) {
-              throw new Error(verified.error || 'Payment verification failed. Contact support.')
-            }
-
-            // ── Step 5: Grant coins in local state + mark first purchase ───
+            if (!verifyRes.ok) throw new Error(verified.error || 'Payment verification failed. Contact support.')
             addCoins(pack.coins)
             addGems(pack.gems)
             localStorage.setItem(LS_KEY, '1')
-
-            // ── Step 6: Show success ────────────────────────────────────────
             setSuccess({ pack, vipUntil: verified.vipUntil })
             setShowConfetti(true)
             confettiTimer.current = setTimeout(() => setShowConfetti(false), 5500)
@@ -404,7 +323,6 @@ export default function Shop({ open, onClose }) {
         setError(e?.description || 'Payment failed. Please try a different payment method.')
       })
       rzp.open()
-
     } catch (err) {
       console.error('handleBuy error:', err)
       setBuying(null)
@@ -426,132 +344,109 @@ export default function Shop({ open, onClose }) {
         }
       `}</style>
 
-      {/* Backdrop */}
       <div
         onClick={e => e.target === e.currentTarget && !buying && onClose()}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 900,
-          background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(10px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: FONT,
-        }}
+        className="fixed inset-0 z-[900] flex items-center justify-center font-body backdrop-blur-[10px]"
+        style={{ background: 'rgba(0,0,0,0.78)' }}
       >
-        {/* Success screen */}
         {success ? (
           <SuccessScreen result={success} onClose={onClose} />
         ) : (
-          /* Shop panel */
-          <div style={{
-            background: 'linear-gradient(160deg, rgba(10,6,28,0.99) 0%, rgba(15,8,35,0.99) 100%)',
-            border: '1.5px solid rgba(124,58,237,0.35)',
-            borderRadius: 22,
-            padding: '0 0 24px',
-            width: '94%',
-            maxWidth: 780,
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            boxShadow: '0 0 50px rgba(124,58,237,0.2), 0 28px 80px rgba(0,0,0,0.85)',
-            animation: 'shop-in 0.25s ease-out',
-          }}>
-            {/* Header */}
-            <div style={{
-              position: 'sticky', top: 0, zIndex: 2,
-              background: 'rgba(10,6,28,0.97)',
-              borderBottom: '1px solid rgba(124,58,237,0.2)',
-              padding: '18px 24px 16px',
-              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-              backdropFilter: 'blur(12px)',
-            }}>
+          <div
+            className="w-[94%] max-w-[780px] max-h-[90vh] overflow-y-auto rounded-[22px]"
+            style={{
+              background: 'linear-gradient(160deg, rgba(10,6,28,0.99) 0%, rgba(15,8,35,0.99) 100%)',
+              border: '1.5px solid rgba(124,58,237,0.35)',
+              padding: '0 0 24px',
+              boxShadow: '0 0 50px rgba(124,58,237,0.2), 0 28px 80px rgba(0,0,0,0.85)',
+              animation: 'shop-in 0.25s ease-out',
+            }}
+          >
+            <div
+              className="sticky top-0 z-[2] flex items-start justify-between backdrop-blur-[12px]"
+              style={{
+                background: 'rgba(10,6,28,0.97)',
+                borderBottom: '1px solid rgba(124,58,237,0.2)',
+                padding: '18px 24px 16px',
+              }}
+            >
               <div>
-                <div style={{
-                  color: '#f1f5f9', fontWeight: 900, fontSize: 20,
-                  fontFamily: FONT, marginBottom: 3,
-                }}>
+                <div className="text-slate-100 font-black text-xl mb-[3px] font-body">
                   🛍️ Support the Developer
                 </div>
-                <div style={{ color: '#64748b', fontSize: 13, fontFamily: FONT }}>
+                <div className="text-slate-500 text-[13px] font-body">
                   Your purchases keep this world alive and growing
                 </div>
               </div>
               <button
                 onClick={() => !buying && onClose()}
                 disabled={!!buying}
-                style={{
-                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: 10, width: 34, height: 34,
-                  color: '#94a3b8', fontSize: 18, cursor: buying ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: FONT, flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
+                className={`flex items-center justify-center w-[34px] h-[34px] rounded-[10px] text-lg text-slate-400 shrink-0 font-body ${buying ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+              >×</button>
             </div>
 
-            {/* Error banner */}
             {error && (
-              <div style={{
-                margin: '16px 24px 0',
-                background: 'rgba(239,68,68,0.12)',
-                border: '1px solid rgba(239,68,68,0.35)',
-                borderRadius: 12, padding: '12px 16px',
-                display: 'flex', alignItems: 'flex-start', gap: 10,
-              }}>
-                <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+              <div
+                className="mx-6 mt-4 flex items-start gap-[10px] rounded-xl"
+                style={{
+                  background: 'rgba(239,68,68,0.12)',
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  padding: '12px 16px',
+                }}
+              >
+                <span className="text-lg shrink-0">⚠️</span>
                 <div>
-                  <div style={{ color: '#fca5a5', fontWeight: 700, fontSize: 13, fontFamily: FONT }}>
-                    {error}
-                  </div>
+                  <div className="text-red-300 font-bold text-[13px] font-body">{error}</div>
                   <button
                     onClick={() => setError(null)}
-                    style={{
-                      marginTop: 6, background: 'none', border: 'none',
-                      color: '#ef4444', fontSize: 12, cursor: 'pointer',
-                      fontFamily: FONT, padding: 0, fontWeight: 600,
-                    }}
-                  >
-                    Dismiss
-                  </button>
+                    className="mt-[6px] bg-transparent border-0 text-red-500 text-xs cursor-pointer font-body p-0 font-semibold"
+                  >Dismiss</button>
                 </div>
               </div>
             )}
 
-            {/* Pack grid */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-              gap: 16,
-              padding: '24px 24px 4px',
-            }}>
+            <div
+              className="grid gap-4"
+              style={{
+                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                padding: '24px 24px 4px',
+              }}
+            >
               {COIN_PACKS.map(pack => (
-                <PackCard
-                  key={pack.id}
-                  pack={pack}
-                  onBuy={handleBuy}
-                  buying={buying}
-                />
+                <PackCard key={pack.id} pack={pack} onBuy={handleBuy} buying={buying} />
               ))}
             </div>
 
-            {/* Footer */}
-            <div style={{
-              padding: '16px 24px 0',
-              borderTop: '1px solid rgba(255,255,255,0.05)',
-              marginTop: 8,
-              display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-            }}>
-              <img
-                src="https://razorpay.com/assets/razorpay-glyph.svg"
-                alt="Razorpay"
-                style={{ height: 18, opacity: 0.5 }}
-                onError={e => { e.target.style.display = 'none' }}
-              />
-              <span style={{ color: '#475569', fontSize: 11, fontFamily: FONT }}>
-                Secured by Razorpay · All major UPI, cards & net banking accepted
-              </span>
-              <span style={{ color: '#334155', fontSize: 11, fontFamily: FONT, marginLeft: 'auto' }}>
-                Test card: 4111 1111 1111 1111 · UPI: success@razorpay
-              </span>
+            <div
+              className="flex flex-col gap-[10px] mt-2"
+              style={{ padding: '16px 24px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              <div className="flex items-center gap-3 flex-wrap">
+                <img
+                  src="https://razorpay.com/assets/razorpay-glyph.svg"
+                  alt="Razorpay"
+                  className="h-[18px] opacity-50"
+                  onError={e => { e.target.style.display = 'none' }}
+                />
+                <span className="text-slate-600 text-[11px] font-body">
+                  Secured by Razorpay · All major UPI, cards &amp; net banking accepted
+                </span>
+                <span className="text-slate-700 text-[11px] font-body ml-auto">
+                  Test card: 5267 3181 8797 5449 · UPI: success@razorpay
+                </span>
+              </div>
+              <div className="text-slate-700 text-[11px] font-body">
+                By purchasing you agree to our{' '}
+                <Link to="/terms-and-conditions" className="text-slate-500 hover:text-violet-400 transition-colors no-underline">
+                  Terms &amp; Conditions
+                </Link>
+                {' '}and{' '}
+                <Link to="/privacy-policy" className="text-slate-500 hover:text-violet-400 transition-colors no-underline">
+                  Privacy Policy
+                </Link>
+                . All purchases are final.
+              </div>
             </div>
           </div>
         )}
@@ -560,41 +455,22 @@ export default function Shop({ open, onClose }) {
   )
 }
 
-// ── Shop trigger button — exported for use in Game.jsx ────────────────────
 export function ShopButton({ onClick }) {
   const neverPurchased = !localStorage.getItem(LS_KEY)
-  const [hovered, setHovered] = useState(false)
 
   return (
     <button
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       title="Shop — buy coin packs"
-      style={{
-        position: 'relative',
-        width: 34, height: 34, borderRadius: 10,
-        background: hovered ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.15)',
-        border: '1.5px solid rgba(245,158,11,0.45)',
-        cursor: 'pointer', fontSize: 17,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        transition: 'all 0.15s',
-        boxShadow: hovered ? '0 2px 14px rgba(245,158,11,0.4)' : 'none',
-      }}
+      className="relative w-[34px] h-[34px] rounded-[10px] cursor-pointer text-[17px] flex items-center justify-center transition-all duration-150 bg-[rgba(245,158,11,0.15)] hover:bg-[rgba(245,158,11,0.25)] hover:shadow-[0_2px_14px_rgba(245,158,11,0.4)]"
+      style={{ border: '1.5px solid rgba(245,158,11,0.45)' }}
     >
       🛍️
       {neverPurchased && (
-        <span style={{
-          position: 'absolute', top: -5, right: -5,
-          width: 12, height: 12, borderRadius: '50%',
-          background: '#fbbf24',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 8, color: '#1a0a00', fontWeight: 900,
-          boxShadow: '0 0 6px rgba(251,191,36,0.8)',
-          fontFamily: FONT,
-        }}>
-          ★
-        </span>
+        <span
+          className="absolute -top-[5px] -right-[5px] w-3 h-3 rounded-full flex items-center justify-center text-[8px] font-black font-body"
+          style={{ background: '#fbbf24', color: '#1a0a00', boxShadow: '0 0 6px rgba(251,191,36,0.8)' }}
+        >★</span>
       )}
     </button>
   )

@@ -23,88 +23,24 @@ import NPCTraffic from './NPCTraffic'
 import { parkedVehicles, onParkedVehicleChange, notifyParkedVehicleChange } from '@/lib/parkedVehicleState'
 import { navState } from '@/lib/navState'
 import { isBlocked } from '@/lib/buildingColliders'
+import { boxColliders, circleColliders, logAllColliders } from '@/lib/playerColliders'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 import EmotePicker from '@/components/EmotePicker'
 import BossCharacter from './BossCharacter'
 import MissionOrb from './MissionOrb'
 import GameAreaScene, { GAME_AREA_POS, GAME_AREA_ID } from './GameAreaBuilding'
+import PlayerHouseMarker from './PlayerHouseMarker'
+import ChunkTrees from './ChunkTrees'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
 import { spendCoins, getEconomyState } from '@/lib/economyState'
 import { COSTS } from '@/lib/costs'
+import { getHouseState } from '@/lib/houseService'
 
 // ── Collision system ──────────────────────────────────────────────────────────
 const CHAR_R = 0.28
-const NPC_R  = 0.32
-
-const BOX_COLLIDERS = [
-  { x:   0, z: -22, hw: 5.0, hd: 3.0 },
-  { x: -16, z: -28, hw: 7.0, hd: 4.0 },
-  { x:  16, z: -28, hw: 5.0, hd: 3.5 },
-  { x: -28, z: -18, hw: 5.0, hd: 3.0 },
-  { x:  28, z: -18, hw: 3.5, hd: 2.5 },
-  { x:  34, z:  -5, hw: 3.5, hd: 3.0 },
-  { x:  34, z:  10, hw: 2.5, hd: 2.5 },
-  { x:  34, z:  22, hw: 3.5, hd: 2.5 },
-  { x: -34, z:  -5, hw: 4.5, hd: 3.0 },
-  { x: -34, z: -20, hw: 3.5, hd: 2.5 },
-  { x: -34, z:  10, hw: 3.0, hd: 2.5 },
-  { x:  12, z:  28, hw: 2.5, hd: 2.0 },
-  { x: -12, z:26.5, hw: 2.0, hd: 1.5 },
-  { x: -25, z:  18, hw: 3.0, hd: 3.5 },
-  { x:  12, z:  18, hw: 2.5, hd: 2.0 },
-  { x: -26, z:  30, hw: 2.5, hd: 2.0 },
-  { x: -10, z:  -6, hw: 2.5, hd: 2.0 },
-  { x:  10, z:  -6, hw: 2.5, hd: 2.0 },
-  { x:   0, z: -14, hw: 4.0, hd: 2.0 },
-  { x: -14, z:   4, hw: 2.0, hd: 2.0 },
-  { x:  14, z:   4, hw: 2.0, hd: 2.5 },
-  { x:   0, z:  14, hw: 3.5, hd: 2.5 },
-  { x:  -6, z: -10, hw: 1.0, hd: 1.0 },
-  { x:   6, z: -10, hw: 1.0, hd: 1.0 },
-  { x:  -7, z:  10, hw: 1.0, hd: 1.0 },
-  { x:   7, z:  10, hw: 1.0, hd: 1.0 },
-  { x:  -5, z: -28, hw: 2.0, hd: 1.5 },
-  { x:   5, z: -28, hw: 2.0, hd: 1.5 },
-  { x: 26, z: 24, hw: 1.5, hd: 1.5 },
-  { x: 36, z: 24, hw: 1.5, hd: 1.5 },
-  { x: 26, z: 34, hw: 1.5, hd: 1.5 },
-  { x: 36, z: 34, hw: 1.5, hd: 1.5 },
-  { x: 46, z: 24, hw: 1.5, hd: 1.5 },
-  { x: 46, z: 34, hw: 1.5, hd: 1.5 },
-  { x: 26, z: 44, hw: 1.5, hd: 1.5 },
-  { x: 36, z: 44, hw: 1.5, hd: 1.5 },
-  // Game Area / Cartoon Arcade
-  { x: 22, z: -10, hw: 4.5, hd: 3.5 },
-]
-
-const CIRCLE_COLLIDERS = [
-  { x:  0,    z:    0, r: 1.55 },
-  { x: -4,   z:  -4,  r: 0.38 }, { x: -4,   z:   4,  r: 0.38 },
-  { x:  4,   z:  -4,  r: 0.38 }, { x:  4,   z:   4,  r: 0.38 },
-  { x: -8,   z:   8,  r: 0.38 }, { x:  8,   z:   8,  r: 0.38 },
-  { x: -8,   z:  -8,  r: 0.38 }, { x:  8,   z:  -8,  r: 0.38 },
-  { x:-12,   z:  -2,  r: 0.38 }, { x: 12,   z:  -2,  r: 0.38 },
-  { x:-48, z:-4.5, r:0.33 }, { x:-38, z:-4.5, r:0.33 }, { x:-28, z:-4.5, r:0.33 },
-  { x:-22, z:-4.5, r:0.33 }, { x: -8, z:-4.5, r:0.33 }, { x:  8, z:-4.5, r:0.33 },
-  { x: 22, z:-4.5, r:0.33 }, { x: 28, z:-4.5, r:0.33 }, { x: 38, z:-4.5, r:0.33 },
-  { x: 48, z:-4.5, r:0.33 },
-  { x:-48, z: 4.5, r:0.33 }, { x:-38, z: 4.5, r:0.33 }, { x:-28, z: 4.5, r:0.33 },
-  { x:-22, z: 4.5, r:0.33 }, { x: -8, z: 4.5, r:0.33 }, { x:  8, z: 4.5, r:0.33 },
-  { x: 22, z: 4.5, r:0.33 }, { x: 28, z: 4.5, r:0.33 }, { x: 38, z: 4.5, r:0.33 },
-  { x: 48, z: 4.5, r:0.33 },
-  { x:-4.5, z:-45,   r:0.32 }, { x:-4.5, z:-36.5, r:0.32 }, { x:-4.5, z:-24, r:0.32 },
-  { x:-4.5, z:-14,   r:0.32 }, { x:-4.5, z:  14,  r:0.32 }, { x:-4.5, z: 24, r:0.32 },
-  { x:-4.5, z: 36.5, r:0.32 }, { x:-4.5, z: 45,   r:0.32 },
-  { x:22, z:20, r:0.30 }, { x:30, z:20, r:0.30 }, { x:37, z:20, r:0.30 }, { x:50, z:20, r:0.30 },
-  { x:22, z:30, r:0.30 }, { x:30, z:30, r:0.30 }, { x:37, z:30, r:0.30 }, { x:50, z:30, r:0.30 },
-  { x:22, z:40, r:0.30 }, { x:30, z:40, r:0.30 }, { x:37, z:40, r:0.30 }, { x:50, z:40, r:0.30 },
-  { x:22, z:50, r:0.30 }, { x:30, z:50, r:0.30 }, { x:37, z:50, r:0.30 }, { x:50, z:50, r:0.30 },
-  { x:-16, z:24, r:0.32 }, { x:-17, z:24, r:0.32 },
-  { x:-22, z:24, r:0.32 }, { x:-24, z:24, r:0.32 },
-  { x: -8, z:-20, r:0.31 }, { x:  8, z:-20, r:0.31 },
-]
+const NPC_R  = 0.32  // kept for reference; NPC-to-player collision is disabled
 
 const CAR_CFG = {
   maxSpeed:   14,
@@ -133,8 +69,8 @@ const BIKE_CFG = {
 function resolveCollisions(nx, nz, r = CHAR_R) {
   let x = nx, z = nz
   for (let iter = 0; iter < 2; iter++) {
-    for (let i = 0; i < BOX_COLLIDERS.length; i++) {
-      const b  = BOX_COLLIDERS[i]
+    for (let i = 0; i < boxColliders.length; i++) {
+      const b  = boxColliders[i]
       const ex = b.hw + r, ez = b.hd + r
       const dx = x - b.x, dz = z - b.z
       if (Math.abs(dx) < ex && Math.abs(dz) < ez) {
@@ -143,21 +79,11 @@ function resolveCollisions(nx, nz, r = CHAR_R) {
         else         z += pz * (dz >= 0 ? 1 : -1)
       }
     }
-    for (let i = 0; i < CIRCLE_COLLIDERS.length; i++) {
-      const c  = CIRCLE_COLLIDERS[i]
+    for (let i = 0; i < circleColliders.length; i++) {
+      const c  = circleColliders[i]
       const dx = x - c.x, dz = z - c.z
       const d2 = dx * dx + dz * dz
       const min = c.r + r
-      if (d2 < min * min && d2 > 1e-6) {
-        const d = Math.sqrt(d2), push = (min - d) / d
-        x += dx * push; z += dz * push
-      }
-    }
-    for (let i = 0; i < npcLivePositions.length; i++) {
-      const c  = npcLivePositions[i]
-      const dx = x - c.x, dz = z - c.z
-      const d2 = dx * dx + dz * dz
-      const min = NPC_R + r
       if (d2 < min * min && d2 > 1e-6) {
         const d = Math.sqrt(d2), push = (min - d) / d
         x += dx * push; z += dz * push
@@ -1267,7 +1193,7 @@ function PlayerController({
     // ── Near-wall camera compression ─────────────────────────────────────
     // When player is within 4 units of a box collider wall, pull camera in
     let wallPush = 0
-    for (const c of BOX_COLLIDERS) {
+    for (const c of boxColliders) {
       const ox = Math.max(0, Math.abs(px - c.x) - c.hw)
       const oz = Math.max(0, Math.abs(pz - c.z) - c.hd)
       const wallDist = Math.sqrt(ox * ox + oz * oz)
@@ -1353,6 +1279,17 @@ function PlayerController({
         const dx = charPos.current.x - p.pos[0]
         const dz = charPos.current.z - p.pos[2]
         if (dx * dx + dz * dz < 30) { nearBld = p; break }
+      }
+      // Own house proximity (dynamic position, not in PLACES)
+      if (!nearBld) {
+        const hs = getHouseState()
+        if (hs.ready && hs.position) {
+          const dx = charPos.current.x - hs.position.x
+          const dz = charPos.current.z - hs.position.z
+          if (dx * dx + dz * dz < 16) {   // 4-unit radius
+            nearBld = { id: 'playerhouse', label: 'Your Home 🏠', emoji: '🏠' }
+          }
+        }
       }
       if (nearBld?.id !== nearBldRef.current?.id) { nearBldRef.current = nearBld; onNearBuilding?.(nearBld) }
 
@@ -1460,7 +1397,7 @@ const PLACES = [
   { id: 'playground',  pos: [  0, 0, 52],  emoji: '🎠', label: 'Playground',   color: '#22c55e' },
   { id: 'house1',      pos: [ 40, 0, 50],  emoji: '🏠', label: 'Blue House',   color: '#3b82f6' },
   { id: 'house2',      pos: [ 55, 0, 50],  emoji: '🏠', label: 'Yellow House', color: '#eab308' },
-  { id: 'gamearea',    pos: [  0, 0,-40],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
+  { id: 'gamearea',    pos: [ 22, 0,-10],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
 ]
 
 const NPCS = [
@@ -1693,6 +1630,12 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
 
       {/* Navigation trail */}
       <NavTrail />
+
+      {/* Player's personal house in the residential zone */}
+      <PlayerHouseMarker />
+
+      {/* GLB trees for all procedural chunks (2 draw calls total) */}
+      <ChunkTrees />
     </>
   )
 })

@@ -114,16 +114,17 @@ export default function TicTacToeGame({ paused, onResult }) {
 
   if (!diff) {
     return (
-      <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', gap: 16, fontFamily: 'Nunito, sans-serif' }}>
-        <div style={{ fontSize: 40 }}>⭕</div>
-        <div style={{ color: '#a78bfa', fontSize: 22, fontWeight: 800 }}>Tic Tac Toe</div>
-        <div style={{ color: '#64748b', fontSize: 13, marginBottom: 8 }}>Best of 3 rounds · You are X</div>
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 gap-4 font-body">
+        <div className="text-[40px]">⭕</div>
+        <div className="text-violet-400 text-[22px] font-extrabold">Tic Tac Toe</div>
+        <div className="text-slate-500 text-[13px] mb-2">Best of 3 rounds · You are X</div>
         {['easy', 'medium', 'hard'].map(d => (
-          <button key={d} onClick={() => setDiff(d)} style={{
-            width: 180, padding: '13px 0', borderRadius: 12,
-            background: d === 'easy' ? '#16a34a' : d === 'medium' ? '#d97706' : '#dc2626',
-            border: 'none', color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer',
-          }}>
+          <button
+            key={d}
+            onClick={() => setDiff(d)}
+            className="w-[180px] py-[13px] rounded-xl text-white text-[16px] font-bold cursor-pointer border-0 font-body"
+            style={{ background: d === 'easy' ? '#16a34a' : d === 'medium' ? '#d97706' : '#dc2626' }}
+          >
             {d === 'easy' ? '😊 Easy' : d === 'medium' ? '🤔 Medium' : '🤖 Hard (AI)'}
           </button>
         ))}
@@ -131,40 +132,45 @@ export default function TicTacToeGame({ paused, onResult }) {
     )
   }
 
-  const cellStyle = (i) => ({
-    width: 88, height: 88, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: 38, fontWeight: 800,
-    cursor: (board[i] || msg || aiThinking) ? 'default' : 'pointer',
-    background: board[i] ? 'rgba(124,58,237,0.12)' : 'rgba(255,255,255,0.04)',
-    border: '2px solid rgba(124,58,237,0.25)',
-    borderRadius: 12, color: board[i] === 'X' ? '#a78bfa' : '#f87171',
-    transition: 'background 0.15s',
-    userSelect: 'none',
-  })
+  const cellCls = (i) =>
+    `w-[88px] h-[88px] flex items-center justify-center text-[38px] font-extrabold rounded-xl select-none transition-[background] duration-150`
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', gap: 12, fontFamily: 'Nunito, sans-serif' }}>
-      <div style={{ display: 'flex', gap: 24, color: '#e2e8f0', fontSize: 14, fontWeight: 700 }}>
+    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 gap-3 font-body">
+      <div className="flex gap-6 text-slate-200 text-[14px] font-bold">
         <span style={{ color: '#a78bfa' }}>You (X): {xScore} pts</span>
-        <span style={{ color: '#94a3b8' }}>Round {round}/3</span>
+        <span className="text-slate-400">Round {round}/3</span>
         <span style={{ color: '#f87171' }}>AI (O): {oWins}W</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 88px)', gap: 8 }}>
+      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(3, 88px)' }}>
         {board.map((cell, i) => (
-          <div key={i} style={cellStyle(i)} onClick={() => handleClick(i)}>{cell}</div>
+          <div
+            key={i}
+            className={cellCls(i)}
+            onClick={() => handleClick(i)}
+            style={{
+              cursor: (board[i] || msg || aiThinking) ? 'default' : 'pointer',
+              background: board[i] ? 'rgba(124,58,237,0.12)' : 'rgba(255,255,255,0.04)',
+              border: '2px solid rgba(124,58,237,0.25)',
+              color: board[i] === 'X' ? '#a78bfa' : '#f87171',
+            }}
+          >{cell}</div>
         ))}
       </div>
 
       {msg && (
-        <div style={{ color: msg.includes('win') ? '#4ade80' : msg.includes('Draw') ? '#facc15' : '#f87171', fontSize: 16, fontWeight: 700 }}>
+        <div
+          className="text-[16px] font-bold"
+          style={{ color: msg.includes('win') ? '#4ade80' : msg.includes('Draw') ? '#facc15' : '#f87171' }}
+        >
           {msg}
         </div>
       )}
       {aiThinking && !msg && (
-        <div style={{ color: '#475569', fontSize: 13 }}>AI is thinking…</div>
+        <div className="text-slate-600 text-[13px]">AI is thinking…</div>
       )}
-      <div style={{ color: '#64748b', fontSize: 12 }}>Tap a cell to play</div>
+      <div className="text-slate-500 text-[12px]">Tap a cell to play</div>
     </div>
   )
 }

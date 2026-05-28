@@ -179,8 +179,8 @@ export default function FlappyGame({ paused, onResult }) {
   }, [])
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1e1b4b' }}>
-      <canvas ref={canvasRef} width={W} height={H} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', cursor: 'pointer' }} />
+    <div className="w-full h-full flex items-center justify-center bg-[#1e1b4b]">
+      <canvas ref={canvasRef} width={W} height={H} className="max-w-full max-h-full object-contain cursor-pointer" />
     </div>
   )
 }

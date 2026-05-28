@@ -161,8 +161,8 @@ export default function SnakeGame({ paused, onResult }) {
   }, [])
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a1a' }}>
-      <canvas ref={canvasRef} width={COLS * CELL} height={ROWS * CELL} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+    <div className="w-full h-full flex items-center justify-center bg-[#0a0a1a]">
+      <canvas ref={canvasRef} width={COLS * CELL} height={ROWS * CELL} className="max-w-full max-h-full object-contain" />
     </div>
   )
 }

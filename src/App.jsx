@@ -4,21 +4,23 @@ import { useAuth, useUser } from '@clerk/clerk-react'
 import { useStore } from '@/store'
 import AuthPage from '@/pages/AuthPage'
 import Onboarding from '@/pages/Onboarding'
+import PrivacyPolicy from '@/pages/PrivacyPolicy'
+import TermsAndConditions from '@/pages/TermsAndConditions'
+import AboutUs from '@/pages/AboutUs'
 
 const Game = lazy(() => import('@/pages/Game'))
 
 function Splash() {
   return (
-    <div style={{
-      position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#050311',
-    }}>
-      <div style={{
-        width: 48, height: 48, borderRadius: '50%',
-        border: '3px solid rgba(124,58,237,0.3)',
-        borderTopColor: '#7c3aed',
-        animation: 'spin 0.8s linear infinite',
-      }} />
+    <div className="fixed inset-0 flex items-center justify-center bg-[#050311]">
+      <div
+        className="w-12 h-12 rounded-full"
+        style={{
+          border: '3px solid rgba(124,58,237,0.3)',
+          borderTopColor: '#7c3aed',
+          animation: 'spin 0.8s linear infinite',
+        }}
+      />
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
@@ -26,23 +28,24 @@ function Splash() {
 
 function LoadingScreen() {
   return (
-    <div style={{
-      position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', gap: 28,
-      background: '#050311', fontFamily: 'Nunito, sans-serif',
-    }}>
-      <div style={{ fontSize: 56, lineHeight: 1 }}>🌍</div>
-      <div style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: 1 }}>
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-7 bg-[#050311] font-body">
+      <div className="text-[56px] leading-none">🌍</div>
+      <div className="text-white text-[22px] font-extrabold tracking-[1px]">
         Cartoon Life Universe
       </div>
-      <div style={{ width: 220, height: 6, borderRadius: 99, background: 'rgba(124,58,237,0.25)', overflow: 'hidden' }}>
-        <div style={{
-          height: '100%', borderRadius: 99,
-          background: 'linear-gradient(90deg, #7c3aed, #a78bfa)',
-          animation: 'bar 1.6s ease-in-out infinite',
-        }} />
+      <div
+        className="w-[220px] h-[6px] rounded-full overflow-hidden"
+        style={{ background: 'rgba(124,58,237,0.25)' }}
+      >
+        <div
+          className="h-full rounded-full"
+          style={{
+            background: 'linear-gradient(90deg, #7c3aed, #a78bfa)',
+            animation: 'bar 1.6s ease-in-out infinite',
+          }}
+        />
       </div>
-      <div style={{ color: '#a78bfa', fontSize: 13, fontWeight: 600 }}>Loading world…</div>
+      <div className="text-violet-400 text-[13px] font-semibold">Loading world…</div>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes bar  { 0%{width:0%} 60%{width:90%} 100%{width:100%} }
@@ -88,7 +91,13 @@ export default function App() {
   const { isLoaded, isSignedIn } = useAuth()
 
   if (!isLoaded) return <Splash />
-  if (!isSignedIn) return <AuthPage />
 
-  return <AuthenticatedApp />
+  return (
+    <Routes>
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+      <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
+      <Route path="/about-us" element={<AboutUs />} />
+      <Route path="/*" element={isSignedIn ? <AuthenticatedApp /> : <AuthPage />} />
+    </Routes>
+  )
 }

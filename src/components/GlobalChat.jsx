@@ -3,23 +3,6 @@ import { gameControls } from '@/lib/gameControls'
 import { supabase } from '@/lib/supabase'
 import { audioSystem } from '@/lib/audioSystem'
 
-const BUBBLE = {
-  position: 'fixed', bottom: 24, left: 16, zIndex: 50,
-  fontFamily: 'Nunito, sans-serif',
-}
-
-const PANEL = {
-  width: 300,
-  background: 'rgba(8,4,20,0.92)',
-  border: '1.5px solid rgba(124,58,237,0.35)',
-  borderRadius: 12,
-  overflow: 'hidden',
-  display: 'flex',
-  flexDirection: 'column',
-  marginBottom: 8,
-  boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-}
-
 // open / onOpenChange are optional — if omitted, component manages its own state
 export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, open: openProp, onOpenChange, unreadCount }) {
   const controlled = openProp !== undefined
@@ -53,38 +36,45 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, 
   const notConfigured = !supabase
 
   return (
-    <div style={BUBBLE}>
+    <div className="fixed bottom-6 left-4 z-50 font-body">
       {open && (
-        <div style={PANEL}>
+        <div
+          className="w-[300px] rounded-xl overflow-hidden flex flex-col mb-2"
+          style={{
+            background: 'rgba(8,4,20,0.92)',
+            border: '1.5px solid rgba(124,58,237,0.35)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+          }}
+        >
           {/* Header */}
-          <div style={{
-            padding: '8px 12px', borderBottom: '1px solid rgba(124,58,237,0.2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>
-            <span style={{ color: '#a78bfa', fontWeight: 700, fontSize: 13 }}>🌍 Global Chat</span>
+          <div
+            className="px-3 py-2 flex items-center justify-between"
+            style={{ borderBottom: '1px solid rgba(124,58,237,0.2)' }}
+          >
+            <span className="text-violet-400 font-bold text-[13px]">🌍 Global Chat</span>
             <button
               onClick={() => { setOpen(false); gameControls.enabled = true }}
-              style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+              className="bg-transparent border-0 text-slate-500 cursor-pointer text-base leading-none"
             >
               ×
             </button>
           </div>
 
           {/* Messages */}
-          <div style={{ height: 200, overflowY: 'auto', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="h-[200px] overflow-y-auto px-3 py-2 flex flex-col gap-1">
             {notConfigured ? (
-              <div style={{ color: '#f87171', fontSize: 11, textAlign: 'center', marginTop: 60 }}>
+              <div className="text-red-400 text-[11px] text-center mt-[60px]">
                 Multiplayer not configured.<br />
                 Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local
               </div>
             ) : globalMessages.length === 0 ? (
-              <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', marginTop: 60 }}>No messages yet</div>
+              <div className="text-slate-600 text-[11px] text-center mt-[60px]">No messages yet</div>
             ) : (
               globalMessages.map((m, i) => (
-                <div key={m.id ?? i} style={{ fontSize: 12, lineHeight: 1.4 }}>
-                  <span style={{ color: '#a78bfa', fontWeight: 700 }}>{m.name}</span>
-                  <span style={{ color: '#64748b' }}>: </span>
-                  <span style={{ color: '#e2e8f0' }}>{m.content}</span>
+                <div key={m.id ?? i} className="text-xs leading-[1.4]">
+                  <span className="text-violet-400 font-bold">{m.name}</span>
+                  <span className="text-slate-500">: </span>
+                  <span className="text-slate-200">{m.content}</span>
                 </div>
               ))
             )}
@@ -93,10 +83,10 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, 
 
           {/* Input */}
           {!notConfigured && (
-            <div style={{
-              padding: '8px 10px', borderTop: '1px solid rgba(124,58,237,0.2)',
-              display: 'flex', gap: 6,
-            }}>
+            <div
+              className="px-2.5 py-2 flex gap-1.5"
+              style={{ borderTop: '1px solid rgba(124,58,237,0.2)' }}
+            >
               <input
                 ref={inputRef}
                 value={input}
@@ -106,21 +96,16 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, 
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); send() } }}
                 placeholder="Say something to everyone…"
                 maxLength={200}
+                className="flex-1 rounded-lg text-slate-200 text-xs font-body outline-none py-[5px] px-2.5"
                 style={{
-                  flex: 1, background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-                  color: '#e2e8f0', fontSize: 12, padding: '5px 10px',
-                  fontFamily: 'Nunito, sans-serif', outline: 'none',
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                 }}
               />
               <button
                 onClick={send}
-                style={{
-                  background: 'linear-gradient(135deg,#7c3aed,#ec4899)',
-                  border: 'none', borderRadius: 8, padding: '5px 12px',
-                  color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer',
-                  fontFamily: 'Nunito, sans-serif',
-                }}
+                className="rounded-lg py-[5px] px-3 text-white font-bold text-xs cursor-pointer font-body border-0"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)' }}
               >
                 Send
               </button>
@@ -132,32 +117,21 @@ export default function GlobalChat({ globalMessages, onSendGlobal, onlineCount, 
       {/* Toggle button */}
       <button
         onClick={() => setOpen(!open)}
+        className="rounded-[20px] py-[6px] px-[14px] text-slate-200 font-body text-[13px] font-bold cursor-pointer flex items-center gap-1.5 relative"
         style={{
           background: open ? 'rgba(124,58,237,0.7)' : 'rgba(8,4,20,0.82)',
           border: '1.5px solid ' + (open ? '#7c3aed' : 'rgba(124,58,237,0.35)'),
-          borderRadius: 20, padding: '6px 14px',
-          color: '#e2e8f0', fontFamily: 'Nunito, sans-serif',
-          fontSize: 13, fontWeight: 700, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-          position: 'relative',
         }}
       >
         💬 Chat
         {!open && unreadCount > 0 && (
-          <span style={{
-            background: '#ef4444', color: '#fff', borderRadius: 10,
-            fontSize: 10, fontWeight: 800, padding: '1px 5px', lineHeight: 1.4,
-            minWidth: 16, textAlign: 'center',
-          }}>
+          <span className="bg-red-500 text-white rounded-[10px] text-[10px] font-extrabold px-[5px] py-[1px] leading-[1.4] min-w-[16px] text-center">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
         {(open || !unreadCount) && onlineCount > 0 && (
-          <span style={{
-            background: '#4ade80', color: '#000', borderRadius: 10,
-            fontSize: 10, fontWeight: 800, padding: '1px 5px', lineHeight: 1.4,
-          }}>
+          <span className="bg-green-400 text-black rounded-[10px] text-[10px] font-extrabold px-[5px] py-[1px] leading-[1.4]">
             {onlineCount}
           </span>
         )}

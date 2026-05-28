@@ -116,49 +116,52 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
   }
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 90, right: 16, width: 300, zIndex: 60,
-      background: 'rgba(8,4,20,0.96)',
-      border: '1.5px solid rgba(96,165,250,0.4)',
-      borderRadius: 12, overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
-      fontFamily: 'Nunito, sans-serif',
-    }}>
+    <div
+      className="fixed bottom-[90px] right-4 w-[300px] z-[60] rounded-xl overflow-hidden flex flex-col font-body"
+      style={{
+        background: 'rgba(8,4,20,0.96)',
+        border: '1.5px solid rgba(96,165,250,0.4)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+      }}
+    >
       {/* Header */}
-      <div style={{
-        padding: '8px 12px',
-        borderBottom: '1px solid rgba(96,165,250,0.2)',
-        background: 'rgba(96,165,250,0.08)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 4px #4ade80' }} />
-          <span style={{ color: '#60a5fa', fontWeight: 800, fontSize: 13 }}>{targetName}</span>
-          <span style={{ color: '#475569', fontSize: 10 }}>DM</span>
+      <div
+        className="px-3 py-2 flex items-center justify-between"
+        style={{
+          borderBottom: '1px solid rgba(96,165,250,0.2)',
+          background: 'rgba(96,165,250,0.08)',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{ background: '#4ade80', boxShadow: '0 0 4px #4ade80' }}
+          />
+          <span className="text-blue-400 font-extrabold text-[13px]">{targetName}</span>
+          <span className="text-slate-600 text-[10px]">DM</span>
         </div>
         <button
           onClick={() => { gameControls.enabled = true; onClose() }}
-          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
+          className="bg-transparent border-0 text-slate-500 cursor-pointer text-lg leading-none"
         >×</button>
       </div>
 
       {/* Messages */}
-      <div style={{ height: 220, overflowY: 'auto', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div className="h-[220px] overflow-y-auto px-3 py-2 flex flex-col gap-[5px]">
         {!supabase ? (
-          <div style={{ color: '#f87171', fontSize: 11, textAlign: 'center', marginTop: 80 }}>
+          <div className="text-red-400 text-[11px] text-center mt-20">
             Multiplayer not configured
           </div>
         ) : loading ? (
-          <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', marginTop: 80 }}>Loading…</div>
+          <div className="text-slate-600 text-[11px] text-center mt-20">Loading…</div>
         ) : messages.length === 0 ? (
-          <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', marginTop: 80 }}>
+          <div className="text-slate-600 text-[11px] text-center mt-20">
             Say hi to {targetName}
           </div>
         ) : messages.map((m, i) => {
           const isMe = m.uid === myId
           return (
-            <div key={m.id ?? i} style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+            <div key={m.id ?? i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
               <div style={{
                 background: isMe ? 'rgba(124,58,237,0.35)' : 'rgba(255,255,255,0.07)',
                 border: '1px solid ' + (isMe ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.1)'),
@@ -166,9 +169,9 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
                 padding: '5px 10px', maxWidth: '80%',
               }}>
                 {!isMe && (
-                  <div style={{ color: '#60a5fa', fontSize: 10, fontWeight: 700, marginBottom: 2 }}>{m.name}</div>
+                  <div className="text-blue-400 text-[10px] font-bold mb-0.5">{m.name}</div>
                 )}
-                <div style={{ color: '#e2e8f0', fontSize: 12 }}>{m.content}</div>
+                <div className="text-slate-200 text-xs">{m.content}</div>
               </div>
             </div>
           )
@@ -178,7 +181,10 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
 
       {/* Input */}
       {supabase && (
-        <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(96,165,250,0.2)', display: 'flex', gap: 6 }}>
+        <div
+          className="px-2.5 py-2 flex gap-1.5"
+          style={{ borderTop: '1px solid rgba(96,165,250,0.2)' }}
+        >
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -187,20 +193,18 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); send() } }}
             placeholder={`Message ${targetName}…`}
             maxLength={200}
+            className="flex-1 rounded-lg text-slate-200 text-xs font-body outline-none py-[5px] px-2.5"
             style={{
-              flex: 1, background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(96,165,250,0.2)', borderRadius: 8,
-              color: '#e2e8f0', fontSize: 12, padding: '5px 10px',
-              fontFamily: 'Nunito, sans-serif', outline: 'none',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(96,165,250,0.2)',
             }}
           />
           <button
             onClick={send}
+            className="rounded-lg py-[5px] px-3 text-white font-bold text-xs cursor-pointer font-body"
             style={{
-              background: 'rgba(96,165,250,0.25)', border: '1px solid rgba(96,165,250,0.4)',
-              borderRadius: 8, padding: '5px 12px',
-              color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer',
-              fontFamily: 'Nunito, sans-serif',
+              background: 'rgba(96,165,250,0.25)',
+              border: '1px solid rgba(96,165,250,0.4)',
             }}
           >Send</button>
         </div>

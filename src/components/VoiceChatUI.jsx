@@ -79,100 +79,90 @@ export default function VoiceChatUI({
     <>
       {/* Error toast */}
       {showError && error && (
-        <div style={{
-          position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(239,68,68,0.95)', color: '#fff',
-          padding: '10px 18px', borderRadius: 10, zIndex: 600,
-          fontFamily: 'Nunito, sans-serif', fontSize: 13, fontWeight: 600,
-          maxWidth: '85vw', textAlign: 'center',
-          boxShadow: '0 4px 20px rgba(239,68,68,0.4)',
-          backdropFilter: 'blur(8px)',
-        }}>
+        <div
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[600] font-body text-[13px] font-semibold text-white text-center rounded-[10px] py-[10px] px-[18px] max-w-[85vw] backdrop-blur-sm"
+          style={{
+            background: 'rgba(239,68,68,0.95)',
+            boxShadow: '0 4px 20px rgba(239,68,68,0.4)',
+          }}
+        >
           {error}
         </div>
       )}
 
       {/* PTT indicator bar */}
       {voiceEnabled && pttMode && (
-        <div style={{
-          position: 'fixed', bottom: 120, left: '50%', transform: 'translateX(-50%)',
-          background: localSpeaking ? 'rgba(34,197,94,0.9)' : 'rgba(0,0,0,0.72)',
-          color: '#fff', padding: '6px 18px', borderRadius: 20,
-          fontFamily: 'monospace', fontSize: 13, fontWeight: 700,
-          border: '1px solid rgba(74,222,128,0.4)',
-          pointerEvents: 'none', zIndex: 300,
-          transition: 'background 0.15s',
-        }}>
+        <div
+          className="fixed bottom-[120px] left-1/2 -translate-x-1/2 text-white font-mono text-[13px] font-bold rounded-[20px] py-[6px] px-[18px] pointer-events-none z-[300] transition-[background] duration-150"
+          style={{
+            background: localSpeaking ? 'rgba(34,197,94,0.9)' : 'rgba(0,0,0,0.72)',
+            border: '1px solid rgba(74,222,128,0.4)',
+          }}
+        >
           {localSpeaking ? '🎙️ Talking…' : 'Hold V to talk'}
         </div>
       )}
 
       {/* Mic button + settings popup wrapper */}
-      <div ref={settingsRef} style={{ position: 'fixed', top: TOP, right: 12, zIndex: 400 }}>
+      <div ref={settingsRef} className="fixed right-3 z-[400]" style={{ top: TOP }}>
 
         {/* Settings popup — opens below the button */}
         {showSettings && voiceEnabled && (
-          <div style={{
-            position: 'absolute', top: 42, right: 0,
-            background: 'rgba(8,4,20,0.97)',
-            border: '1px solid rgba(124,58,237,0.35)',
-            borderRadius: 12, padding: '12px 14px',
-            minWidth: 220,
-            fontFamily: 'Nunito, sans-serif',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(10px)',
-          }}>
-            <div style={{
-              color: '#a78bfa', fontSize: 11, fontWeight: 700,
-              marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1,
-            }}>
+          <div
+            className="absolute top-[42px] right-0 rounded-xl font-body min-w-[220px] backdrop-blur-[10px]"
+            style={{
+              background: 'rgba(8,4,20,0.97)',
+              border: '1px solid rgba(124,58,237,0.35)',
+              padding: '12px 14px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+            }}
+          >
+            <div className="text-violet-400 text-[11px] font-bold mb-[10px] uppercase tracking-[1px]">
               Voice Chat
             </div>
 
             {/* PTT toggle */}
             <button
               onClick={togglePttMode}
+              className="w-full py-2 mb-2 rounded-lg text-[13px] font-bold cursor-pointer font-body"
               style={{
-                width: '100%', padding: '8px 0', marginBottom: 8,
                 background: pttMode ? 'rgba(124,58,237,0.25)' : 'rgba(255,255,255,0.05)',
                 border: `1px solid ${pttMode ? 'rgba(124,58,237,0.6)' : 'rgba(255,255,255,0.12)'}`,
-                borderRadius: 8,
                 color: pttMode ? '#a78bfa' : '#94a3b8',
-                fontFamily: 'Nunito, sans-serif', fontSize: 13, fontWeight: 700, cursor: 'pointer',
               }}
             >
               {pttMode ? '✓ Push to Talk (V)' : '○ Push to Talk (V)'}
             </button>
 
             {/* Mic volume */}
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 4 }}>Mic Volume</div>
+            <div className="mb-[10px]">
+              <div className="text-slate-500 text-[11px] mb-1">Mic Volume</div>
               <input
                 type="range" min="0" max="1" step="0.05" value={inputVol}
                 onChange={e => setInputVolume(parseFloat(e.target.value))}
-                style={{ width: '100%', accentColor: '#7c3aed', cursor: 'pointer' }}
+                className="w-full cursor-pointer"
+                style={{ accentColor: '#7c3aed' }}
               />
             </div>
 
             {/* Speaker volume */}
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ color: '#64748b', fontSize: 11, marginBottom: 4 }}>Speaker Volume</div>
+            <div className="mb-3">
+              <div className="text-slate-500 text-[11px] mb-1">Speaker Volume</div>
               <input
                 type="range" min="0" max="1" step="0.05" value={outputVol}
                 onChange={e => setOutputVolume(parseFloat(e.target.value))}
-                style={{ width: '100%', accentColor: '#7c3aed', cursor: 'pointer' }}
+                className="w-full cursor-pointer"
+                style={{ accentColor: '#7c3aed' }}
               />
             </div>
 
             {/* Disable voice */}
             <button
               onClick={() => { toggleVoice(); setShowSettings(false) }}
+              className="w-full py-2 rounded-lg text-red-400 text-[13px] font-bold cursor-pointer font-body"
               style={{
-                width: '100%', padding: '8px 0',
                 background: 'rgba(239,68,68,0.12)',
                 border: '1px solid rgba(239,68,68,0.35)',
-                borderRadius: 8, color: '#f87171',
-                fontFamily: 'Nunito, sans-serif', fontSize: 13, fontWeight: 700, cursor: 'pointer',
               }}
             >
               🔇 Disable Voice
@@ -184,13 +174,11 @@ export default function VoiceChatUI({
         <button
           onClick={handleMicClick}
           title={voiceEnabled ? 'Voice on — click for settings' : 'Click to enable voice chat'}
+          className="w-9 h-9 rounded-full backdrop-blur-sm cursor-pointer flex items-center justify-center"
           style={{
-            width: 36, height: 36, borderRadius: '50%',
             background: micBg,
             border: `1.5px solid ${micBorder}`,
-            backdropFilter: 'blur(8px)',
-            color: micColor, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: micColor,
             transition: 'border-color 0.2s, color 0.2s, background 0.2s',
             animation: localSpeaking ? 'voicePulse 0.8s ease-in-out infinite' : 'none',
             boxShadow: localSpeaking ? '0 0 10px rgba(34,197,94,0.5)' : 'none',

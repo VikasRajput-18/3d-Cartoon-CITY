@@ -66,26 +66,20 @@ export default function AudioPanel({
       : 'rgba(255,255,255,0.15)'
 
   return (
-    <div ref={panelRef} style={{ position: 'fixed', top: 12, right: 12, zIndex: 400 }}>
+    <div ref={panelRef} className="fixed top-3 right-3 z-[400]">
 
       {open && (
-        <div style={{
-          position: 'absolute', top: 42, right: 0,
-          width: 268,
-          background: 'rgba(8,4,20,0.97)',
-          border: '1px solid rgba(124,58,237,0.35)',
-          borderRadius: 12, padding: '14px 16px',
-          fontFamily: 'Nunito, sans-serif',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
-          backdropFilter: 'blur(10px)',
-          maxHeight: '80vh', overflowY: 'auto',
-        }}>
-
+        <div
+          className="absolute top-[42px] right-0 w-[268px] rounded-xl font-body max-h-[80vh] overflow-y-auto backdrop-blur-[10px]"
+          style={{
+            background: 'rgba(8,4,20,0.97)',
+            border: '1px solid rgba(124,58,237,0.35)',
+            padding: '14px 16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
+          }}
+        >
           {/* Header */}
-          <div style={{
-            color: '#a78bfa', fontSize: 11, fontWeight: 800,
-            marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1,
-          }}>
+          <div className="text-violet-400 text-[11px] font-extrabold mb-3 uppercase tracking-[1px]">
             Audio Settings
           </div>
 
@@ -108,8 +102,8 @@ export default function AudioPanel({
           />
 
           {/* Divider */}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '8px 0 10px' }} />
-          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+          <div className="mt-2 mb-[10px]" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }} />
+          <div className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.8px] mb-2">
             Sound Categories
           </div>
 
@@ -127,19 +121,18 @@ export default function AudioPanel({
           ))}
 
           {/* Divider */}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', margin: '10px 0 12px' }} />
+          <div className="mt-[10px] mb-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }} />
 
           {/* Voice Chat */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: voiceEnabled || error ? 10 : 0 }}>
-            <span style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 700 }}>Voice Chat</span>
+          <div className={`flex items-center justify-between ${voiceEnabled || error ? 'mb-[10px]' : ''}`}>
+            <span className="text-slate-200 text-xs font-bold">Voice Chat</span>
             <button
               onClick={toggleVoice}
+              className="rounded-[6px] py-1 px-[14px] text-xs font-bold cursor-pointer font-body"
               style={{
                 background: voiceEnabled ? 'rgba(74,222,128,0.2)' : 'rgba(255,255,255,0.06)',
                 border: `1px solid ${voiceEnabled ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.15)'}`,
-                borderRadius: 6, padding: '4px 14px',
                 color: voiceEnabled ? '#4ade80' : '#94a3b8',
-                fontFamily: 'Nunito, sans-serif', fontSize: 12, fontWeight: 700, cursor: 'pointer',
               }}
             >
               {voiceEnabled ? 'On' : 'Enable'}
@@ -147,7 +140,7 @@ export default function AudioPanel({
           </div>
 
           {error && (
-            <div style={{ color: '#f87171', fontSize: 11, marginBottom: 8, lineHeight: 1.35 }}>
+            <div className="text-red-400 text-[11px] mb-2 leading-[1.35]">
               {error}
             </div>
           )}
@@ -156,13 +149,11 @@ export default function AudioPanel({
             <>
               <button
                 onClick={togglePttMode}
+                className="w-full py-[7px] mb-[10px] rounded-lg text-xs font-bold cursor-pointer font-body"
                 style={{
-                  width: '100%', padding: '7px 0', marginBottom: 10,
                   background: pttMode ? 'rgba(124,58,237,0.25)' : 'rgba(255,255,255,0.05)',
                   border: `1px solid ${pttMode ? 'rgba(124,58,237,0.6)' : 'rgba(255,255,255,0.12)'}`,
-                  borderRadius: 8,
                   color: pttMode ? '#a78bfa' : '#94a3b8',
-                  fontFamily: 'Nunito, sans-serif', fontSize: 12, fontWeight: 700, cursor: 'pointer',
                 }}
               >
                 {pttMode ? '✓ Push to Talk (hold V)' : '○ Open Mic'}
@@ -172,26 +163,24 @@ export default function AudioPanel({
               <SliderRow label="Voice Volume" value={outputVol} onChange={e => setOutputVolume(parseFloat(e.target.value))} />
 
               {pttMode && (
-                <div style={{
-                  padding: '5px 10px', borderRadius: 8, textAlign: 'center',
-                  background: localSpeaking ? 'rgba(34,197,94,0.15)' : 'rgba(0,0,0,0.25)',
-                  border: '1px solid rgba(74,222,128,0.25)',
-                  color: localSpeaking ? '#4ade80' : '#475569',
-                  fontSize: 11, fontWeight: 700, transition: 'all 0.15s',
-                  marginBottom: 10,
-                }}>
+                <div
+                  className="py-[5px] px-[10px] rounded-lg text-center text-[11px] font-bold transition-all mb-[10px]"
+                  style={{
+                    background: localSpeaking ? 'rgba(34,197,94,0.15)' : 'rgba(0,0,0,0.25)',
+                    border: '1px solid rgba(74,222,128,0.25)',
+                    color: localSpeaking ? '#4ade80' : '#475569',
+                  }}
+                >
                   {localSpeaking ? '🎙️ Talking…' : 'Hold V to talk'}
                 </div>
               )}
 
               <button
                 onClick={() => { toggleVoice(); setOpen(false) }}
+                className="w-full py-[7px] rounded-lg text-red-400 text-xs font-bold cursor-pointer font-body"
                 style={{
-                  width: '100%', padding: '7px 0',
                   background: 'rgba(239,68,68,0.12)',
                   border: '1px solid rgba(239,68,68,0.35)',
-                  borderRadius: 8, color: '#f87171',
-                  fontFamily: 'Nunito, sans-serif', fontSize: 12, fontWeight: 700, cursor: 'pointer',
                 }}
               >
                 🔇 Disable Voice
@@ -205,12 +194,10 @@ export default function AudioPanel({
       <button
         onClick={() => { audioSystem.unlock(); setOpen(s => !s) }}
         title="Audio Settings"
+        className="w-9 h-9 rounded-full backdrop-blur-sm cursor-pointer flex items-center justify-center"
         style={{
-          width: 36, height: 36, borderRadius: '50%',
           background: open ? 'rgba(124,58,237,0.2)' : 'rgba(15,10,30,0.82)',
           border: `1.5px solid ${borderColor}`,
-          backdropFilter: 'blur(8px)', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
           transition: 'border-color 0.2s, background 0.2s',
           boxShadow: isSpeaking ? '0 0 10px rgba(34,197,94,0.5)' : 'none',
           animation: isSpeaking ? 'audioPulse 0.8s ease-in-out infinite' : 'none',
@@ -231,16 +218,17 @@ export default function AudioPanel({
 
 function AudioRow({ label, muted, onToggle, vol, onVol }) {
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-        <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 700 }}>{label}</span>
+    <div className="mb-[10px]">
+      <div className="flex items-center justify-between mb-[3px]">
+        <span className="text-slate-300 text-xs font-bold">{label}</span>
         <ToggleBtn on={!muted} onToggle={onToggle} />
       </div>
       {!muted && (
         <input
           type="range" min="0" max="1" step="0.05" value={vol}
           onChange={e => onVol(parseFloat(e.target.value))}
-          style={{ width: '100%', accentColor: '#7c3aed', cursor: 'pointer' }}
+          className="w-full cursor-pointer"
+          style={{ accentColor: '#7c3aed' }}
         />
       )}
     </div>
@@ -249,10 +237,10 @@ function AudioRow({ label, muted, onToggle, vol, onVol }) {
 
 function CategoryRow({ icon, label, muted, onToggle, vol, onVol }) {
   return (
-    <div style={{ marginBottom: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-        <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600 }}>
-          <span style={{ marginRight: 5, fontSize: 12 }}>{icon}</span>{label}
+    <div className="mb-2">
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-slate-400 text-[11px] font-semibold">
+          <span className="mr-[5px] text-xs">{icon}</span>{label}
         </span>
         <ToggleBtn on={!muted} onToggle={onToggle} small />
       </div>
@@ -260,7 +248,8 @@ function CategoryRow({ icon, label, muted, onToggle, vol, onVol }) {
         <input
           type="range" min="0" max="1" step="0.05" value={vol}
           onChange={e => onVol(parseFloat(e.target.value))}
-          style={{ width: '100%', accentColor: '#6d28d9', cursor: 'pointer', height: 3 }}
+          className="w-full cursor-pointer h-[3px]"
+          style={{ accentColor: '#6d28d9' }}
         />
       )}
     </div>
@@ -269,12 +258,13 @@ function CategoryRow({ icon, label, muted, onToggle, vol, onVol }) {
 
 function SliderRow({ label, value, onChange }) {
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ color: '#64748b', fontSize: 11, marginBottom: 3 }}>{label}</div>
+    <div className="mb-[10px]">
+      <div className="text-slate-500 text-[11px] mb-[3px]">{label}</div>
       <input
         type="range" min="0" max="1" step="0.05" value={value}
         onChange={onChange}
-        style={{ width: '100%', accentColor: '#7c3aed', cursor: 'pointer' }}
+        className="w-full cursor-pointer"
+        style={{ accentColor: '#7c3aed' }}
       />
     </div>
   )
@@ -284,13 +274,11 @@ function ToggleBtn({ on, onToggle, small }) {
   return (
     <button
       onClick={onToggle}
+      className={`rounded-[6px] font-bold cursor-pointer font-body transition-all ${small ? 'py-[2px] px-2 text-[10px]' : 'py-[3px] px-[10px] text-[11px]'}`}
       style={{
         background: on ? 'rgba(74,222,128,0.15)' : 'rgba(239,68,68,0.15)',
         border: `1px solid ${on ? 'rgba(74,222,128,0.4)' : 'rgba(239,68,68,0.4)'}`,
-        borderRadius: 6, padding: small ? '2px 8px' : '3px 10px',
         color: on ? '#4ade80' : '#f87171',
-        fontFamily: 'Nunito, sans-serif', fontSize: small ? 10 : 11, fontWeight: 700, cursor: 'pointer',
-        transition: 'all 0.15s',
       }}
     >
       {on ? 'On' : 'Off'}

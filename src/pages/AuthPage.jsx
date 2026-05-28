@@ -1,42 +1,47 @@
 import { SignIn } from '@clerk/clerk-react'
+import { Link } from 'react-router-dom'
 
 export default function AuthPage() {
   return (
-    <div style={{
-      position: 'fixed', inset: 0,
-      background: 'radial-gradient(ellipse at 30% 20%, rgba(124,58,237,0.18) 0%, transparent 60%), #050311',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'Nunito, sans-serif',
-      overflow: 'auto', padding: '16px 0',
-    }} className='overflow-x-hidden'>
+    <div
+      className="fixed inset-0 flex flex-col items-center justify-center font-body overflow-auto overflow-x-hidden py-4"
+      style={{
+        background: 'radial-gradient(ellipse at 30% 20%, rgba(124,58,237,0.18) 0%, transparent 60%), #050311',
+      }}
+    >
       {/* Decorative orbs */}
-      <div style={{
-        position: 'absolute', width: 360, height: 360, borderRadius: '50%',
-        background: 'rgba(124,58,237,0.12)', filter: 'blur(100px)',
-        top: -80, left: -80, pointerEvents: 'none',
-      }} />
-      <div style={{
-        position: 'absolute', width: 280, height: 280, borderRadius: '50%',
-        background: 'rgba(219,39,119,0.10)', filter: 'blur(100px)',
-        bottom: -60, right: -60, pointerEvents: 'none',
-      }} />
+      <div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          width: 360, height: 360,
+          background: 'rgba(124,58,237,0.12)',
+          filter: 'blur(100px)',
+          top: -80, left: -80,
+        }}
+      />
+      <div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          width: 280, height: 280,
+          background: 'rgba(219,39,119,0.10)',
+          filter: 'blur(100px)',
+          bottom: -60, right: -60,
+        }}
+      />
 
       {/* Logo / title */}
-      <div style={{ textAlign: 'center', marginBottom: 24, zIndex: 1 }}>
-        <div style={{ fontSize: 48, marginBottom: 8 }}>🌍</div>
-        <div style={{
-          fontSize: 26, fontWeight: 800, color: '#fff',
-          letterSpacing: '-0.02em', lineHeight: 1.1,
-        }}>
+      <div className="text-center mb-6 z-[1]">
+        <div className="text-[48px] mb-2">🌍</div>
+        <div className="text-[26px] font-extrabold text-white tracking-[-0.02em] leading-[1.1]">
           Cartoon Life Universe
         </div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6 }}>
+        <div className="text-white/40 text-[13px] mt-[6px]">
           Sign in to enter the city
         </div>
       </div>
 
       {/* Clerk SignIn component with dark theme */}
-      <div style={{ zIndex: 1, width: '100%', maxWidth: 400, padding: '0 16px' }}>
+      <div className="z-[1] w-full max-w-[400px] px-4">
         <SignIn
           routing="hash"
           afterSignInUrl="/"
@@ -89,6 +94,16 @@ export default function AuthPage() {
           }}
         />
       </div>
+
+      {/* Footer links */}
+      <div className="z-[1] mt-6 flex items-center gap-3 flex-wrap justify-center">
+        <Link to="/about-us" className="text-slate-600 hover:text-slate-400 transition-colors text-[11px] no-underline">About Us</Link>
+        <span className="text-slate-800 text-[10px]">·</span>
+        <Link to="/privacy-policy" className="text-slate-600 hover:text-slate-400 transition-colors text-[11px] no-underline">Privacy Policy</Link>
+        <span className="text-slate-800 text-[10px]">·</span>
+        <Link to="/terms-and-conditions" className="text-slate-600 hover:text-slate-400 transition-colors text-[11px] no-underline">Terms &amp; Conditions</Link>
+      </div>
+      <p className="z-[1] mt-2 text-slate-800 text-[10px]">© 2025 Cartoon Life Universe</p>
     </div>
   )
 }

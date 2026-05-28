@@ -38,47 +38,37 @@ import PlayerRadar from '@/components/PlayerRadar'
 import { initGameState, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
 import { showSpeechBubble } from '@/world/RemotePlayer'
 import Shop, { ShopButton } from '@/components/Shop'
+import HousePanel, { HouseQuickButton } from '@/components/HousePanel'
+import HouseInterior from '@/world/HouseInterior'
+import { initHouse, getHouseState, onHouseUpdate } from '@/lib/houseService'
 
 export default function Game() {
   const avatar   = useStore(s => s.avatar)
   const isMobile = useMobile()
   const { user } = useUser()
 
-  // Multiplayer
   const { remotePlayerIds, onlinePlayers, globalMessages, sendGlobalMessage } =
     useMultiplayer({ userId: user?.id, avatar })
 
-  // Voice chat
   const voice = useVoiceChat({ userId: user?.id, onlinePlayers })
-
-  // Phone system
   const phone = usePhone({ userId: user?.id, userName: avatar.name, onlinePlayers })
 
-  // Mission + boss system
   const [showMissions,    setShowMissions]    = useState(false)
-  const [bossBanner,      setBossBanner]      = useState(null)   // null | 'spawned' | 'defeated'
+  const [bossBanner,      setBossBanner]      = useState(null)
   const [showFastTravel,  setShowFastTravel]  = useState(false)
-  const [dailyBonus,      setDailyBonus]      = useState(null)   // null | { coins, tickets, streak, streakBonus }
-
-  // Shop
-  const [showShop, setShowShop] = useState(false)
-
-  // Orb examine panel
-  const [showOrbPanel, setShowOrbPanel] = useState(false)
-
-  // DM screen flash
-  const [dmFlash, setDmFlash] = useState(false)
-
-  // Game Area / Game Hub
-  const [showGameHub, setShowGameHub] = useState(false)
-
-  // NPC chat
+  const [dailyBonus,      setDailyBonus]      = useState(null)
+  const [showShop,        setShowShop]        = useState(false)
+  const [showHouse,       setShowHouse]       = useState(false)
+  const [showHouseInterior, setShowHouseInterior] = useState(false)
+  const [houseAction,    setHouseAction]     = useState(null)   // 'rest'|'sleep'|null
+  const [spawnedInHouse, setSpawnedInHouse]  = useState(false)
+  const [showOrbPanel,    setShowOrbPanel]    = useState(false)
+  const [dmFlash,         setDmFlash]         = useState(false)
+  const [showGameHub,     setShowGameHub]     = useState(false)
   const [activeNPC,         setActiveNPC]         = useState(null)
   const [showProfile,       setShowProfile]       = useState(false)
   const [directChatTarget,  setDirectChatTarget]  = useState(null)
-
-  // Right-click context menu
-  const [playerCtxMenu, setPlayerCtxMenu] = useState(null)
+  const [playerCtxMenu,     setPlayerCtxMenu]     = useState(null)
   const ctxMenuRef = useRef()
 
   const handlePlayerContextMenu = useCallback((uid, name, x, y) => {
@@ -95,13 +85,8 @@ export default function Game() {
   }, [playerCtxMenu])
 
   useEffect(() => { chatState.activeNpcName = activeNPC?.name ?? null }, [activeNPC])
+  useEffect(() => { if (activeNPC?.name) recordNPCTalk(activeNPC.name) }, [activeNPC?.name])
 
-  // Record NPC talk for missions/daily
-  useEffect(() => {
-    if (activeNPC?.name) recordNPCTalk(activeNPC.name)
-  }, [activeNPC?.name])
-
-  // Sync store wallet from economyState
   const setWallet        = useStore(s => s.setWallet)
   const setOwnedOutfits  = useStore(s => s.setOwnedOutfits)
   const setLoginStreak   = useStore(s => s.setLoginStreak)
@@ -112,11 +97,28 @@ export default function Game() {
     setLoginStreak(eco.loginStreak)
   }), [])
 
-  // Init economy + missions + boss once user is ready
   useEffect(() => {
     if (!user?.id) return
-    initEconomy(user.id).then(bonus => {
-      if (bonus?.given) setDailyBonus(bonus)
+    initEconomy(user.id).then(bonus => { if (bonus?.given) setDailyBonus(bonus) })
+    initHouse(user.id, avatar.name).then(hs => {
+      if (!hs) return
+      const { unpaid, status } = hs
+      // Issue 6: spawn inside house on first session login
+      if (hs.position && !spawnedInHouse) {
+        setSpawnedInHouse(true)
+        setShowHouseInterior(true)
+        setHouseAction(null)
+      }
+      if (unpaid > 0) {
+        const id = ++toastIdRef.current
+        setMsgToasts(prev => [...prev.slice(-2), {
+          id, type: 'global',
+          fromName: status === 'evicted' ? '🏠 EVICTED' : status === 'eviction-warning' ? '🏠 Eviction Warning' : '🏠 House Bills Due',
+          text: `${unpaid} coins owed on your house${status === 'evicted' ? ' — pay fine to return' : ' — tap to manage'}`,
+          duration: 12000,
+          onClick: () => setShowHouse(true),
+        }])
+      }
     })
     initMissions(user.id, avatar.name)
     initBoss()
@@ -125,7 +127,6 @@ export default function Game() {
     return () => stopPassiveIncome()
   }, [user?.id])
 
-  // Economy reward listener (missions, boss, daily)
   useEffect(() => {
     const handler = ({ detail }) => {
       if (detail?.coins) { addCoins(detail.coins); audioSystem.playCoinsEarned() }
@@ -135,7 +136,6 @@ export default function Game() {
     return () => window.removeEventListener('economy-reward', handler)
   }, [])
 
-  // Mission + boss event bus
   useEffect(() => {
     const onMissionUnlocked = ({ detail }) => {
       audioSystem.playMissionComplete()
@@ -158,9 +158,7 @@ export default function Game() {
       audioSystem.playBossDefeated()
       setTimeout(() => setBossBanner(null), 8000)
     }
-    const onBossActivate = () => {
-      spawnBoss()
-    }
+    const onBossActivate = () => { spawnBoss() }
     const onPlayerInteract = ({ detail }) => {
       if (detail?.nearBoss) { attackBoss(user?.id); window.dispatchEvent(new CustomEvent('boss-hit')) }
       if (detail?.nearOrb)  { setShowOrbPanel(true) }
@@ -169,8 +167,7 @@ export default function Game() {
       if (!ch) return
       const id = ++toastIdRef.current
       setMsgToasts(prev => [...prev.slice(-2), {
-        id,
-        type: 'challenge',
+        id, type: 'challenge',
         fromName: '⚔️ Challenge Received',
         text: `${ch.challenger_name} challenged you to ${GAME_NAMES[ch.game_id]}! Beat their score of ${ch.challenger_score} pts`,
         duration: 12000,
@@ -202,6 +199,17 @@ export default function Game() {
       const id = ++toastIdRef.current
       setMsgToasts(prev => [...prev.slice(-2), { id, type: 'global', fromName: '🏅 Achievement', text: detail.text, onClick: null }])
     }
+    const onHouseEvicted = () => {
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: '🏠 EVICTED',
+        text: 'You have been evicted! Pay 100 coin fine to return.',
+        duration: 15000,
+        onClick: () => setShowHouse(true),
+      }])
+    }
+    window.addEventListener('house-evicted', onHouseEvicted)
     window.addEventListener('mission-unlocked',    onMissionUnlocked)
     window.addEventListener('boss-spawned',        onBossSpawned)
     window.addEventListener('boss-defeated',       onBossDefeated)
@@ -210,7 +218,20 @@ export default function Game() {
     window.addEventListener('challenge-incoming',  onChallengeIncoming)
     window.addEventListener('challenge-resolved',  onChallengeResolved)
     window.addEventListener('achievement',         onAchievement)
+    const onNameUpdated = ({ detail }) => {
+      if (!detail?.name) return
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: '✏️ Name Updated',
+        text: `Name updated to "${detail.name}"`,
+        onClick: null,
+      }])
+    }
+    window.addEventListener('name-updated', onNameUpdated)
     return () => {
+      window.removeEventListener('name-updated',        onNameUpdated)
+      window.removeEventListener('house-evicted',       onHouseEvicted)
       window.removeEventListener('mission-unlocked',    onMissionUnlocked)
       window.removeEventListener('boss-spawned',        onBossSpawned)
       window.removeEventListener('boss-defeated',       onBossDefeated)
@@ -222,7 +243,6 @@ export default function Game() {
     }
   }, [user?.id])
 
-  // Daily mission: vehicle driving time (30 s)
   useEffect(() => {
     let elapsed = 0
     const id = setInterval(() => {
@@ -234,7 +254,6 @@ export default function Game() {
     return () => clearInterval(id)
   }, [])
 
-  // Midnight date-change detection — reset daily missions + show new-day toast
   const todayRef = useRef(new Date().getDate())
   useEffect(() => {
     const id = setInterval(() => {
@@ -262,20 +281,21 @@ export default function Game() {
     return () => window.removeEventListener('npc-auto-close', handler)
   }, [])
 
-  // Interior mode
   const [mode,           setMode]           = useState('city')
   const [activeBuilding, setActiveBuilding] = useState(null)
   const [fading,         setFading]         = useState(false)
   const [chatNpc,        setChatNpc]        = useState(null)
-
-  // Mini-games
-  const [showGameMenu, setShowGameMenu] = useState(false)
-  const [activeGame,   setActiveGame]   = useState(null)
+  const [showGameMenu,   setShowGameMenu]   = useState(false)
+  const [activeGame,     setActiveGame]     = useState(null)
   const buildingGames = activeBuilding ? (LOCATION_GAMES[activeBuilding] || []) : []
 
-  function enterBuilding(id) {
-    if (id === 'gamearea') {
-      setShowGameHub(true)
+  function enterBuilding(id, action = null) {
+    if (id === 'gamearea') { setShowGameHub(true); return }
+    if (id === 'playerhouse') {
+      setHouseAction(action)
+      setShowHouseInterior(true)
+      audioSystem.playEnter()
+      audioSystem.startIndoor()
       return
     }
     if (!INTERIOR_DEFS[id]) return
@@ -306,14 +326,12 @@ export default function Game() {
     }, 350)
   }
 
-  // ── Notifications ─────────────────────────────────────────────────────────
   const [globalChatOpen, setGlobalChatOpen] = useState(false)
   const [unreadGlobal,   setUnreadGlobal]   = useState(0)
-  const [dmUnread,       setDmUnread]       = useState({})  // uid → count
+  const [dmUnread,       setDmUnread]       = useState({})
   const [msgToasts,      setMsgToasts]      = useState([])
   const toastIdRef = useRef(0)
 
-  // Refs so the notification callback never goes stale
   const globalChatOpenRef    = useRef(false)
   const directChatTargetRef  = useRef(null)
   useEffect(() => { globalChatOpenRef.current   = globalChatOpen }, [globalChatOpen])
@@ -328,7 +346,6 @@ export default function Game() {
       if (type === 'global') {
         if (!globalChatOpenRef.current) setUnreadGlobal(n => n + 1)
         audioSystem.playChime()
-        // Show speech bubble above sender's 3D character
         if (payload.fromId) showSpeechBubble(payload.fromId, payload.text, 'global')
         const id = ++toastIdRef.current
         setMsgToasts(prev => [...prev.slice(-2), {
@@ -341,7 +358,6 @@ export default function Game() {
         if (!isOpen) {
           setDmUnread(prev => ({ ...prev, [payload.fromId]: (prev[payload.fromId] || 0) + 1 }))
           audioSystem.playChime()
-          // Show speech bubble + screen flash for DMs
           if (payload.fromId) showSpeechBubble(payload.fromId, payload.text, 'dm')
           setDmFlash(true)
           setTimeout(() => setDmFlash(false), 900)
@@ -354,9 +370,8 @@ export default function Game() {
         }
       }
     })
-  }, []) // stable — reads state via refs
+  }, [])
 
-  // Reset unread on open
   useEffect(() => { if (globalChatOpen) setUnreadGlobal(0) }, [globalChatOpen])
   useEffect(() => {
     if (directChatTarget?.uid) {
@@ -373,7 +388,6 @@ export default function Game() {
     >
       <style>{toastStyle + phoneStyle}</style>
 
-      {/* 3D World */}
       {mode === 'city' && (
         <WorldCanvas
           onNPCChat={npc => setActiveNPC(npc)}
@@ -384,7 +398,6 @@ export default function Game() {
         />
       )}
 
-      {/* Interior */}
       {mode === 'interior' && activeBuilding && (
         <InteriorScene
           buildingId={activeBuilding}
@@ -394,24 +407,20 @@ export default function Game() {
         />
       )}
 
-      {/* HUD overlay (player name + store toasts) */}
       <HUD onOpenShop={() => setShowShop(true)} />
-
-      {/* Mission system overlays */}
       <BossHealthBar />
       <MissionPanel open={showMissions} onClose={() => setShowMissions(false)} />
-
-      {/* Player radar — directional arrows + nearby counter */}
       {mode === 'city' && <PlayerRadar />}
 
-      {/* DM screen flash — edge glow when someone messages you directly */}
+      {/* DM screen flash */}
       {dmFlash && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 200, pointerEvents: 'none',
-          boxShadow: 'inset 0 0 60px 20px rgba(0,229,255,0.55)',
-          borderRadius: 0,
-          animation: 'dmFlash 0.9s ease-out forwards',
-        }} />
+        <div
+          className="fixed inset-0 z-[200] pointer-events-none"
+          style={{
+            boxShadow: 'inset 0 0 60px 20px rgba(0,229,255,0.55)',
+            animation: 'dmFlash 0.9s ease-out forwards',
+          }}
+        />
       )}
       <style>{`
         @keyframes dmFlash {
@@ -420,28 +429,30 @@ export default function Game() {
         }
       `}</style>
 
-      {/* Orb examine cutscene panel */}
+      {/* Orb examine panel */}
       {showOrbPanel && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 120,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)',
-        }}>
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(20,10,40,0.98), rgba(40,20,10,0.98))',
-            border: '2px solid rgba(255,215,0,0.5)',
-            borderRadius: 20, padding: '36px 40px', maxWidth: 480, width: '90%', textAlign: 'center',
-            boxShadow: '0 0 60px rgba(255,215,0,0.25), 0 20px 40px rgba(0,0,0,0.8)',
-          }}>
-            <div style={{ fontSize: 56, marginBottom: 12 }}>✨</div>
-            <h2 style={{ color: '#ffd700', fontFamily: 'Nunito, sans-serif', fontSize: 22, margin: '0 0 12px' }}>
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center backdrop-blur-[6px]"
+          style={{ background: 'rgba(0,0,0,0.72)' }}
+        >
+          <div
+            className="rounded-[20px] max-w-[480px] w-[90%] text-center font-body"
+            style={{
+              background: 'linear-gradient(135deg, rgba(20,10,40,0.98), rgba(40,20,10,0.98))',
+              border: '2px solid rgba(255,215,0,0.5)',
+              padding: '36px 40px',
+              boxShadow: '0 0 60px rgba(255,215,0,0.25), 0 20px 40px rgba(0,0,0,0.8)',
+            }}
+          >
+            <div className="text-[56px] mb-3">✨</div>
+            <h2 className="text-[22px] font-extrabold mb-3 mt-0" style={{ color: '#ffd700' }}>
               A Hidden Note
             </h2>
-            <p style={{ color: '#fffde7', fontFamily: 'Nunito, sans-serif', fontSize: 15, lineHeight: 1.7, margin: '0 0 8px' }}>
+            <p className="text-[15px] leading-[1.7] mb-2" style={{ color: '#fffde7' }}>
               You find a crumpled note wedged under the glowing object. The text is scrambled — fragments of coordinates, names, and a symbol you don't recognise.
             </p>
-            <p style={{ color: '#fbbf24', fontFamily: 'Nunito, sans-serif', fontSize: 14, lineHeight: 1.6, margin: '0 0 28px', opacity: 0.9 }}>
-              <em>"...shadow... city center... must not reach..."</em>
+            <p className="text-[14px] leading-[1.6] mb-7 opacity-90 text-yellow-400">
+              <em>&quot;...shadow... city center... must not reach...&quot;</em>
             </p>
             <button
               onClick={() => {
@@ -449,11 +460,12 @@ export default function Game() {
                 completeMission('m1_3')
                 window.dispatchEvent(new CustomEvent('orb-collected'))
               }}
+              className="border-0 rounded-xl font-extrabold text-base cursor-pointer font-body"
               style={{
                 background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
-                border: 'none', borderRadius: 12, padding: '12px 36px',
-                color: '#1a0a00', fontFamily: 'Nunito, sans-serif', fontWeight: 800,
-                fontSize: 16, cursor: 'pointer', letterSpacing: 0.5,
+                padding: '12px 36px',
+                color: '#1a0a00',
+                letterSpacing: 0.5,
                 boxShadow: '0 4px 20px rgba(245,158,11,0.5)',
               }}
             >
@@ -463,53 +475,57 @@ export default function Game() {
         </div>
       )}
 
-      {/* Left-side quick buttons — mission + fast travel + shop, vertically centered */}
-      {mode === 'city' && !showMissions && !showFastTravel && (
-        <div style={{ position: 'fixed', left: 12, top: '50%', transform: 'translateY(-50%)', zIndex: 40, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* Left quick buttons */}
+      {mode === 'city' && !showMissions && !showFastTravel && !showHouse && (
+        <div className="fixed left-3 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-2">
           <button
             onClick={() => setShowMissions(true)}
             title="Missions"
-            style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(124,58,237,0.85)', border: '1.5px solid rgba(124,58,237,0.5)', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(124,58,237,0.4)' }}
+            className="w-[42px] h-[42px] rounded-xl cursor-pointer text-xl flex items-center justify-center font-body border-0"
+            style={{ background: 'rgba(124,58,237,0.85)', border: '1.5px solid rgba(124,58,237,0.5)', boxShadow: '0 2px 12px rgba(124,58,237,0.4)' }}
           >🗺️</button>
           <button
             onClick={() => setShowFastTravel(true)}
             title="Fast Travel"
-            style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(251,191,36,0.2)', border: '1.5px solid rgba(251,191,36,0.4)', cursor: 'pointer', fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
+            className="w-[42px] h-[42px] rounded-xl cursor-pointer text-xl flex items-center justify-center font-body border-0"
+            style={{ background: 'rgba(251,191,36,0.2)', border: '1.5px solid rgba(251,191,36,0.4)', boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
           >📍</button>
+          <HouseQuickButton onClick={() => setShowHouse(true)} />
           <ShopButton onClick={() => setShowShop(true)} />
         </div>
       )}
 
-      {/* Boss spawned / defeated banner */}
+      {/* Boss banner */}
       {bossBanner && (
-        <div style={{
-          position: 'fixed', top: 80, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 460, pointerEvents: bossBanner === 'spawned' ? 'auto' : 'none',
-          background: bossBanner === 'defeated' ? 'rgba(34,197,94,0.95)' : 'rgba(127,0,0,0.95)',
-          border: `1px solid ${bossBanner === 'defeated' ? '#4ade80' : '#ef4444'}`,
-          borderRadius: 14, padding: '14px 28px',
-          color: '#fff', fontFamily: 'Nunito, sans-serif', textAlign: 'center',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
-          animation: 'pulse 1s infinite',
-        }}>
+        <div
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[460] rounded-[14px] text-white font-body text-center"
+          style={{
+            pointerEvents: bossBanner === 'spawned' ? 'auto' : 'none',
+            background: bossBanner === 'defeated' ? 'rgba(34,197,94,0.95)' : 'rgba(127,0,0,0.95)',
+            border: `1px solid ${bossBanner === 'defeated' ? '#4ade80' : '#ef4444'}`,
+            padding: '14px 28px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+            animation: 'pulse 1s infinite',
+          }}
+        >
           {bossBanner === 'spawned' ? (
             <>
-              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>💀 Shadow Vendor has appeared!</div>
-              <div style={{ fontSize: 13, color: '#fca5a5', marginBottom: 10 }}>Go to city center and press F to attack</div>
+              <div className="text-lg font-extrabold mb-[6px]">💀 Shadow Vendor has appeared!</div>
+              <div className="text-[13px] text-red-300 mb-[10px]">Go to city center and press F to attack</div>
               <button
                 onClick={() => setBossBanner(null)}
-                style={{ background: '#ef4444', border: 'none', borderRadius: 8, padding: '6px 18px', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                className="bg-red-500 border-0 rounded-lg text-white font-bold cursor-pointer text-[13px] font-body"
+                style={{ padding: '6px 18px' }}
               >
                 Go Fight!
               </button>
             </>
           ) : (
-            <div style={{ fontSize: 18, fontWeight: 800 }}>🎉 Shadow Vendor Defeated! City saved!</div>
+            <div className="text-lg font-extrabold">🎉 Shadow Vendor Defeated! City saved!</div>
           )}
         </div>
       )}
 
-      {/* Single unified audio panel — top right, replaces all separate audio buttons */}
       <AudioPanel
         voiceEnabled={voice.voiceEnabled}
         pttMode={voice.pttMode}
@@ -523,29 +539,24 @@ export default function Game() {
         setOutputVolume={voice.setOutputVolume}
       />
 
-      {/* Profile button — below audio panel */}
+      {/* Profile button */}
       <button
         onClick={() => setShowProfile(true)}
         title={avatar.name}
+        className="fixed top-[60px] right-3 z-40 w-[34px] h-[34px] rounded-full cursor-pointer p-0 overflow-hidden flex items-center justify-center border-0"
         style={{
-          position: 'fixed', top: 60, right: 12, zIndex: 40,
-          width: 34, height: 34, borderRadius: '50%',
           background: user?.imageUrl ? 'transparent' : 'rgba(124,58,237,0.8)',
           border: '1.5px solid rgba(124,58,237,0.5)',
-          cursor: 'pointer', padding: 0, overflow: 'hidden',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
         {user?.imageUrl
-          ? <img src={user.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <span style={{ color: '#fff', fontSize: 14, fontWeight: 700 }}>{avatar.name?.[0]?.toUpperCase() || '?'}</span>
+          ? <img src={user.imageUrl} alt="" className="w-full h-full object-cover" />
+          : <span className="text-white text-[14px] font-bold">{avatar.name?.[0]?.toUpperCase() || '?'}</span>
         }
       </button>
 
-      {/* Time + weather indicator */}
       <TimeWeatherHUD />
 
-      {/* Online players — below profile */}
       <OnlinePlayersHUD
         onlinePlayers={onlinePlayers}
         mutePlayer={voice.mutePlayer}
@@ -553,27 +564,25 @@ export default function Game() {
         isPlayerMuted={voice.isPlayerMuted}
       />
 
-      {/* Minimap — city mode only */}
       {mode === 'city' && <Minimap isMobile={isMobile} />}
 
-      {/* Player right-click context menu */}
+      {/* Player context menu */}
       {playerCtxMenu && (
         <div
           ref={ctxMenuRef}
+          className="fixed z-[600] rounded-[10px] overflow-hidden min-w-[150px] font-body"
           style={{
-            position: 'fixed',
             left: Math.min(playerCtxMenu.x, window.innerWidth  - 160),
             top:  Math.min(playerCtxMenu.y, window.innerHeight - 100),
-            zIndex: 600,
             background: 'rgba(8,4,20,0.97)',
             border: '1px solid rgba(124,58,237,0.35)',
-            borderRadius: 10, overflow: 'hidden',
-            minWidth: 150,
             boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-            fontFamily: 'Nunito, sans-serif',
           }}
         >
-          <div style={{ padding: '8px 14px 4px', color: '#a78bfa', fontSize: 12, fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div
+            className="text-violet-400 text-[12px] font-bold"
+            style={{ padding: '8px 14px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+          >
             {playerCtxMenu.name}
           </div>
           {[
@@ -594,14 +603,8 @@ export default function Game() {
             <button
               key={item.label}
               onClick={item.action}
-              style={{
-                display: 'block', width: '100%', padding: '9px 14px',
-                background: 'none', border: 'none', textAlign: 'left',
-                color: '#e2e8f0', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                fontFamily: 'Nunito, sans-serif',
-              }}
-              onMouseEnter={e => { e.target.style.background = 'rgba(124,58,237,0.15)' }}
-              onMouseLeave={e => { e.target.style.background = 'none' }}
+              className="block w-full text-left text-slate-200 text-[13px] font-semibold cursor-pointer font-body bg-transparent border-0 hover:bg-[rgba(124,58,237,0.15)]"
+              style={{ padding: '9px 14px' }}
             >
               {item.label}
             </button>
@@ -609,14 +612,12 @@ export default function Game() {
         </div>
       )}
 
-      {/* City wandering NPC chat */}
       <AnimatePresence>
         {mode === 'city' && activeNPC && (
           <ChatPanel key="chat" npc={activeNPC} onClose={() => setActiveNPC(null)} />
         )}
       </AnimatePresence>
 
-      {/* Interior AI chat */}
       <AnimatePresence>
         {chatNpc && (
           <AIChat key="aichat" npc={chatNpc} onClose={() => setChatNpc(null)} />
@@ -627,19 +628,17 @@ export default function Game() {
       {mode === 'interior' && buildingGames.length > 0 && !chatNpc && !activeGame && (
         <button
           onClick={() => { audioSystem.playClick(); setShowGameMenu(true) }}
+          className="absolute bottom-7 left-1/2 -translate-x-1/2 border-0 rounded-xl text-white font-bold text-[14px] cursor-pointer font-body z-50"
           style={{
-            position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
             background: 'linear-gradient(135deg,#7c3aed,#ec4899)',
-            border: 'none', borderRadius: 12, padding: '10px 28px',
-            color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-            fontFamily: 'Nunito, sans-serif', zIndex: 50, boxShadow: '0 4px 20px rgba(124,58,237,0.45)',
+            padding: '10px 28px',
+            boxShadow: '0 4px 20px rgba(124,58,237,0.45)',
           }}
         >
           🎮 Play a Game
         </button>
       )}
 
-      {/* Game menu overlay */}
       <AnimatePresence>
         {showGameMenu && (
           <GameMenu
@@ -652,12 +651,10 @@ export default function Game() {
         )}
       </AnimatePresence>
 
-      {/* Active mini-game */}
       {activeGame && (
         <GameRunner gameId={activeGame} onClose={() => setActiveGame(null)} />
       )}
 
-      {/* Profile panel */}
       <AnimatePresence>
         {showProfile && (
           <ProfilePanel
@@ -668,7 +665,6 @@ export default function Game() {
         )}
       </AnimatePresence>
 
-      {/* Global chat — bottom left */}
       {mode === 'city' && (
         <GlobalChat
           globalMessages={globalMessages}
@@ -680,7 +676,6 @@ export default function Game() {
         />
       )}
 
-      {/* Direct message panel */}
       {directChatTarget && (
         <DirectChat
           myId={user?.id}
@@ -691,10 +686,8 @@ export default function Game() {
         />
       )}
 
-      {/* Toast notifications — bottom left above chat button */}
       <MsgToast toasts={msgToasts} onDismiss={dismissToast} />
 
-      {/* Game Hub — Game Zone arcade */}
       <GameHub
         open={showGameHub}
         onClose={() => setShowGameHub(false)}
@@ -703,7 +696,6 @@ export default function Game() {
         myName={avatar.name}
       />
 
-      {/* Fast Travel panel */}
       <FastTravel
         open={showFastTravel}
         onClose={() => setShowFastTravel(false)}
@@ -716,33 +708,44 @@ export default function Game() {
 
       {/* Daily bonus popup */}
       {dailyBonus && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 700,
-          background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setDailyBonus(null)}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: 'rgba(8,4,20,0.97)', border: '1.5px solid rgba(251,191,36,0.5)',
-            borderRadius: 20, padding: '28px 32px', textAlign: 'center',
-            fontFamily: 'Nunito, sans-serif', maxWidth: 320,
-            boxShadow: '0 16px 64px rgba(0,0,0,0.8)',
-          }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>🎁</div>
-            <div style={{ color: '#fbbf24', fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Daily Bonus!</div>
-            <div style={{ color: '#e2e8f0', fontSize: 14, marginBottom: 16 }}>
+        <div
+          className="fixed inset-0 z-[700] flex items-center justify-center backdrop-blur-[6px]"
+          style={{ background: 'rgba(0,0,0,0.65)' }}
+          onClick={() => setDailyBonus(null)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="rounded-[20px] text-center font-body max-w-[320px]"
+            style={{
+              background: 'rgba(8,4,20,0.97)',
+              border: '1.5px solid rgba(251,191,36,0.5)',
+              padding: '28px 32px',
+              boxShadow: '0 16px 64px rgba(0,0,0,0.8)',
+            }}
+          >
+            <div className="text-[40px] mb-[10px]">🎁</div>
+            <div className="text-yellow-400 font-extrabold text-xl mb-[6px]">Daily Bonus!</div>
+            <div className="text-slate-200 text-[14px] mb-4">
               +{dailyBonus.coins} 🪙 Coins &nbsp;·&nbsp; +{dailyBonus.tickets} 🎟️ Ticket
             </div>
             {dailyBonus.streakBonus && (
-              <div style={{ color: '#4ade80', fontSize: 13, marginBottom: 12, background: 'rgba(74,222,128,0.1)', borderRadius: 8, padding: '8px 14px' }}>
+              <div
+                className="text-green-400 text-[13px] mb-3 rounded-lg"
+                style={{ background: 'rgba(74,222,128,0.1)', padding: '8px 14px' }}
+              >
                 🎉 7-Day Streak Bonus! +20 💎 Gems
               </div>
             )}
-            <div style={{ color: '#f59e0b', fontSize: 13, marginBottom: 18 }}>
+            <div className="text-amber-400 text-[13px] mb-[18px]">
               🔥 {dailyBonus.streak}-day login streak
             </div>
             <button
               onClick={() => setDailyBonus(null)}
-              style={{ padding: '10px 32px', background: 'linear-gradient(135deg,#f59e0b,#facc15)', border: 'none', borderRadius: 10, color: '#000', fontWeight: 800, fontSize: 14, cursor: 'pointer', fontFamily: 'Nunito, sans-serif' }}
+              className="border-0 rounded-[10px] text-black font-extrabold text-[14px] cursor-pointer font-body"
+              style={{
+                padding: '10px 32px',
+                background: 'linear-gradient(135deg,#f59e0b,#facc15)',
+              }}
             >
               Claim!
             </button>
@@ -750,13 +753,31 @@ export default function Game() {
         </div>
       )}
 
-      {/* Shop */}
       <Shop open={showShop} onClose={() => setShowShop(false)} />
 
-      {/* Mobile touch controls */}
+      <HousePanel
+        open={showHouse}
+        onClose={() => setShowHouse(false)}
+        onEnterHouse={(action) => {
+          setShowHouse(false)
+          enterBuilding('playerhouse', action)
+        }}
+      />
+
+      {showHouseInterior && (
+        <HouseInterior
+          initialAction={houseAction}
+          onExit={() => {
+            setShowHouseInterior(false)
+            setHouseAction(null)
+            audioSystem.stopIndoor()
+            audioSystem.playExit()
+          }}
+        />
+      )}
+
       {isMobile && !activeGame && <MobileControls />}
 
-      {/* Phone system */}
       <PhoneButton
         onClick={() => {
           if (phone.callStatus === 'incoming') { phone.acceptCall(); return }
@@ -796,14 +817,10 @@ export default function Game() {
       />
 
       {/* Fade overlay for building transitions */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: '#000',
-        opacity: fading ? 1 : 0,
-        transition: 'opacity 0.35s',
-        pointerEvents: fading ? 'all' : 'none',
-        zIndex: 1000,
-      }} />
+      <div
+        className="absolute inset-0 bg-black z-[1000] transition-opacity duration-[350ms]"
+        style={{ opacity: fading ? 1 : 0, pointerEvents: fading ? 'all' : 'none' }}
+      />
     </div>
   )
 }

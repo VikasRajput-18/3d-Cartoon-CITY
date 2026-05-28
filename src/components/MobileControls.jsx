@@ -24,6 +24,7 @@ function ActionBtn({ label, color, onPress, children, pressed }) {
   return (
     <button
       onPointerDown={e => { e.preventDefault(); e.stopPropagation(); onPress() }}
+      className="flex flex-col items-center justify-center"
       style={{
         width: 58, height: 58, borderRadius: '50%',
         background: pressed ? `${color}60` : `${color}30`,
@@ -31,8 +32,6 @@ function ActionBtn({ label, color, onPress, children, pressed }) {
         color: '#fff',
         fontSize: label ? 14 : 22,
         fontFamily: 'monospace', fontWeight: 'bold',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer', touchAction: 'manipulation',
         boxShadow: `0 0 12px ${color}40`,
         lineHeight: 1, gap: 1,
@@ -41,7 +40,7 @@ function ActionBtn({ label, color, onPress, children, pressed }) {
       }}
     >
       {children}
-      {label && <span style={{ fontSize: 9, opacity: 0.7, marginTop: 2 }}>{label}</span>}
+      {label && <span className="text-[9px] opacity-70 mt-0.5">{label}</span>}
     </button>
   )
 }
@@ -117,26 +116,10 @@ export default function MobileControls() {
     setShowEmotes(false)
   }, [setAvatar, toast])
 
-  // ── Shared styles ──────────────────────────────────────────────────────
-  const glassPanel = {
-    background: 'rgba(8,6,18,0.80)',
-    border: '1px solid rgba(124,58,237,0.30)',
-    borderRadius: 12, padding: '8px 10px',
-    backdropFilter: 'blur(8px)',
-  }
-
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 45,
-      pointerEvents: 'none',
-      // Prevent rubber-band scroll on iOS
-      touchAction: 'none',
-    }}>
+    <div className="fixed inset-0 z-[45] pointer-events-none touch-none">
       {/* ── Virtual joystick — bottom left ───────────────────────────── */}
-      <div style={{
-        position: 'absolute', bottom: 36, left: 24,
-        pointerEvents: 'auto', touchAction: 'none',
-      }}>
+      <div className="absolute bottom-9 left-6 pointer-events-auto touch-none">
         {/* Outer ring */}
         <div
           ref={joyRef}
@@ -144,76 +127,68 @@ export default function MobileControls() {
           onPointerMove={onJoyMove}
           onPointerUp={onJoyUp}
           onPointerCancel={onJoyUp}
+          className="flex items-center justify-center relative touch-none"
           style={{
             width: JOY_SIZE, height: JOY_SIZE, borderRadius: '50%',
             background: 'rgba(0,0,0,0.38)',
             border: '2px solid rgba(255,255,255,0.22)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            position: 'relative', touchAction: 'none',
             boxShadow: 'inset 0 0 20px rgba(0,0,0,0.4)',
           }}
         >
           {/* Thumb */}
-          <div style={{
-            position: 'absolute',
+          <div className="absolute rounded-full pointer-events-none" style={{
             width: JOY_THUMB, height: JOY_THUMB,
-            borderRadius: '50%',
             background: 'radial-gradient(circle at 35% 35%, #c4b5fd, #7c3aed)',
             border: '2px solid rgba(255,255,255,0.55)',
             boxShadow: '0 0 14px rgba(124,58,237,0.7)',
             transform: `translate(${thumb.x}px, ${thumb.y}px)`,
-            pointerEvents: 'none',
             transition: thumb.x === 0 && thumb.y === 0 ? 'transform 0.15s ease-out' : 'none',
           }} />
         </div>
         {/* Label */}
-        <div style={{
-          textAlign: 'center', color: 'rgba(255,255,255,0.3)',
-          fontSize: 10, fontFamily: 'monospace', marginTop: 4,
-          letterSpacing: '0.08em',
-        }}>MOVE</div>
+        <div
+          className="text-center text-[10px] font-mono mt-1 tracking-[0.08em]"
+          style={{ color: 'rgba(255,255,255,0.3)' }}
+        >MOVE</div>
       </div>
 
       {/* ── Action buttons — bottom right ────────────────────────────── */}
-      <div style={{
-        position: 'absolute', bottom: 36, right: 20,
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'flex-end', gap: 10,
-        pointerEvents: 'auto', touchAction: 'none',
-      }}>
+      <div className="absolute bottom-9 right-5 flex flex-col items-end gap-[10px] pointer-events-auto touch-none">
         {/* Emote popup */}
         {showEmotes && (
-          <div style={{ ...glassPanel, display: 'flex', gap: 8, marginBottom: 4 }}>
+          <div
+            className="rounded-xl py-2 px-[10px] backdrop-blur-sm flex gap-2 mb-1"
+            style={{
+              background: 'rgba(8,6,18,0.80)',
+              border: '1px solid rgba(124,58,237,0.30)',
+            }}
+          >
             {EMOTES.map(em => (
               <button
                 key={em.expr}
                 onPointerDown={e => { e.preventDefault(); e.stopPropagation(); handleEmote(em) }}
+                className="w-12 h-12 rounded-[10px] text-2xl cursor-pointer touch-manipulation flex flex-col items-center justify-center gap-0.5"
                 style={{
                   background: 'rgba(124,58,237,0.25)',
                   border: '1px solid rgba(124,58,237,0.4)',
-                  borderRadius: 10, width: 48, height: 48,
-                  fontSize: 24, cursor: 'pointer',
-                  touchAction: 'manipulation',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 2,
                 }}
               >
                 <span>{em.emoji}</span>
-                <span style={{ fontSize: 8, color: '#94a3b8' }}>{em.label}</span>
+                <span className="text-[8px] text-slate-400">{em.label}</span>
               </button>
             ))}
           </div>
         )}
 
         {/* Button row */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div className="flex gap-[10px] items-center">
           {/* Emote */}
           <ActionBtn
             color="#7c3aed"
             onPress={() => setShowEmotes(v => !v)}
           >
             <span>😊</span>
-            <span style={{ fontSize: 9, opacity: 0.7 }}>EMOTE</span>
+            <span className="text-[9px] opacity-70">EMOTE</span>
           </ActionBtn>
 
           {/* F — interact */}
@@ -222,8 +197,8 @@ export default function MobileControls() {
             pressed={pressedF}
             onPress={handleF}
           >
-            <span style={{ fontSize: 20 }}>F</span>
-            <span style={{ fontSize: 9, opacity: 0.7 }}>TALK</span>
+            <span className="text-xl">F</span>
+            <span className="text-[9px] opacity-70">TALK</span>
           </ActionBtn>
 
           {/* E — enter/exit */}
@@ -232,8 +207,8 @@ export default function MobileControls() {
             pressed={pressedE}
             onPress={handleE}
           >
-            <span style={{ fontSize: 20 }}>E</span>
-            <span style={{ fontSize: 9, opacity: 0.7 }}>ENTER</span>
+            <span className="text-xl">E</span>
+            <span className="text-[9px] opacity-70">ENTER</span>
           </ActionBtn>
         </div>
       </div>
@@ -241,7 +216,8 @@ export default function MobileControls() {
       {/* Tap anywhere outside emotes to close the popup */}
       {showEmotes && (
         <div
-          style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', zIndex: -1 }}
+          className="absolute inset-0 pointer-events-auto"
+          style={{ zIndex: -1 }}
           onPointerDown={() => setShowEmotes(false)}
         />
       )}

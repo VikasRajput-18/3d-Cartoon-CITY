@@ -17,10 +17,7 @@ const COMPONENTS = { racing: RacingGame, shooting: ShootingGame, runner: RunnerG
 
 function GameLoading() {
   return (
-    <div style={{
-      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#000', color: '#a78bfa', fontFamily: 'Nunito, sans-serif', fontSize: 16, fontWeight: 700,
-    }}>
+    <div className="absolute inset-0 flex items-center justify-center bg-black text-violet-400 font-body text-base font-bold">
       Loading game…
     </div>
   )
@@ -38,7 +35,6 @@ export default function GameRunner({ gameId, onClose }) {
 
   useEffect(() => {
     gameControls.enabled = false
-    // Spend 2 tickets to start game
     const eco = getEconomyState()
     if (eco.tickets < COSTS.playGame) {
       setTicketError(`Need ${COSTS.playGame} tickets to play. You have ${eco.tickets}.`)
@@ -49,7 +45,6 @@ export default function GameRunner({ gameId, onClose }) {
     return () => { gameControls.enabled = true }
   }, [])
 
-  // Escape = toggle pause (desktop)
   useEffect(() => {
     const onKey = e => { if (e.code === 'Escape' && !result) setPaused(p => !p) }
     window.addEventListener('keydown', onKey)
@@ -71,80 +66,72 @@ export default function GameRunner({ gameId, onClose }) {
 
   if (ticketError) {
     return (
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 600,
-        background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'Nunito, sans-serif',
-      }}>
-        <div style={{ background: 'rgba(15,10,30,0.97)', border: '2px solid #ef4444', borderRadius: 20, padding: '28px 36px', textAlign: 'center', maxWidth: '88vw' }}>
-          <div style={{ fontSize: 44 }}>🎟️</div>
-          <div style={{ color: '#f87171', fontSize: 20, fontWeight: 800, marginTop: 8 }}>Not enough tickets</div>
-          <div style={{ color: '#94a3b8', fontSize: 14, marginTop: 8 }}>{ticketError}</div>
-          <div style={{ color: '#64748b', fontSize: 12, marginTop: 6 }}>Tickets refill every 2 hours, or log in daily for a bonus.</div>
-          <button onClick={onClose} style={{ marginTop: 20, background: '#7c3aed', border: 'none', borderRadius: 10, padding: '12px 32px', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>OK</button>
+      <div
+        className="fixed inset-0 z-[600] flex items-center justify-center font-body"
+        style={{ background: 'rgba(0,0,0,0.9)' }}
+      >
+        <div
+          className="rounded-[20px] text-center max-w-[88vw]"
+          style={{ background: 'rgba(15,10,30,0.97)', border: '2px solid #ef4444', padding: '28px 36px' }}
+        >
+          <div className="text-[44px]">🎟️</div>
+          <div className="text-red-400 text-xl font-extrabold mt-2">Not enough tickets</div>
+          <div className="text-slate-400 text-[14px] mt-2">{ticketError}</div>
+          <div className="text-slate-500 text-[12px] mt-[6px]">Tickets refill every 2 hours, or log in daily for a bonus.</div>
+          <button
+            onClick={onClose}
+            className="mt-5 bg-violet-600 border-0 rounded-[10px] text-white font-bold text-[15px] cursor-pointer font-body"
+            style={{ padding: '12px 32px' }}
+          >OK</button>
         </div>
       </div>
     )
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 600,
-      background: '#000', display: 'flex', flexDirection: 'column',
-      fontFamily: 'Nunito, sans-serif',
-    }}>
-      {/* Header — always visible */}
-      <div style={{
-        flexShrink: 0, display: 'flex', alignItems: 'center',
-        padding: '6px 12px', background: 'rgba(0,0,0,0.95)',
-        gap: 10, minHeight: 50, borderBottom: '1px solid rgba(255,255,255,0.08)',
-      }}>
-        <span style={{ fontSize: 20 }}>{def.emoji}</span>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{def.label}</span>
-        <div style={{ flex: 1 }} />
+    <div className="fixed inset-0 z-[600] bg-black flex flex-col font-body">
+      {/* Header */}
+      <div
+        className="shrink-0 flex items-center gap-[10px] min-h-[50px]"
+        style={{ padding: '6px 12px', background: 'rgba(0,0,0,0.95)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+      >
+        <span className="text-xl">{def.emoji}</span>
+        <span className="text-white font-bold text-[15px]">{def.label}</span>
+        <div className="flex-1" />
         <button
           onClick={() => setPaused(p => !p)}
-          style={{
-            background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: 8,
-            padding: '8px 16px', color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600,
-            minWidth: 80, minHeight: 40,
-          }}
+          className="border-0 rounded-lg text-white cursor-pointer text-[14px] font-semibold min-w-[80px] min-h-[40px] font-body"
+          style={{ background: 'rgba(255,255,255,0.12)', padding: '8px 16px' }}
         >
           {paused ? '▶ Resume' : '⏸ Pause'}
         </button>
         <button
           onClick={onClose}
-          style={{
-            background: 'rgba(239,68,68,0.18)', border: '1px solid #ef4444', borderRadius: 8,
-            padding: '8px 14px', color: '#ef4444', cursor: 'pointer', fontSize: 14, fontWeight: 600,
-            minHeight: 40,
-          }}
+          className="rounded-lg cursor-pointer text-red-500 text-[14px] font-semibold min-h-[40px] font-body"
+          style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid #ef4444', padding: '8px 14px' }}
         >
           ✕ Exit
         </button>
       </div>
 
-      {/* Game area fills remaining screen */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {/* Game area */}
+      <div className="flex-1 relative overflow-hidden">
         <Suspense fallback={<GameLoading />}>
           <GameComp key={gameKey} paused={paused} onResult={handleResult} />
         </Suspense>
 
         {/* Pause overlay */}
         {paused && !result && (
-          <div style={{
-            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20,
-            zIndex: 10,
-          }}>
-            <div style={{ fontSize: 40 }}>⏸</div>
-            <div style={{ color: '#fff', fontSize: 28, fontWeight: 800 }}>PAUSED</div>
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-5 z-10"
+            style={{ background: 'rgba(0,0,0,0.72)' }}
+          >
+            <div className="text-[40px]">⏸</div>
+            <div className="text-white text-[28px] font-extrabold">PAUSED</div>
             <button
               onClick={() => setPaused(false)}
-              style={{
-                background: '#7c3aed', border: 'none', borderRadius: 14,
-                padding: '14px 44px', color: '#fff', fontSize: 18, fontWeight: 700, cursor: 'pointer', minHeight: 56,
-              }}
+              className="bg-violet-600 border-0 rounded-[14px] text-white text-[18px] font-bold cursor-pointer min-h-[56px] font-body"
+              style={{ padding: '14px 44px' }}
             >
               ▶ Resume
             </button>
@@ -157,39 +144,39 @@ export default function GameRunner({ gameId, onClose }) {
             <motion.div
               initial={{ opacity: 0, scale: 0.88 }}
               animate={{ opacity: 1, scale: 1 }}
-              style={{
-                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.85)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20,
-              }}
+              className="absolute inset-0 flex items-center justify-center z-20"
+              style={{ background: 'rgba(0,0,0,0.85)' }}
             >
-              <div style={{
-                background: 'rgba(15,10,30,0.97)',
-                border: `2px solid ${result.win ? '#22c55e' : '#ef4444'}`,
-                borderRadius: 20, padding: '28px 36px', textAlign: 'center', maxWidth: '88vw',
-              }}>
-                <div style={{ fontSize: 54 }}>{result.win ? '🏆' : '💀'}</div>
-                <div style={{ color: result.win ? '#22c55e' : '#ef4444', fontSize: 26, fontWeight: 800, marginTop: 8 }}>
+              <div
+                className="rounded-[20px] text-center max-w-[88vw]"
+                style={{
+                  background: 'rgba(15,10,30,0.97)',
+                  border: `2px solid ${result.win ? '#22c55e' : '#ef4444'}`,
+                  padding: '28px 36px',
+                }}
+              >
+                <div className="text-[54px]">{result.win ? '🏆' : '💀'}</div>
+                <div
+                  className="text-[26px] font-extrabold mt-2"
+                  style={{ color: result.win ? '#22c55e' : '#ef4444' }}
+                >
                   {result.win ? 'You Win!' : 'Game Over'}
                 </div>
-                <div style={{ color: '#facc15', fontSize: 20, marginTop: 10, fontWeight: 700 }}>
+                <div className="text-yellow-400 text-xl mt-[10px] font-bold">
                   {result.win ? `+${result.coins} coins earned!` : 'Better luck next time!'}
                 </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 24, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div className="flex gap-3 mt-6 justify-center flex-wrap">
                   <button
                     onClick={playAgain}
-                    style={{
-                      background: '#7c3aed', border: 'none', borderRadius: 12,
-                      padding: '13px 30px', color: '#fff', fontWeight: 700, fontSize: 16, cursor: 'pointer', minHeight: 52,
-                    }}
+                    className="bg-violet-600 border-0 rounded-xl text-white font-bold text-base cursor-pointer min-h-[52px] font-body"
+                    style={{ padding: '13px 30px' }}
                   >
                     🔄 Play Again
                   </button>
                   <button
                     onClick={onClose}
-                    style={{
-                      background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: 12, padding: '13px 30px', color: '#94a3b8', fontSize: 16, cursor: 'pointer', minHeight: 52,
-                    }}
+                    className="rounded-xl text-slate-400 text-base cursor-pointer min-h-[52px] font-body border-0"
+                    style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', padding: '13px 30px' }}
                   >
                     Exit
                   </button>

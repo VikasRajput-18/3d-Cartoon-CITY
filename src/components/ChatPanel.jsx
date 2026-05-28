@@ -197,16 +197,14 @@ const QUICK_CHIPS = {
 // ── Animated typing dots ──────────────────────────────────────────────────
 function TypingDots({ color }) {
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '4px 2px' }}>
+    <div className="flex gap-1 items-center py-[4px] px-[2px]">
       {[0, 1, 2].map(i => (
         <motion.div
           key={i}
           animate={{ y: [0, -5, 0] }}
           transition={{ repeat: Infinity, duration: 0.7, delay: i * 0.15, ease: 'easeInOut' }}
-          style={{
-            width: 7, height: 7, borderRadius: '50%',
-            background: color || '#a78bfa', opacity: 0.85,
-          }}
+          className="w-[7px] h-[7px] rounded-full opacity-85"
+          style={{ background: color || '#a78bfa' }}
         />
       ))}
     </div>
@@ -387,8 +385,8 @@ export default function ChatPanel({ npc, onClose }) {
                 {meta.emoji}
               </div>
               <div
-                className="chat-bubble-ai"
-                style={{ background: `${meta.color}99`, padding: '8px 14px' }}
+                className="chat-bubble-ai py-2 px-3.5"
+                style={{ background: `${meta.color}99` }}
               >
                 <TypingDots color={meta.color} />
               </div>

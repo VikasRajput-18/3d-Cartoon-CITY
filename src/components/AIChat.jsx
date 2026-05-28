@@ -21,11 +21,12 @@ function buildPrompt(npc, playerName) {
 
 function TypingDots() {
   return (
-    <div style={{ display: 'flex', gap: 4, padding: '4px 2px', alignItems: 'center' }}>
+    <div className="flex gap-1 py-1 px-0.5 items-center">
       {[0, 1, 2].map(i => (
         <motion.div
           key={i}
-          style={{ width: 7, height: 7, borderRadius: '50%', background: '#64748b' }}
+          className="w-[7px] h-[7px] rounded-full"
+          style={{ background: '#64748b' }}
           animate={{ y: [0, -5, 0] }}
           transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: 'easeInOut' }}
         />
@@ -106,49 +107,51 @@ export default function AIChat({ npc, onClose }) {
     <motion.div
       initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
       transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+      className="absolute bottom-0 left-0 right-0 h-[44vh] flex flex-col z-[200] font-body backdrop-blur-[18px]"
       style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: '44vh',
-        background: 'rgba(8,6,18,0.94)', backdropFilter: 'blur(18px)',
+        background: 'rgba(8,6,18,0.94)',
         borderTop: '1.5px solid rgba(124,58,237,0.45)',
-        display: 'flex', flexDirection: 'column', zIndex: 200,
-        fontFamily: 'Nunito, sans-serif',
       }}
     >
       {/* Header */}
-      <div style={{
-        padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)',
-        display: 'flex', alignItems: 'center', gap: 10,
-      }}>
-        <span style={{ fontSize: 22 }}>{npc.emoji}</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ color: '#facc15', fontWeight: 700, fontSize: 14 }}>{npc.name}</div>
-          <div style={{ color: '#64748b', fontSize: 11 }}>{npc.location}</div>
+      <div
+        className="px-4 py-[10px] flex items-center gap-[10px]"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+      >
+        <span className="text-[22px]">{npc.emoji}</span>
+        <div className="flex-1">
+          <div className="text-yellow-400 font-bold text-sm">{npc.name}</div>
+          <div className="text-slate-500 text-[11px]">{npc.location}</div>
         </div>
-        <div style={{ color: '#94a3b8', fontSize: 11, marginRight: 8 }}>Esc to close</div>
+        <div className="text-slate-400 text-[11px] mr-2">Esc to close</div>
         <button onClick={onClose}
-          style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>
+          className="bg-transparent border-0 text-slate-400 cursor-pointer text-xl leading-none">
           ✕
         </button>
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="flex-1 overflow-y-auto px-4 py-[10px] flex flex-col gap-2">
         {msgs.map((m, i) => (
-          <div key={i} style={{
-            alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-            maxWidth: '78%',
-            background: m.role === 'user' ? 'rgba(124,58,237,0.75)' : 'rgba(255,255,255,0.09)',
-            borderRadius: m.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-            padding: '8px 13px', color: '#fff', fontSize: 13, lineHeight: 1.55,
-          }}>
+          <div
+            key={i}
+            className={`max-w-[78%] py-2 px-[13px] text-white text-[13px] leading-[1.55] ${m.role === 'user' ? 'self-end' : 'self-start'}`}
+            style={{
+              background: m.role === 'user' ? 'rgba(124,58,237,0.75)' : 'rgba(255,255,255,0.09)',
+              borderRadius: m.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+            }}
+          >
             {m.content}
           </div>
         ))}
         {loading && (
-          <div style={{
-            alignSelf: 'flex-start', background: 'rgba(255,255,255,0.07)',
-            borderRadius: '16px 16px 16px 4px', padding: '9px 16px',
-          }}>
+          <div
+            className="self-start py-[9px] px-4"
+            style={{
+              background: 'rgba(255,255,255,0.07)',
+              borderRadius: '16px 16px 16px 4px',
+            }}
+          >
             <TypingDots />
           </div>
         )}
@@ -156,21 +159,25 @@ export default function AIChat({ npc, onClose }) {
       </div>
 
       {/* Input */}
-      <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', gap: 8 }}>
+      <div
+        className="px-4 py-[10px] flex gap-2"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
+      >
         <input ref={inputRef} value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send(); else audioSystem.playTyping() }}
           placeholder="Type anything..."
+          className="flex-1 text-white text-[13px] outline-none rounded-xl py-[9px] px-[14px]"
           style={{
-            flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 12, padding: '9px 14px', color: '#fff', fontSize: 13, outline: 'none',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.12)',
           }}
         />
         <button onClick={send} disabled={loading || !input.trim()}
+          className="rounded-xl py-[9px] px-5 text-white font-bold text-[13px] cursor-pointer border-0"
           style={{
-            background: 'linear-gradient(135deg,#7C3AED,#EC4899)', border: 'none',
-            borderRadius: 12, padding: '9px 20px', color: '#fff', fontWeight: 700,
-            fontSize: 13, cursor: 'pointer', opacity: (loading || !input.trim()) ? 0.4 : 1,
+            background: 'linear-gradient(135deg,#7C3AED,#EC4899)',
+            opacity: (loading || !input.trim()) ? 0.4 : 1,
           }}>
           Send
         </button>

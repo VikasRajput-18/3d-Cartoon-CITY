@@ -387,10 +387,7 @@ export default function RacingGame({ paused, onResult }) {
     <canvas
       ref={canvasRef}
       width={W} height={H}
-      style={{
-        display: 'block', width: '100%', height: '100%',
-        objectFit: 'contain', touchAction: 'none',
-      }}
+      className="block w-full h-full object-contain touch-none"
     />
   )
 }
