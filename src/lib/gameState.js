@@ -10,15 +10,65 @@ export const GAME_EMOJIS = {
   snake: '🐍', flappy: '🐦', tictactoe: '⭕', memory: '🃏', dodge: '💣',
 }
 
+// ── Ranks ──────────────────────────────────────────────────────────────────────
+export const RANKS = [
+  { name: 'Bronze',   emoji: '🥉', color: '#cd7f32', min: 0    },
+  { name: 'Silver',   emoji: '🥈', color: '#94a3b8', min: 10   },
+  { name: 'Gold',     emoji: '🥇', color: '#facc15', min: 25   },
+  { name: 'Platinum', emoji: '💿', color: '#e2e8f0', min: 50   },
+  { name: 'Diamond',  emoji: '💎', color: '#7dd3fc', min: 100  },
+  { name: 'Master',   emoji: '⚡', color: '#a78bfa', min: 200  },
+  { name: 'Legend',   emoji: '👑', color: '#fbbf24', min: 500  },
+]
+export function calcRank(wins = 0) {
+  let rank = RANKS[0]
+  for (const r of RANKS) { if (wins >= r.min) rank = r }
+  return rank
+}
+
+// ── Achievements ───────────────────────────────────────────────────────────────
+export const ACHIEVEMENTS = [
+  { id: 'first_win',       label: 'First Win',        emoji: '🏅', coins: 25,  desc: 'Win any game for the first time' },
+  { id: 'hat_trick',       label: 'Hat Trick',         emoji: '🎩', coins: 50,  desc: 'Win 3 games in a row' },
+  { id: 'century',         label: 'Century',           emoji: '💯', coins: 30,  desc: 'Score 100+ in any game' },
+  { id: 'record_breaker',  label: 'Record Breaker',    emoji: '📈', coins: 75,  desc: 'Set an all-time high score' },
+  { id: 'tournament_win',  label: 'Tournament Victor', emoji: '🏆', coins: 200, desc: 'Win a tournament' },
+  { id: 'triple_champ',    label: 'Champion',          emoji: '🌟', coins: 500, desc: 'Win 3 tournaments' },
+  { id: 'legend_ten',      label: 'Legend',            emoji: '👑', coins: 1000,desc: 'Win 10 tournaments' },
+  { id: 'all_five',        label: 'All-Rounder',       emoji: '🎯', coins: 100, desc: 'Play all 5 games in one day' },
+  { id: 'win_streak_3',    label: 'On a Roll',         emoji: '🔥', coins: 40,  desc: '3-win streak in any game' },
+  { id: 'win_streak_5',    label: 'On Fire',           emoji: '🌋', coins: 80,  desc: '5-win streak in any game' },
+  { id: 'win_streak_10',   label: 'Unstoppable',       emoji: '⚡', coins: 200, desc: '10-win streak in any game' },
+]
+
+// ── Ticker (last 20 events) ────────────────────────────────────────────────────
+const _ticker = []
+export function addTickerEvent(text) {
+  _ticker.unshift({ text, ts: Date.now() })
+  if (_ticker.length > 20) _ticker.pop()
+  window.dispatchEvent(new CustomEvent('ticker-event', { detail: { text } }))
+}
+export function getTickerEvents() { return [..._ticker] }
+
 const _s = {
-  scores:       {},   // { gameId: [{player_uid, player_name, score}] }
-  myStats:      null,
-  challenges:   [],
-  listeners:    new Set(),
-  myUid:        null,
-  myName:       null,
-  initialized:  false,
+  scores:        {},
+  myStats:       null,
+  challenges:    [],
+  listeners:     new Set(),
+  myUid:         null,
+  myName:        null,
+  initialized:   false,
   _refreshTimer: null,
+  // Streaks
+  dailyStreak:   0,
+  winStreak:     0,
+  winStreakGame:  null,
+  lastPlayedDate: null,
+  // Achievements
+  achievements:  [],    // earned achievement ids
+  tournamentWins: 0,
+  // Consecutive wins tracking
+  _consecutiveWins: 0,
 }
 
 function emit() { _s.listeners.forEach(fn => fn()) }
@@ -32,6 +82,55 @@ export function getLeaderboard(gameId) { return _s.scores[gameId] || [] }
 export function getAllLeaderboards()   { return _s.scores }
 export function getMyStats()           { return _s.myStats }
 export function getMyUid()             { return _s.myUid }
+export function getDailyStreak()       { return _s.dailyStreak }
+export function getWinStreak()         { return { streak: _s.winStreak, game: _s.winStreakGame } }
+export function getAchievements()      { return [..._s.achievements] }
+export function getMyRank()            { return calcRank(_s.myStats?.total_wins ?? 0) }
+
+function _hasAchievement(id) { return _s.achievements.includes(id) }
+
+function _awardAchievement(id) {
+  if (_hasAchievement(id)) return
+  const def = ACHIEVEMENTS.find(a => a.id === id)
+  if (!def) return
+  _s.achievements.push(id)
+  addCoins(def.coins)
+  _saveStreaksLocal()
+  window.dispatchEvent(new CustomEvent('achievement', {
+    detail: { text: `${def.emoji} Achievement Unlocked: ${def.label}! +${def.coins} coins` },
+  }))
+  addTickerEvent(`${_s.myName} earned achievement: ${def.label} ${def.emoji}`)
+}
+
+function _streakLsKey()       { return `gs_streak_${_s.myUid}` }
+function _achLsKey()          { return `gs_ach_${_s.myUid}` }
+function _saveStreaksLocal() {
+  if (!_s.myUid) return
+  try {
+    localStorage.setItem(_streakLsKey(), JSON.stringify({
+      dailyStreak: _s.dailyStreak, winStreak: _s.winStreak,
+      winStreakGame: _s.winStreakGame, lastPlayedDate: _s.lastPlayedDate,
+      tournamentWins: _s.tournamentWins,
+    }))
+    localStorage.setItem(_achLsKey(), JSON.stringify(_s.achievements))
+  } catch {}
+}
+function _loadStreaksLocal() {
+  if (!_s.myUid) return
+  try {
+    const raw = localStorage.getItem(_streakLsKey())
+    if (raw) {
+      const d = JSON.parse(raw)
+      _s.dailyStreak    = d.dailyStreak    ?? 0
+      _s.winStreak      = d.winStreak      ?? 0
+      _s.winStreakGame   = d.winStreakGame   ?? null
+      _s.lastPlayedDate  = d.lastPlayedDate  ?? null
+      _s.tournamentWins  = d.tournamentWins  ?? 0
+    }
+    const rawAch = localStorage.getItem(_achLsKey())
+    if (rawAch) _s.achievements = JSON.parse(rawAch)
+  } catch {}
+}
 
 export function getPendingChallenges() {
   return _s.challenges.filter(c => c.challenged_uid === _s.myUid && c.status === 'pending')
@@ -51,6 +150,7 @@ export async function initGameState(uid, name) {
   _s.myUid  = uid
   _s.myName = name
   _s.initialized = true
+  _loadStreaksLocal()
   await Promise.all([fetchLeaderboards(), fetchMyStats(), fetchChallenges()])
 
   // 30-second leaderboard auto-refresh
@@ -141,15 +241,19 @@ function calcGameCoins(gameId, score) {
   }
 }
 
-export async function submitScore(gameId, score) {
+export async function submitScore(gameId, score, powerUpMultiplier = 1) {
   if (!_s.myUid) return { isNewBest: false, coinsEarned: 0 }
 
-  const result    = score > 0 ? 'win' : 'loss'
-  const bestKey   = `best_${gameId}`
-  const prevBest  = _s.myStats?.[bestKey] ?? 0
-  const isNewBest = score > prevBest
+  const effectiveScore = Math.floor(score * powerUpMultiplier)
+  const result         = effectiveScore > 0 ? 'win' : 'loss'
+  const bestKey        = `best_${gameId}`
+  const prevBest       = _s.myStats?.[bestKey] ?? 0
+  const isNewBest      = effectiveScore > prevBest
+  // Also check against global best before fetching
+  const prevGlobalBest = _s.scores[gameId]?.[0]?.score ?? 0
+  const isGlobalRecord = effectiveScore > prevGlobalBest
 
-  let coinsEarned = calcGameCoins(gameId, score)
+  let coinsEarned = calcGameCoins(gameId, effectiveScore)
   if (isNewBest) coinsEarned += 10
 
   // Daily first-game bonus
@@ -167,46 +271,116 @@ export async function submitScore(gameId, score) {
     gpt.push(gameId)
     localStorage.setItem('gs_gpt_date', today)
     localStorage.setItem('gs_gpt', JSON.stringify(gpt))
-    if (gpt.length === 5) {
-      coinsEarned += 100
-      window.dispatchEvent(new CustomEvent('achievement', {
-        detail: { text: '🏆 Played all 5 games today! +100 coins!' },
-      }))
-    }
   }
 
-  addCoins(coinsEarned)
+  // ── Win streak tracking ────────────────────────────────────────────────────
+  if (result === 'win') {
+    if (_s.winStreakGame === gameId) {
+      _s.winStreak++
+    } else {
+      _s.winStreak = 1
+      _s.winStreakGame = gameId
+    }
+    _s._consecutiveWins++
+  } else {
+    _s.winStreak = 0
+    _s.winStreakGame = null
+    _s._consecutiveWins = 0
+  }
 
-  // Update local stats
+  // ── Daily streak tracking ──────────────────────────────────────────────────
+  const todayIso = new Date().toISOString().slice(0, 10)
+  if (_s.lastPlayedDate !== todayIso) {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+    if (_s.lastPlayedDate === yesterday) {
+      _s.dailyStreak++
+    } else if (_s.lastPlayedDate !== todayIso) {
+      _s.dailyStreak = 1
+    }
+    _s.lastPlayedDate = todayIso
+  }
+
+  // ── Streak multiplier bonus ────────────────────────────────────────────────
+  let streakMult = 1
+  if (_s.dailyStreak >= 100) streakMult = 2
+  else if (_s.dailyStreak >= 30) streakMult = 2
+  else if (_s.dailyStreak >= 7)  streakMult = 1.5
+  coinsEarned = Math.floor(coinsEarned * streakMult)
+
+  addCoins(coinsEarned)
+  _saveStreaksLocal()
+
+  // ── Update local stats ─────────────────────────────────────────────────────
   const stats = { ...(_s.myStats || emptyStats()) }
   stats.total_games++
   if (result === 'win')  stats.total_wins++
   else                   stats.total_losses++
-  if (isNewBest)         stats[bestKey] = score
+  if (isNewBest)         stats[bestKey] = effectiveScore
   stats.coins_earned_from_games = (stats.coins_earned_from_games || 0) + coinsEarned
   _s.myStats = stats
 
   if (supabase) {
     await supabase.from('game_scores').insert({
-      player_uid: _s.myUid, player_name: _s.myName, game_id: gameId, score, result,
+      player_uid: _s.myUid, player_name: _s.myName, game_id: gameId,
+      score: effectiveScore, result,
     })
     await supabase.from('game_stats').upsert({ player_uid: _s.myUid, ...stats })
   } else {
     localStorage.setItem(`gs_stats_${_s.myUid}`, JSON.stringify(stats))
-    const lb = [...(_s.scores[gameId] || []), { player_uid: _s.myUid, player_name: _s.myName, score }]
+    const lb = [...(_s.scores[gameId] || []), { player_uid: _s.myUid, player_name: _s.myName, score: effectiveScore }]
     lb.sort((a, b) => b.score - a.score)
     const seen = new Set(); _s.scores[gameId] = lb.filter(r => { if (seen.has(r.player_uid)) return false; seen.add(r.player_uid); return true }).slice(0, 10)
     localStorage.setItem(`gs_lb_${gameId}`, JSON.stringify(_s.scores[gameId]))
   }
 
   await Promise.all([fetchLeaderboards(), fetchMyStats()])
+
+  // ── Ticker events ──────────────────────────────────────────────────────────
+  if (isNewBest) addTickerEvent(`${_s.myName} just got a new personal best in ${GAME_NAMES[gameId]}: ${effectiveScore}!`)
+  if (isGlobalRecord) {
+    addTickerEvent(`🔥 NEW RECORD! ${_s.myName} broke the ${GAME_NAMES[gameId]} record with ${effectiveScore} points!`)
+    window.dispatchEvent(new CustomEvent('achievement', {
+      detail: { text: `🌍 NEW CITY RECORD in ${GAME_NAMES[gameId]}! ${effectiveScore} pts` },
+    }))
+  }
+
+  // ── Achievement checks ─────────────────────────────────────────────────────
+  if (result === 'win' && stats.total_wins === 1)  _awardAchievement('first_win')
+  if (effectiveScore >= 100)                        _awardAchievement('century')
+  if (isGlobalRecord)                               _awardAchievement('record_breaker')
+  if (gpt.length === 5)                             _awardAchievement('all_five')
+  if (_s.winStreak >= 10)                           _awardAchievement('win_streak_10')
+  else if (_s.winStreak >= 5)                       _awardAchievement('win_streak_5')
+  else if (_s.winStreak >= 3)                       _awardAchievement('win_streak_3')
+  if (_s._consecutiveWins >= 3)                     _awardAchievement('hat_trick')
+
+  // Win-streak announcements
+  if (_s.winStreak === 10) {
+    window.dispatchEvent(new CustomEvent('achievement', {
+      detail: { text: `⚡ ${_s.myName} is on an UNSTOPPABLE 10-win streak in ${GAME_NAMES[gameId]}!` },
+    }))
+  }
+
   return {
     isNewBest,
     coinsEarned,
     dailyBonus,
-    globalBest: _s.scores[gameId]?.[0],
+    dailyStreak:  _s.dailyStreak,
+    winStreak:    _s.winStreak,
+    streakMult,
+    isGlobalRecord,
+    globalBest:   _s.scores[gameId]?.[0],
     myRank: (_s.scores[gameId]?.findIndex(r => r.player_uid === _s.myUid) ?? -1) + 1,
   }
+}
+
+// Called from tournamentState when player wins a tournament
+export function recordTournamentWin() {
+  _s.tournamentWins++
+  _saveStreaksLocal()
+  _awardAchievement('tournament_win')
+  if (_s.tournamentWins >= 3)  _awardAchievement('triple_champ')
+  if (_s.tournamentWins >= 10) _awardAchievement('legend_ten')
 }
 
 export async function sendChallenge(challengedUid, challengedName, gameId, myScore) {

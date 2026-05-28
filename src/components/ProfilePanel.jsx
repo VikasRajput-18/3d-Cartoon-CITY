@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUser, useClerk } from '@clerk/clerk-react'
 import { motion } from 'framer-motion'
 import { useStore } from '@/store'
+import { gameControls } from '@/lib/gameControls'
 import { getEconomyState, onEconomyUpdate, purchaseOutfit, msUntilNextTicket, spendCoins } from '@/lib/economyState'
 import { getMissionState, onMissionUpdate, calcLevel } from '@/lib/missionState'
 import { getMyStats, onGameUpdate, GAME_IDS, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
@@ -70,6 +71,16 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
   const [nameChangedAt, setNameChangedAt] = useState(null)   // ISO string | null
   const [nameSuccess,   setNameSuccess]   = useState('')
   const nameInputRef = useRef()
+
+  // Disable / restore game controls when edit mode opens or closes
+  useEffect(() => {
+    if (editingName) {
+      gameControls.enabled = false
+    } else {
+      gameControls.enabled = true
+    }
+    return () => { gameControls.enabled = true }
+  }, [editingName])
 
   // Fetch name_changed_at when edit mode opens
   useEffect(() => {
@@ -149,7 +160,7 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
       window.dispatchEvent(new CustomEvent('name-updated', { detail: { name: trimmed } }))
 
       setNameSuccess(`Name updated to "${trimmed}"`)
-      setTimeout(() => { setEditingName(false); setNameSuccess('') }, 1200)
+      setTimeout(() => { gameControls.enabled = true; setEditingName(false); setNameSuccess('') }, 1200)
     } catch {
       setNameError('Failed to update. Please try again.')
     }
@@ -232,9 +243,20 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
                       setNameInput(e.target.value.slice(0, NAME_MAX))
                       setNameError('')
                     }}
+                    onFocus={() => { gameControls.enabled = false }}
+                    onBlur={() => { if (!nameSaving) gameControls.enabled = true }}
                     onKeyDown={e => {
-                      if (e.key === 'Enter')  handleSaveName()
-                      if (e.key === 'Escape') { setEditingName(false) }
+                      e.stopPropagation()   // prevent WASD/E/F from reaching game controller
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleSaveName()
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        gameControls.enabled = true
+                        setEditingName(false)
+                        setNameError('')
+                      }
                     }}
                     maxLength={NAME_MAX}
                     className="flex-1 rounded-lg font-body text-[13px] font-bold text-white outline-none min-w-0"
@@ -288,7 +310,7 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
                     {nameSaving ? '…' : 'Save'}
                   </button>
                   <button
-                    onClick={() => { setEditingName(false); setNameError('') }}
+                    onClick={() => { gameControls.enabled = true; setEditingName(false); setNameError('') }}
                     className="py-[5px] px-[10px] rounded-[7px] text-slate-400 text-[11px] cursor-pointer font-body"
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
                   >

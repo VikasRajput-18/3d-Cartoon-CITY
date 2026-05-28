@@ -229,7 +229,50 @@ export default function Game() {
       }])
     }
     window.addEventListener('name-updated', onNameUpdated)
+
+    // Tournament notifications
+    const onTournRegistering = ({ detail: t }) => {
+      if (!t) return
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: '🏆 Tournament Soon!',
+        text: `${t.game_id} tournament opens in 15 min — join for 5 coins!`,
+        duration: 12000,
+        onClick: () => setShowGameHub(true),
+      }])
+    }
+    const onTournStarted = ({ detail: t }) => {
+      if (!t?.notifyPlayer) return
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: '🔴 Tournament LIVE!',
+        text: `${t.game_id} tournament just started — 30 min to play!`,
+        duration: 15000,
+        onClick: () => setShowGameHub(true),
+      }])
+      audioSystem.playMissionComplete?.()
+    }
+    const onTournEnded = ({ detail: t }) => {
+      if (!t) return
+      const id = ++toastIdRef.current
+      const winner = t.scores?.[0]
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: '🏆 Tournament Ended',
+        text: winner ? `${winner.player_name} won with ${winner.score} pts!` : 'Tournament complete!',
+        onClick: () => setShowGameHub(true),
+      }])
+    }
+    window.addEventListener('tournament-registering', onTournRegistering)
+    window.addEventListener('tournament-started',     onTournStarted)
+    window.addEventListener('tournament-ended',       onTournEnded)
+
     return () => {
+      window.removeEventListener('tournament-registering', onTournRegistering)
+      window.removeEventListener('tournament-started',     onTournStarted)
+      window.removeEventListener('tournament-ended',       onTournEnded)
       window.removeEventListener('name-updated',        onNameUpdated)
       window.removeEventListener('house-evicted',       onHouseEvicted)
       window.removeEventListener('mission-unlocked',    onMissionUnlocked)
