@@ -6,6 +6,7 @@ import {
   VEHICLE_CATALOG, FURNITURE_CATALOG, PET_CATALOG,
   buyVehicle, buyFurniture, buyPet,
   canRest, canSleep, doRest, doSleep,
+  callVehiclesHome, CALL_HOME_COST,
 } from '@/lib/houseService'
 import { getEconomyState, onEconomyUpdate } from '@/lib/economyState'
 
@@ -309,6 +310,16 @@ export default function HousePanel({ open, onClose, onEnterHouse }) {
                 </div>
               )
             })}
+
+            {shopSub === 'vehicles' && hs.ownedVehicles.length > 0 && (
+              <button
+                onClick={() => run(callVehiclesHome, 'Vehicles called home!')}
+                disabled={busy || eco.coins < CALL_HOME_COST}
+                className="w-full mt-2 py-[8px] rounded-lg text-white font-bold text-[12px] cursor-pointer font-body border-0 disabled:opacity-40"
+                style={{ background: 'rgba(16,185,129,0.5)' }}>
+                📞 Call all vehicles home · 🪙 {CALL_HOME_COST}
+              </button>
+            )}
 
             {shopSub === 'furniture' && FURNITURE_CATALOG.map(f => {
               const owned = hs.ownedFurniture.includes(f.id)

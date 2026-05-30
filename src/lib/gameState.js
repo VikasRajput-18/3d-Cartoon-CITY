@@ -1,13 +1,13 @@
 import { supabase } from './supabase'
 import { addCoins } from './economyState'
 
-export const GAME_IDS   = ['snake', 'flappy', 'tictactoe', 'memory', 'dodge']
+export const GAME_IDS   = ['snake', 'flappy', 'tictactoe', 'memory', 'dodge', 'cricket']
 export const GAME_NAMES = {
   snake: 'Snake', flappy: 'Flappy Bird', tictactoe: 'Tic Tac Toe',
-  memory: 'Memory Match', dodge: 'Dodge Ball',
+  memory: 'Memory Match', dodge: 'Dodge Ball', cricket: 'Cricket',
 }
 export const GAME_EMOJIS = {
-  snake: '🐍', flappy: '🐦', tictactoe: '⭕', memory: '🃏', dodge: '💣',
+  snake: '🐍', flappy: '🐦', tictactoe: '⭕', memory: '🃏', dodge: '💣', cricket: '🏏',
 }
 
 // ── Ranks ──────────────────────────────────────────────────────────────────────
@@ -39,6 +39,11 @@ export const ACHIEVEMENTS = [
   { id: 'win_streak_3',    label: 'On a Roll',         emoji: '🔥', coins: 40,  desc: '3-win streak in any game' },
   { id: 'win_streak_5',    label: 'On Fire',           emoji: '🌋', coins: 80,  desc: '5-win streak in any game' },
   { id: 'win_streak_10',   label: 'Unstoppable',       emoji: '⚡', coins: 200, desc: '10-win streak in any game' },
+  // Cricket-specific (awarded in-game via the achievement event stream)
+  { id: 'first_boundary',  label: 'First Boundary',    emoji: '🏏', coins: 20,  desc: 'Hit your first four in Cricket' },
+  { id: 'six_machine',     label: 'Six Machine',       emoji: '💥', coins: 60,  desc: 'Hit 3 sixes in one Cricket game' },
+  { id: 'cricket_century', label: 'Cricket Century',   emoji: '💯', coins: 100, desc: 'Score 100 total runs in Cricket' },
+  { id: 'cricket_hattrick',label: 'Cricket Hat Trick', emoji: '🎩', coins: 80,  desc: 'Hit 6 runs on 3 consecutive balls' },
 ]
 
 // ── Ticker (last 20 events) ────────────────────────────────────────────────────
@@ -140,7 +145,7 @@ export function getMyChallenges() { return _s.challenges }
 function emptyStats() {
   return {
     player_uid: _s.myUid, total_wins: 0, total_losses: 0, total_games: 0,
-    best_snake: 0, best_flappy: 0, best_tictactoe: 0, best_memory: 0, best_dodge: 0,
+    best_snake: 0, best_flappy: 0, best_tictactoe: 0, best_memory: 0, best_dodge: 0, best_cricket: 0,
     coins_earned_from_games: 0,
   }
 }
@@ -237,6 +242,8 @@ function calcGameCoins(gameId, score) {
     case 'memory':    return Math.max(5, Math.floor(score / 20))
     case 'dodge':     return Math.max(5, Math.floor(score / 5))   // score=elapsed*10 → coins=seconds*2
     case 'tictactoe': return score >= 15 ? 25 : score >= 5 ? 10 : 5
+    case 'cricket':   // runs-based tiers per spec
+      return score >= 81 ? 75 : score >= 61 ? 50 : score >= 41 ? 35 : score >= 21 ? 20 : 10
     default:          return Math.max(5, Math.floor(score / 10))
   }
 }

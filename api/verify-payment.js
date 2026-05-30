@@ -13,9 +13,31 @@ const COIN_PACKS = [
 ]
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
+  // ── Initialize Supabase inside the handler (Vercel serverless env safety) ──
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  console.log('Supabase URL:', supabaseUrl)
+  console.log('Service key exists:', !!supabaseKey)
+  console.log('Razorpay secret exists:', !!process.env.RAZORPAY_KEY_SECRET)
+
+  if (!supabaseUrl || !supabaseKey) {
+    return res.status(500).json({ error: 'Missing environment variables: supabaseUrl=' + supabaseUrl + ' keyExists=' + !!supabaseKey })
+  }
+
+  if (!process.env.RAZORPAY_KEY_SECRET) {
+    return res.status(500).json({ error: 'Missing Razorpay credentials' })
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey)
 
   try {
     const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body || {}
@@ -37,11 +59,6 @@ module.exports = async function handler(req, res) {
     }
 
     // ── 2. Look up the pending payment record ─────────────────────────────────
-    const supabase = createClient(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    )
-
     const { data: payment, error: fetchErr } = await supabase
       .from('payments')
       .select('*')

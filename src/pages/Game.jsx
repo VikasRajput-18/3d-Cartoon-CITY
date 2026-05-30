@@ -41,6 +41,13 @@ import Shop, { ShopButton } from '@/components/Shop'
 import HousePanel, { HouseQuickButton } from '@/components/HousePanel'
 import HouseInterior from '@/world/HouseInterior'
 import { initHouse, getHouseState, onHouseUpdate } from '@/lib/houseService'
+import GameAnnouncementBanner from '@/components/GameAnnouncementBanner'
+import { initGameSettings, getSettingBool } from '@/lib/gameSettings'
+import { isAdminUser } from '@/lib/adminConfig'
+import { supabase } from '@/lib/supabase'
+import TutorialOverlay from '@/components/TutorialOverlay'
+import FeatureTip from '@/components/FeatureTip'
+import { initTutorial } from '@/lib/tutorialState'
 
 export default function Game() {
   const avatar   = useStore(s => s.avatar)
@@ -62,6 +69,8 @@ export default function Game() {
   const [showHouseInterior, setShowHouseInterior] = useState(false)
   const [houseAction,    setHouseAction]     = useState(null)   // 'rest'|'sleep'|null
   const [spawnedInHouse, setSpawnedInHouse]  = useState(false)
+  const [banInfo,        setBanInfo]         = useState(null)   // { reason, until } | null
+  const [maintenance,    setMaintenance]     = useState(false)
   const [showOrbPanel,    setShowOrbPanel]    = useState(false)
   const [dmFlash,         setDmFlash]         = useState(false)
   const [showGameHub,     setShowGameHub]     = useState(false)
@@ -97,6 +106,26 @@ export default function Game() {
     setLoginStreak(eco.loginStreak)
   }), [])
 
+  // Load game settings + check ban / maintenance state on login
+  useEffect(() => {
+    if (!user?.id) return
+    initGameSettings().then(() => {
+      // Maintenance mode applies to all non-admin players
+      if (getSettingBool('maintenance_mode', false) && !isAdminUser(user)) {
+        setMaintenance(true)
+      }
+    })
+    if (supabase) {
+      supabase.from('players').select('banned_until, ban_reason').eq('id', user.id).maybeSingle()
+        .then(({ data }) => {
+          if (data?.banned_until && new Date(data.banned_until) > new Date()) {
+            setBanInfo({ reason: data.ban_reason, until: data.banned_until })
+          }
+        })
+        .catch(() => {})
+    }
+  }, [user?.id])
+
   useEffect(() => {
     if (!user?.id) return
     initEconomy(user.id).then(bonus => { if (bonus?.given) setDailyBonus(bonus) })
@@ -123,6 +152,7 @@ export default function Game() {
     initMissions(user.id, avatar.name)
     initBoss()
     initGameState(user.id, avatar.name)
+    initTutorial(user.id)
     startPassiveIncome()
     return () => stopPassiveIncome()
   }, [user?.id])
@@ -333,6 +363,7 @@ export default function Game() {
   const buildingGames = activeBuilding ? (LOCATION_GAMES[activeBuilding] || []) : []
 
   function enterBuilding(id, action = null) {
+    window.dispatchEvent(new CustomEvent('tutorial-building-entered'))
     if (id === 'gamearea') { setShowGameHub(true); return }
     if (id === 'playerhouse') {
       setHouseAction(action)
@@ -424,6 +455,45 @@ export default function Game() {
 
   const totalUnread = unreadGlobal + Object.values(dmUnread).reduce((s, n) => s + n, 0)
 
+  // ── Ban screen ────────────────────────────────────────────────────────────
+  if (banInfo) {
+    const until = new Date(banInfo.until)
+    const isPermanent = until.getFullYear() >= 2099
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-5 font-body" style={{ background: '#050311' }}>
+        <div className="text-[64px]">🚫</div>
+        <div className="text-red-500 text-[26px] font-extrabold">You are Banned</div>
+        <div className="rounded-2xl text-center max-w-[380px] w-[90%]" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', padding: '20px 28px' }}>
+          <div className="text-slate-300 text-[14px] mb-2">Reason: <span className="text-red-400 font-bold capitalize">{banInfo.reason || 'Violation of terms'}</span></div>
+          <div className="text-slate-400 text-[13px]">
+            {isPermanent ? 'This ban is permanent.' : `Ban expires: ${until.toLocaleString()}`}
+          </div>
+        </div>
+        <div className="text-slate-600 text-[12px]">Contact support if you believe this is a mistake.</div>
+      </div>
+    )
+  }
+
+  // ── Maintenance screen (non-admin only) ───────────────────────────────────
+  if (maintenance) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-5 font-body" style={{ background: '#050311' }}>
+        <div className="text-[64px]">🔧</div>
+        <div className="text-violet-400 text-[26px] font-extrabold">Under Maintenance</div>
+        <div className="text-slate-400 text-[14px] max-w-[360px] text-center">
+          The world is getting an upgrade. Please check back shortly — we'll be right back!
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          className="border-0 rounded-xl text-white font-bold text-[14px] cursor-pointer font-body"
+          style={{ background: 'rgba(124,58,237,0.7)', padding: '10px 28px' }}
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
       className="fixed inset-0 overflow-hidden bg-night-950"
@@ -431,9 +501,12 @@ export default function Game() {
     >
       <style>{toastStyle + phoneStyle}</style>
 
+      {/* Admin-driven announcement banners */}
+      <GameAnnouncementBanner />
+
       {mode === 'city' && (
         <WorldCanvas
-          onNPCChat={npc => setActiveNPC(npc)}
+          onNPCChat={npc => { window.dispatchEvent(new CustomEvent('tutorial-npc-chat')); setActiveNPC(npc) }}
           onEnterBuilding={enterBuilding}
           remotePlayerIds={remotePlayerIds}
           onPlayerClick={(uid, name) => setDirectChatTarget({ uid, name })}
@@ -522,7 +595,8 @@ export default function Game() {
       {mode === 'city' && !showMissions && !showFastTravel && !showHouse && (
         <div className="fixed left-3 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-2">
           <button
-            onClick={() => setShowMissions(true)}
+            data-tutorial="missions"
+            onClick={() => { window.dispatchEvent(new CustomEvent('tutorial-missions-opened')); setShowMissions(true) }}
             title="Missions"
             className="w-[42px] h-[42px] rounded-xl cursor-pointer text-xl flex items-center justify-center font-body border-0"
             style={{ background: 'rgba(124,58,237,0.85)', border: '1.5px solid rgba(124,58,237,0.5)', boxShadow: '0 2px 12px rgba(124,58,237,0.4)' }}
@@ -584,6 +658,7 @@ export default function Game() {
 
       {/* Profile button */}
       <button
+        data-tutorial="profile"
         onClick={() => setShowProfile(true)}
         title={avatar.name}
         className="fixed top-[60px] right-3 z-40 w-[34px] h-[34px] rounded-full cursor-pointer p-0 overflow-hidden flex items-center justify-center border-0"
@@ -864,6 +939,18 @@ export default function Game() {
         className="absolute inset-0 bg-black z-[1000] transition-opacity duration-[350ms]"
         style={{ opacity: fading ? 1 : 0, pointerEvents: fading ? 'all' : 'none' }}
       />
+
+      {/* First-time player onboarding tutorial */}
+      <TutorialOverlay />
+
+      {/* Returning-player one-time feature tips (shown only after tutorial is done) */}
+      {mode === 'city' && (
+        <FeatureTip
+          id="game-arena-tournaments"
+          target='[data-tutorial="minimap"]'
+          text="New! Visit the Game Arena for live tournaments and challenges."
+        />
+      )}
     </div>
   )
 }

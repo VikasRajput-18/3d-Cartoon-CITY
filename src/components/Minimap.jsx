@@ -617,7 +617,7 @@ export default function Minimap({ isMobile = false }) {
       )}
 
       {/* Small map */}
-      <div className={wrapCls}>
+      <div className={wrapCls} data-tutorial="minimap">
         {/* Home distance badge — always visible when house assigned */}
         {homeDist !== null && !navTarget && (
           <div

@@ -17,6 +17,18 @@
 import { supabase } from './supabase'
 import { spendCoins, addCoins } from './economyState'
 import { addCollider, removeCollidersWithPrefix } from './playerColliders'
+import { parkedVehicles, notifyParkedVehicleChange } from './parkedVehicleState'
+
+// Maps a catalog vehicle id → the drivable parked-vehicle render type + color.
+const VEH_RENDER = {
+  scooter:   { type: 'bike', color: '#34d399' },
+  sportbike: { type: 'bike', color: '#a855f7' },
+  citycar:   { type: 'car',  color: '#3b82f6' },
+  sportscar: { type: 'car',  color: '#ef4444' },
+  suv:       { type: 'car',  color: '#64748b' },
+  luxurycar: { type: 'car',  color: '#facc15' },
+}
+const CALL_HOME_COST = 10
 
 // ── Level tables ───────────────────────────────────────────────────────────────
 export const LEVEL_NAMES = [
@@ -289,6 +301,7 @@ export async function initHouse(uid, playerName = null) {
 
   _s.ready = true
   if (_s.position) _registerCollider(_s.position.x, _s.position.z, _s.level)
+  spawnOwnedVehiclesAtHome()   // park owned vehicles outside the house
   emit()
 
   const unpaid = _s.bills.filter(b => !b.paid).reduce((s, b) => s + b.amount, 0)
@@ -306,10 +319,13 @@ export async function initHouse(uid, playerName = null) {
 export async function fetchAllHouses() {
   if (!supabase) return []
   try {
-    const { data } = await supabase
-      .from('player_houses')
-      .select('player_id, player_name, house_number, house_level, is_evicted')
-    return (data || []).map(row => {
+    const [{ data: houses }, { data: online }] = await Promise.all([
+      supabase.from('player_houses')
+        .select('player_id, player_name, house_number, house_level, is_evicted'),
+      supabase.from('players').select('id, is_online'),
+    ])
+    const onlineMap = new Map((online || []).map(p => [p.id, p.is_online === true]))
+    return (houses || []).map(row => {
       const slot = HOUSE_SLOTS.find(s => s.number === row.house_number)
       if (!slot) return null
       return {
@@ -318,6 +334,7 @@ export async function fetchAllHouses() {
         number:      row.house_number,
         level:       row.house_level ?? 1,
         evicted:     row.is_evicted  ?? false,
+        online:      onlineMap.get(row.player_id) ?? false,
         x:           slot.x,
         z:           slot.z,
       }
@@ -430,8 +447,56 @@ export async function buyVehicle(vehicleId) {
   _s.ownedVehicles = [..._s.ownedVehicles, vehicleId]
   await _saveHouseRow({ owned_vehicles: _s.ownedVehicles })
   _saveLocal(); emit()
+  spawnOwnedVehiclesAtHome()   // park it outside the house immediately
   return { ok: true }
 }
+
+// ── Personal vehicle parking (reuses the shared parked-vehicle system) ─────────
+// Parking spots are laid out beside the house; vehicle N parks next to N-1.
+export function getHomeParkingSpot(i = 0) {
+  if (!_s.position) return null
+  const [w] = HOUSE_DIMS[_s.level - 1]
+  return { x: _s.position.x + w / 2 + 2.5 + i * 2.6, z: _s.position.z + 1.5, facing: 0 }
+}
+
+const _homeVehId = (vid) => `home:${_s.uid}:${vid}`
+
+/** Add the player's owned vehicles to the drivable parked-vehicle array at home. */
+export function spawnOwnedVehiclesAtHome() {
+  if (!_s.position || !_s.ownedVehicles.length) return
+  let added = false
+  _s.ownedVehicles.forEach((vid, i) => {
+    const id = _homeVehId(vid)
+    if (parkedVehicles.some(p => p.id === id)) return   // already spawned this session
+    const r    = VEH_RENDER[vid] || { type: 'car', color: '#888' }
+    const spot = getHomeParkingSpot(i)
+    if (!spot) return
+    const cat  = VEHICLE_CATALOG.find(c => c.id === vid)
+    parkedVehicles.push({
+      id, type: r.type, x: spot.x, z: spot.z, facing: spot.facing, color: r.color,
+      driverId: null,
+      owner: _s.uid, ownerName: _s.playerName, vehicleLabel: cat?.label ?? 'Vehicle',
+    })
+    added = true
+  })
+  if (added) notifyParkedVehicleChange()
+}
+
+/** Teleport all of the player's vehicles back to the home parking spots. */
+export function callVehiclesHome() {
+  if (!_s.position) return { ok: false, reason: 'No house' }
+  const mine = parkedVehicles.filter(p => p.owner === _s.uid)
+  if (!mine.length) return { ok: false, reason: 'No vehicles owned' }
+  if (!spendCoins(CALL_HOME_COST)) return { ok: false, reason: 'Not enough coins' }
+  mine.forEach((p, i) => {
+    const spot = getHomeParkingSpot(i)
+    if (spot) { p.x = spot.x; p.z = spot.z; p.facing = spot.facing; p.driverId = null }
+  })
+  notifyParkedVehicleChange()
+  return { ok: true }
+}
+
+export { CALL_HOME_COST }
 
 // ── Furniture / pets ───────────────────────────────────────────────────────────
 export const FURNITURE_CATALOG = [

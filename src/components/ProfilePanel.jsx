@@ -3,6 +3,7 @@ import { useUser, useClerk } from '@clerk/clerk-react'
 import { motion } from 'framer-motion'
 import { useStore } from '@/store'
 import { gameControls } from '@/lib/gameControls'
+import { replayTutorial } from '@/lib/tutorialState'
 import { getEconomyState, onEconomyUpdate, purchaseOutfit, msUntilNextTicket, spendCoins } from '@/lib/economyState'
 import { getMissionState, onMissionUpdate, calcLevel } from '@/lib/missionState'
 import { getMyStats, onGameUpdate, GAME_IDS, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
@@ -426,6 +427,14 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
                   📍 Fast Travel — 25 coins/trip
                 </button>
               )}
+
+              <button
+                onClick={() => { onClose(); replayTutorial() }}
+                className="w-full py-[10px] rounded-[10px] text-violet-400 text-[13px] font-bold cursor-pointer font-body border-0"
+                style={{ background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.3)' }}
+              >
+                🎓 Replay Tutorial
+              </button>
 
               <button
                 onClick={handleSignOut}

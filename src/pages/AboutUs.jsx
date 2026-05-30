@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 
-const CONTACT_EMAIL = 'ADD_YOUR_EMAIL_HERE'
+const CONTACT_EMAIL = 'vikasvikas988099@gmail.com'
 
 const TECH_STACK = [
   { icon: '⚛️', name: 'React', desc: 'UI framework' },
@@ -23,7 +23,7 @@ const FEATURES = [
 export default function AboutUs() {
   return (
     <div
-      className="min-h-screen font-body"
+      className="min-h-screen overflow-auto font-body"
       style={{ background: 'radial-gradient(ellipse at top, #1a0533 0%, #050311 60%)' }}
     >
       {/* Top nav */}

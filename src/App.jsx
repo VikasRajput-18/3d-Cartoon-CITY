@@ -8,7 +8,8 @@ import PrivacyPolicy from '@/pages/PrivacyPolicy'
 import TermsAndConditions from '@/pages/TermsAndConditions'
 import AboutUs from '@/pages/AboutUs'
 
-const Game = lazy(() => import('@/pages/Game'))
+const Game           = lazy(() => import('@/pages/Game'))
+const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'))
 
 function Splash() {
   return (
@@ -81,6 +82,7 @@ function AuthenticatedApp() {
       <Routes>
         <Route path="/" element={isOnboarded ? <Game /> : <Navigate to="/start" />} />
         <Route path="/start" element={isOnboarded ? <Navigate to="/" /> : <Onboarding />} />
+        <Route path="/admin" element={<AdminDashboard />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Suspense>

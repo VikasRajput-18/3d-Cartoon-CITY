@@ -8,7 +8,7 @@ import { registerChunkTrees, unregisterChunkTrees } from '@/lib/chunkTreeState'
 
 const CHUNK_SIZE = 60
 const HALF       = CHUNK_SIZE / 2
-const VIEW_R     = 2  // 5×5 = 25 chunks visible
+const VIEW_R     = 1  // 3×3 = 9 chunks active (was 25) — big draw-call + geometry cut
 
 // Skip the 3×3 city-centre chunks (CityMap covers this area)
 function isCityChunk(cx, cz) {

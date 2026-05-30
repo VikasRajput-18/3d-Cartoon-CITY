@@ -78,6 +78,7 @@ Example: "☕ Arre yaar, ${avatar.name} ordered a triple espresso and became a l
     addCoins(coins)
     updateStats({ fun: 10, social: 5 })
     setOutcome({ text: clean, coins, mood })
+    window.dispatchEvent(new CustomEvent('tutorial-activity'))
   }
 
   return (

@@ -5,6 +5,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getHouseState, onHouseUpdate, fetchAllHouses } from '@/lib/houseService'
 import { useStore } from '@/store'
+import { supabase } from '@/lib/supabase'
 
 // ── Status → wall color ────────────────────────────────────────────────────────
 const WALL_COLORS_BY_LEVEL = [
@@ -119,26 +120,63 @@ function buildHouseMesh(level, wColor, rColor) {
   return group
 }
 
+// ── Parking pad (faint painted lines on the ground) ──────────────────────────────
+function ParkingPad({ x, z }) {
+  return (
+    <group position={[x, 0.02, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh>
+        <planeGeometry args={[2.2, 4.2]} />
+        <meshBasicMaterial color="#1f2937" transparent opacity={0.45} />
+      </mesh>
+      {/* corner line markings */}
+      <mesh position={[0, 0, 0.01]}>
+        <planeGeometry args={[2.0, 4.0]} />
+        <meshBasicMaterial color="#facc15" transparent opacity={0.18} />
+      </mesh>
+    </group>
+  )
+}
+
 // ── Single house renderer ──────────────────────────────────────────────────────
-function HouseAt({ x, z, level, status, label, labelColor = '#fbbf24', isOwn = false }) {
+function HouseAt({ x, z, level, status, label, isOwn = false, online = false, friend = false }) {
   const groupRef = useRef()
   const wc = wallColor(level, status)
-  const rc = ROOF_COLORS[(level - 1) % 7]
+  // Friends get a distinct (warmer) roof tone
+  const rc = friend ? '#b45309' : ROOF_COLORS[(level - 1) % 7]
   const mesh = buildHouseMesh(level, wc, rc)
   const h    = [2.8,3.5,4,4.5,5,6,14][level - 1]
   const rh   = [1.6,1.9,2.2,2.5,2.75,3.3,0.5][level - 1]
   const sign_y = h + rh + 0.9
 
-  // Evicted visual — override material colors to grey + add warning sign
+  // Sign colour: own=gold, online=green, offline=gray
+  const signColor = isOwn ? '#fbbf24' : online ? '#4ade80' : '#94a3b8'
+  const pulseRef = useRef()
+
+  // Soft pulse for online houses (own or friends online)
+  useFrame(({ clock }) => {
+    if (pulseRef.current && (online || isOwn)) {
+      pulseRef.current.material.opacity = 0.25 + Math.sin(clock.elapsedTime * 2) * 0.12
+    }
+  })
+
   if (status === 'evicted') {
-    mesh.traverse(c => {
-      if (c.isMesh && c.material) c.material.color.set('#374151')
-    })
+    mesh.traverse(c => { if (c.isMesh && c.material) c.material.color.set('#374151') })
   }
 
   return (
     <group position={[x, 0, z]} ref={groupRef}>
       <primitive object={mesh} />
+
+      {/* Online glow ring at base */}
+      {(online || isOwn) && status !== 'evicted' && (
+        <mesh ref={pulseRef} position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[
+            ([3,4,5,5.5,6.5,8,7][level-1]) / 2 + 0.6,
+            ([3,4,5,5.5,6.5,8,7][level-1]) / 2 + 1.1, 24,
+          ]} />
+          <meshBasicMaterial color={signColor} transparent opacity={0.3} />
+        </mesh>
+      )}
 
       {/* Warning sign for overdue bills */}
       {(status === 'warning' || status === 'eviction-warning') && (
@@ -150,22 +188,18 @@ function HouseAt({ x, z, level, status, label, labelColor = '#fbbf24', isOwn = f
 
       {/* Billboard name tag */}
       <Billboard position={[0, sign_y, 0]}>
-        {isOwn && (
-          <Text fontSize={0.38} color="#fbbf24" anchorX="center" anchorY="middle"
-            outlineWidth={0.05} outlineColor="#000">
-            🏠 {label}
-          </Text>
-        )}
-        {!isOwn && (
-          <Text fontSize={0.34} color={labelColor} anchorX="center" anchorY="middle"
-            outlineWidth={0.04} outlineColor="#000">
-            {label}
-          </Text>
-        )}
+        <Text fontSize={isOwn ? 0.38 : 0.34} color={signColor} anchorX="center" anchorY="middle"
+          outlineWidth={isOwn ? 0.05 : 0.04} outlineColor="#000">
+          {isOwn ? `🏠 ${label}` : friend ? `🤝 ${label}` : label}
+        </Text>
+        <Text fontSize={0.2} color={online ? '#4ade80' : '#64748b'} anchorX="center" anchorY="middle"
+          position={[0, -0.5, 0]} outlineWidth={0.02} outlineColor="#000">
+          {isOwn ? '(you)' : online ? '● online' : '○ offline'}
+        </Text>
         {status !== 'ok' && (
           <Text fontSize={0.26}
             color={status === 'evicted' ? '#ef4444' : status === 'eviction-warning' ? '#f97316' : '#eab308'}
-            anchorX="center" anchorY="middle" position={[0, -0.52, 0]}
+            anchorX="center" anchorY="middle" position={[0, -0.82, 0]}
             outlineWidth={0.03} outlineColor="#000">
             {status === 'evicted' ? '⚠ EVICTED' : status === 'eviction-warning' ? '⚠ OVERDUE' : '⚠ BILLS DUE'}
           </Text>
@@ -183,44 +217,57 @@ export default function PlayerHouseMarker() {
 
   useEffect(() => onHouseUpdate(setHs), [])
 
-  // Fetch other players' houses once on mount
+  // Fetch all houses; refresh online status periodically + on realtime changes.
   useEffect(() => {
-    fetchAllHouses().then(all => {
-      // exclude own house (if any)
-      setOthers(all.filter(h => h.playerId !== (hs.ready ? null : undefined)))
-    })
-    // Re-fetch when our own house ready changes
-  }, [hs.ready])
+    let cancelled = false
+    const load = () => fetchAllHouses().then(all => { if (!cancelled) setOthers(all) })
+    load()
+    const iv = setInterval(load, 30000)   // refresh online status
+
+    // Realtime: any house upgrade / new house updates the city immediately
+    let chan = null
+    if (supabase) {
+      chan = supabase.channel('houses_rt')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'player_houses' }, load)
+        .subscribe()
+    }
+    return () => { cancelled = true; clearInterval(iv); chan?.unsubscribe?.() }
+  }, [])
 
   if (!hs.ready) return null
 
-  const myId = /* will be filtered below */ null
+  // Parking spots beside own house (mirror houseService.getHomeParkingSpot)
+  const ownW = hs.position ? [3,4,5,5.5,6.5,8,7][hs.level - 1] : 0
+  const parkingSpots = hs.position
+    ? hs.ownedVehicles.map((_, i) => ({ x: hs.position.x + ownW / 2 + 2.5 + i * 2.6, z: hs.position.z + 1.5 }))
+    : []
 
   return (
     <>
       {/* Own house */}
       {hs.position && hs.number && (
-        <HouseAt
-          x={hs.position.x} z={hs.position.z}
-          level={hs.level}
-          status={hs.status}
-          label={`${hs.number}  ${avatar?.name || ''}`}
-          isOwn
-        />
+        <>
+          <HouseAt
+            x={hs.position.x} z={hs.position.z}
+            level={hs.level} status={hs.status}
+            label={`${hs.number}  ${avatar?.name || ''}`}
+            isOwn online
+          />
+          {parkingSpots.map((sp, i) => <ParkingPad key={i} x={sp.x} z={sp.z} />)}
+        </>
       )}
 
-      {/* Other players' houses — only show if they have a different position from own */}
+      {/* Other players' houses (skip own) */}
       {others.map(h => {
         if (hs.position && h.x === hs.position.x && h.z === hs.position.z) return null
-        const status = h.evicted ? 'evicted' : 'ok'
         return (
           <HouseAt
             key={h.number}
             x={h.x} z={h.z}
             level={h.level}
-            status={status}
-            label={`${h.playerName ?? h.number}`}
-            labelColor="#94a3b8"
+            status={h.evicted ? 'evicted' : 'ok'}
+            label={h.playerName ?? h.number}
+            online={h.online}
           />
         )
       })}

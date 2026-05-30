@@ -4,7 +4,7 @@
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+  html, body, #root { width: 100%; height: 100%; overflow-x: hidden; }
   body { font-family: 'Nunito', sans-serif; background: #07040F; color: #fff; }
   ::-webkit-scrollbar { width: 3px; }
   ::-webkit-scrollbar-thumb { background: #7C3AED; border-radius: 2px; }

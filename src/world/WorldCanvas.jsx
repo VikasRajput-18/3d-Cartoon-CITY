@@ -31,6 +31,8 @@ import MissionOrb from './MissionOrb'
 import GameAreaScene, { GAME_AREA_POS, GAME_AREA_ID } from './GameAreaBuilding'
 import PlayerHouseMarker from './PlayerHouseMarker'
 import ChunkTrees from './ChunkTrees'
+import PostFX from './PostFX'
+import { isMobileDevice, setBloom } from '@/lib/renderQuality'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
@@ -168,6 +170,26 @@ function FpsTracker() {
     if (now - lastTime.current >= 500) {
       _fps.value = Math.round(frameCount.current * 1000 / (now - lastTime.current))
       frameCount.current = 0; lastTime.current = now
+    }
+  })
+  return null
+}
+
+// ── Perf logger — draw calls / triangles / geometries every 5 s ───────────────
+// Open the browser console to read these. Use the numbers to guide deeper
+// optimization (draw calls > 100 → merge geometry; triangles huge → reduce LOD).
+function PerfLogger() {
+  const lastLog = useRef(0)
+  useFrame(({ gl }) => {
+    const info = gl.info
+    const bucket = Math.floor(Date.now() / 5000)
+    if (bucket !== lastLog.current) {
+      lastLog.current = bucket
+      console.log('Draw calls:', info.render.calls)
+      console.log('Triangles:', info.render.triangles)
+      console.log('Geometries:', info.memory.geometries)
+      console.log('Textures:', info.memory.textures)
+      console.log('Programs:', info.programs?.length)
     }
   })
   return null
@@ -1430,6 +1452,15 @@ function ParkedVehicles() {
               ? <Car3D bodyColor={v.color} />
               : <Bike3D frameColor={v.color} leanRef={null} dustRef={null} />
             }
+            {/* Personal vehicle nameplate (owner-owned vehicles parked at home) */}
+            {v.owner && (
+              <Billboard position={[0, 2.1, 0]}>
+                <Text fontSize={0.26} color="#fbbf24" anchorX="center" anchorY="middle"
+                  outlineWidth={0.03} outlineColor="#000">
+                  {`${v.ownerName || 'Player'}'s ${v.vehicleLabel || 'Vehicle'}`}
+                </Text>
+              </Billboard>
+            )}
           </group>
         )
       })}
@@ -1589,6 +1620,7 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
   return (
     <>
       <FpsTracker />
+      <PerfLogger />
       <DayNightCycle />
       <WeatherSystem />
       <CityMap />
@@ -1717,7 +1749,9 @@ function WorldLoadingOverlay() {
 }
 
 // ── Canvas wrapper ────────────────────────────────────────────────────────────
-const DPR = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0 ? [1, 1] : [1, 1.5]
+// Pixel ratio locked to 1 — dpr 1.5/2 means 2.25×/4× the pixels to shade.
+// This is one of the single biggest FPS wins on hi-DPI screens.
+const DPR = 1
 
 export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerIds = [], onPlayerClick, onPlayerContextMenu }) {
   const avatar  = useStore(s => s.avatar)
@@ -1730,14 +1764,38 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
   const [speedKmh,      setSpeedKmh]      = useState(0)
   const [nearBuilding,  setNearBuilding]  = useState(null)
   const [nearParkedVeh, setNearParkedVeh] = useState(null)
-  const [showFps,      setShowFps]      = useState(false)
+  const [showFps,      setShowFps]      = useState(true)   // FPS counter always on (F3 toggles)
   const [fpsDisplay,   setFpsDisplay]   = useState(0)
   const [boostDrainMsg, setBoostDrainMsg] = useState(null)
+  // Post-processing: desktop only. Auto-quality drops bloom if FPS sags.
+  // Post-processing OFF by default — it was the main FPS cost. Can be re-enabled
+  // later once the scene is consistently above 60 FPS.
+  const [postFxOn,     setPostFxOn]     = useState(false)
+  const [bloomOn,      setBloomOn]      = useState(false)
 
   useEffect(() => {
     const onKey = (e) => { if (e.code === 'F3') { e.preventDefault(); setShowFps(s => !s) } }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // ── Auto-quality: keep the framerate smooth without losing the cinematic look ──
+  // Sustained <45 FPS → drop bloom first; if it's still low, drop the whole FX pass.
+  useEffect(() => {
+    if (isMobileDevice) return
+    let lowStreak = 0
+    const id = setInterval(() => {
+      const fps = _fps.value
+      if (fps <= 0) return
+      if (fps < 45) {
+        lowStreak++
+        if (lowStreak === 2)      { setBloomOn(false); setBloom(false) }
+        else if (lowStreak >= 4)  { setPostFxOn(false) }
+      } else if (fps >= 55) {
+        lowStreak = 0
+      }
+    }, 1000)
+    return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
@@ -1763,7 +1821,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
       <Canvas
         dpr={DPR}
         camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 600 }}
-        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15, powerPreference: 'high-performance' }}
+        gl={{ antialias: !postFxOn, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1, powerPreference: 'high-performance' }}
       >
         <Suspense fallback={null}>
           <WorldScene
@@ -1773,6 +1831,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
             onPlayerContextMenu={onPlayerContextMenu}
             myUserId={myUserId}
           />
+          {postFxOn && <PostFX bloom={bloomOn} />}
           <PlayerController
             avatar={avatar}
             myUserId={myUserId}
