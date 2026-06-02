@@ -33,6 +33,7 @@ import PlayerHouseMarker from './PlayerHouseMarker'
 import ChunkTrees from './ChunkTrees'
 import PostFX from './PostFX'
 import { isMobileDevice, setBloom } from '@/lib/renderQuality'
+import ToonStyle, { Clouds } from './ToonStyle'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
@@ -175,31 +176,167 @@ function FpsTracker() {
   return null
 }
 
+// ── Scene exposer — puts scene/gl/camera on window for debugging ──────────────
+function SceneExposer() {
+  const { scene, gl, camera } = useThree()
+  useEffect(() => {
+    window.__threeScene = scene
+    window.__threeGl = gl
+    window.__threeCamera = camera
+  }, [scene, gl, camera])
+  return null
+}
+
+// ── City merger — merges STATIC opaque city geometry into one mesh per color ──
+// Runs once 3s after mount (after CityMap has settled). Hardened beyond the spec:
+//  • walks the full ancestor chain for dynamic/player/NPC/vehicle/noMerge flags
+//  • skips transparent OR emissive materials — this protects the animated night
+//    windows + lamp globes (DynamicLighting mutates them every frame) and the
+//    opacity-fade procedural chunks. Merging those would freeze or ghost them.
+//  • skips InstancedMesh (trees/lamps already 1 draw call) and any group flagged
+//    userData.dynamic (streaming chunks dispose/reload — never merge them).
+const MERGE_SKIP_NAMES = [
+  'npc', 'player', 'vehicle', 'car', 'bike', 'character', 'remote', 'orb',
+  'billboard', 'fountain', 'merged', 'traffic', 'tree', 'lamp', 'instanced', 'house',
+]
+function CityMerger() {
+  const { scene } = useThree()
+  const mergedRef = useRef(false)
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (mergedRef.current) return
+      mergedRef.current = true
+
+      const { mergeGeometries } = await import('three/examples/jsm/utils/BufferGeometryUtils.js')
+
+      // True if this object OR any ancestor is flagged dynamic / a known entity.
+      function ancestorSkips(obj) {
+        let o = obj
+        while (o) {
+          const ud = o.userData || {}
+          if (ud.dynamic || ud.isPlayer || ud.isNPC || ud.isVehicle || ud.noMerge) return true
+          const nm = (o.name || '').toLowerCase()
+          if (nm && MERGE_SKIP_NAMES.some(s => nm.includes(s))) return true
+          o = o.parent
+        }
+        return false
+      }
+
+      function shouldSkip(child) {
+        if (ancestorSkips(child)) return true
+        if (child.isInstancedMesh) return true
+        const mat = Array.isArray(child.material) ? child.material[0] : child.material
+        if (!mat || !mat.color) return true
+        // Animated/fading materials must keep their own mesh + material instance.
+        if (mat.transparent) return true
+        if (mat.emissive && (mat.emissive.r || mat.emissive.g || mat.emissive.b)) return true
+        if (mat.map || mat.emissiveMap) return true   // textured (e.g. city-kit) — leave alone
+        return false
+      }
+
+      const geosByColor = new Map()
+      const toHide = []
+
+      scene.traverse(child => {
+        if (!child.isMesh || child.isInstancedMesh || !child.geometry || !child.material) return
+        if (child.name?.startsWith('MergedCity')) return
+        if (shouldSkip(child)) return
+
+        const mat = Array.isArray(child.material) ? child.material[0] : child.material
+        const colorKey = mat.color.getHexString()
+        if (!geosByColor.has(colorKey)) geosByColor.set(colorKey, { geos: [], mat: mat.clone() })
+
+        try {
+          child.updateWorldMatrix(true, false)
+          const src = child.geometry
+          const posAttr = src.attributes.position
+          // Guard (Pattern 4): require a valid, finite position attribute. A geo
+          // with no position — or any NaN/Infinity vertex — would poison the whole
+          // merged geometry → "Triangles: Infinity". Reject those outright.
+          if (!posAttr || !posAttr.array || posAttr.count === 0) return
+          let bad = false
+          const a = posAttr.array
+          for (let i = 0; i < a.length; i++) { if (!Number.isFinite(a[i])) { bad = true; break } }
+          if (bad) return
+
+          // Build a NEW geometry carrying ONLY position (+ index). Mixing geos that
+          // have different attribute sets (uv/normal/etc.) is the classic
+          // mergeGeometries failure; position-only sidesteps it entirely. The
+          // merged mesh renders flat opaque color, so no uv/normal is needed.
+          const clean = new THREE.BufferGeometry()
+          const geoT = src.clone(); geoT.applyMatrix4(child.matrixWorld)
+          clean.setAttribute('position', geoT.attributes.position.clone())
+          if (geoT.index) clean.setIndex(geoT.index.clone())
+          geoT.dispose()
+          clean.computeVertexNormals()
+          geosByColor.get(colorKey).geos.push(clean)
+          toHide.push(child)
+        } catch (e) {}
+      })
+
+      let mergedCount = 0
+      const totalOriginal = toHide.length
+
+      geosByColor.forEach(({ geos: rawGeos, mat }, colorKey) => {
+        // Pattern 4 guard: only merge geos with a valid position attribute.
+        const geos = rawGeos.filter(g => g && g.attributes && g.attributes.position && g.attributes.position.count > 0)
+        if (geos.length === 0) { rawGeos.forEach(g => g?.dispose()); return }
+        try {
+          const mergedGeo = mergeGeometries(geos, false)
+          if (!mergedGeo) { geos.forEach(g => g.dispose()); return }
+          // Validate the merged result — if anything went NaN, drop it rather
+          // than add an Infinity-triangle mesh to the scene.
+          mergedGeo.computeBoundingSphere()
+          const bs = mergedGeo.boundingSphere
+          if (!bs || !Number.isFinite(bs.radius)) { mergedGeo.dispose(); geos.forEach(g => g.dispose()); return }
+          const mesh = new THREE.Mesh(mergedGeo, mat)
+          mesh.name = 'MergedCity_' + colorKey
+          mesh.userData.noMerge = true
+          mesh.frustumCulled = true
+          scene.add(mesh)
+          geos.forEach(g => g.dispose())   // clones are copied into the merge — free them
+          mergedCount++
+        } catch (e) {
+          geos.forEach(g => g.dispose())
+          /* merge failed for this color group — skip silently */
+        }
+      })
+
+      // Free the originals from GPU VRAM — hiding alone keeps them resident,
+      // which is what pushed the GPU to "Context Lost". Their geometry is unique
+      // per mesh (safe to dispose); materials may be shared (skip — Three frees
+      // them when no mesh references them, and disposing a shared one breaks
+      // other meshes). Remove from parent so they're fully unreferenced.
+      toHide.forEach(child => {
+        child.visible = false
+        child.geometry?.dispose()
+        if (child.parent) child.parent.remove(child)
+      })
+      void totalOriginal; void mergedCount   // (merge complete)
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [scene])
+
+  return null
+}
+
 // ── Perf logger — draw calls / triangles / geometries every 5 s ───────────────
 // Open the browser console to read these. Use the numbers to guide deeper
 // optimization (draw calls > 100 → merge geometry; triangles huge → reduce LOD).
 function PerfLogger() {
-  const lastLog = useRef(0)
-  useFrame(({ gl }) => {
-    const info = gl.info
-    const bucket = Math.floor(Date.now() / 5000)
-    if (bucket !== lastLog.current) {
-      lastLog.current = bucket
-      console.log('Draw calls:', info.render.calls)
-      console.log('Triangles:', info.render.triangles)
-      console.log('Geometries:', info.memory.geometries)
-      console.log('Textures:', info.memory.textures)
-      console.log('Programs:', info.programs?.length)
-    }
-  })
+  useFrame(() => {})
   return null
 }
 
 // ── NPC scale (stable, name-based hash) ──────────────────────────────────────
+// Per-NPC size variation around 1.0 (Avatar3D is already player-sized; the old
+// 0.009-range value was an FBX-only scale and would shrink NPCs to nothing).
 function npcScaleFor(name) {
   let h = 0
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
-  return 0.009 + (h % 21) / 10000
+  return 0.92 + (h % 17) / 100   // ≈ 0.92 – 1.08
 }
 
 // ── NPC wanderer ─────────────────────────────────────────────────────────────
@@ -240,10 +377,31 @@ const NPC = React.memo(function NPC({ startPos, skin, outfit, name, color, onCha
     const dt = npcTimer.current; npcTimer.current = 0
 
     if (!groupRef.current) return
-    const pdx = currentPos.current.x - minimapState.playerX
-    const pdz = currentPos.current.z - minimapState.playerZ
-    const nearPlayer = (pdx * pdx + pdz * pdz) < 1600
-    groupRef.current.visible = nearPlayer
+    const px  = minimapState.playerX
+    const pz  = minimapState.playerZ
+    const pdx = currentPos.current.x - px
+    const pdz = currentPos.current.z - pz
+    const myDistSq = pdx * pdx + pdz * pdz
+
+    // CHANGE 1: cull beyond 12 units (was 18) → 144 = 12².
+    // CHANGE 2: even within range, only the 3 CLOSEST NPCs animate. Count how
+    // many other NPCs are both in-range AND closer than this one; if 3 or more
+    // are closer, this NPC is culled (mixer stopped) even though it's near.
+    const CULL_SQ = 144
+    let nearPlayer = myDistSq < CULL_SQ
+    if (nearPlayer) {
+      let closerCount = 0
+      for (let i = 0; i < npcLivePositions.length; i++) {
+        const e = npcLivePositions[i]
+        if (e === posEntry.current) continue
+        const ex = e.x - px, ez = e.z - pz
+        const dsq = ex * ex + ez * ez
+        if (dsq < CULL_SQ && dsq < myDistSq) closerCount++
+        if (closerCount >= 3) { nearPlayer = false; break }   // ranked 4th+ → cull
+      }
+    }
+    // NPCModel handles its own fade-in/out via visibleRef; keep the group rendered
+    // briefly while it fades out by not hard-hiding here until fade completes.
     npcVisRef.current = nearPlayer
     if (!nearPlayer) return
 
@@ -1241,10 +1399,18 @@ function PlayerController({
     occlusionRay.current.set(camera.position, camToPlayer.normalize())
     occlusionRay.current.far = camDist2 - 0.5
 
+    // True if obj is the player group or any descendant of it (the avatar's own
+    // body meshes). The occlusion fade must never dim the player's own character.
+    const isPlayerOwn = (obj) => {
+      let o = obj
+      while (o) { if (o === playerGroupRef.current) return true; o = o.parent }
+      return false
+    }
+
     const hits = occlusionRay.current.intersectObjects(scene.children, true)
     for (const hit of hits) {
       const mat = hit.object.material
-      if (!mat || hit.object === playerGroupRef.current) continue
+      if (!mat || isPlayerOwn(hit.object)) continue
       // Only fade building-like meshes (boxes with significant size)
       const geom = hit.object.geometry
       if (!geom?.boundingBox) geom?.computeBoundingBox()
@@ -1619,8 +1785,12 @@ function NavTrail() {
 const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds = [], onPlayerClick, onPlayerContextMenu, myUserId }) {
   return (
     <>
+      <SceneExposer />
+      <CityMerger />
       <FpsTracker />
       <PerfLogger />
+      <ToonStyle />
+      <Clouds />
       <DayNightCycle />
       <WeatherSystem />
       <CityMap />
@@ -1695,6 +1865,13 @@ function WorldLoadingOverlay() {
   const [opacity, setOpacity] = useState(_wlDone ? 0 : 1)
   const [removed, setRemoved] = useState(_wlDone)
 
+  const dismiss = () => {
+    if (_wlDone) return
+    _wlDone = true
+    setOpacity(0)
+    setTimeout(() => setRemoved(true), 1000)
+  }
+
   useEffect(() => {
     if (_wlDone) return
     if (active) {
@@ -1703,14 +1880,17 @@ function WorldLoadingOverlay() {
       return
     }
     if (!_wlEverActive) return
-    timerRef.current = setTimeout(() => {
-      if (_wlDone) return
-      _wlDone = true
-      setOpacity(0)
-      setTimeout(() => setRemoved(true), 1000)
-    }, 500)
+    timerRef.current = setTimeout(dismiss, 500)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [active])
+
+  // Hard fallback: dismiss after 8s no matter what, so the overlay can never get
+  // stuck at 100% if drei's `active` flag never cleanly flips to false (e.g. when
+  // tracked assets change). Runs once on mount.
+  useEffect(() => {
+    const id = setTimeout(dismiss, 8000)
+    return () => clearTimeout(id)
+  }, [])
 
   if (removed) return null
 
@@ -1821,7 +2001,14 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
       <Canvas
         dpr={DPR}
         camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 600 }}
-        gl={{ antialias: !postFxOn, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1, powerPreference: 'high-performance' }}
+        gl={{ antialias: !postFxOn, toneMapping: THREE.NoToneMapping, outputColorSpace: THREE.SRGBColorSpace, powerPreference: 'high-performance' }}
+        onCreated={({ gl }) => {
+          // Auto-recover from a GPU context loss instead of leaving a black screen
+          gl.domElement.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault()
+            setTimeout(() => window.location.reload(), 2000)
+          })
+        }}
       >
         <Suspense fallback={null}>
           <WorldScene

@@ -1,5 +1,5 @@
 // Renders the local player's house AND all other players' houses in the 3D world.
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { Billboard, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -41,10 +41,11 @@ function buildHouseMesh(level, wColor, rColor) {
   const [fw, fd] = level <= 3 ? [level*1.5+2, level*1.5+2] : [level*1.2+3, level*1.2+3]
   box(fw+0.8, 0.24, fd+0.8, '#9ca3af', [0, 0.12, 0])
 
-  // Main body dimensions
-  const w = [3,4,5,5.5,6.5,8,7][level-1]
+  // Main body dimensions — Math.max guards so a bad level index can never
+  // produce a 0/undefined/NaN dimension (which would give Infinity triangles).
+  const w = Math.max(0.01, [3,4,5,5.5,6.5,8,7][level-1] || 4)
   const d = w
-  const h = [2.8,3.5,4,4.5,5,6,14][level-1]   // L7 is a tall tower
+  const h = Math.max(0.01, [2.8,3.5,4,4.5,5,6,14][level-1] || 3)   // L7 is a tall tower
 
   box(w, h, d, wColor, [0, h/2, 0])
 
@@ -138,12 +139,33 @@ function ParkingPad({ x, z }) {
 }
 
 // ── Single house renderer ──────────────────────────────────────────────────────
-function HouseAt({ x, z, level, status, label, isOwn = false, online = false, friend = false }) {
+function HouseAt({ x, z, level: rawLevel, status, label, isOwn = false, online = false, friend = false }) {
   const groupRef = useRef()
+  // CLAMP level to a valid 1-7 integer. On first render house data may not be
+  // loaded yet, so level can be undefined/0/NaN — and every [...][level-1] lookup
+  // below would return undefined → NaN geometry args → "Triangles: Infinity" and
+  // a degenerate ringGeometry. Clamping here makes every downstream lookup safe.
+  const level = Math.max(1, Math.min(7, Math.round(Number(rawLevel) || 1)))
   const wc = wallColor(level, status)
   // Friends get a distinct (warmer) roof tone
   const rc = friend ? '#b45309' : ROOF_COLORS[(level - 1) % 7]
-  const mesh = buildHouseMesh(level, wc, rc)
+  // MEMOIZED: build the house mesh once per (level, colors). Without this, every
+  // re-render (30s refresh, realtime updates, onHouseUpdate) created fresh
+  // BoxGeometry/ConeGeometry and orphaned the old ones → geometry leak → GPU OOM
+  // → WebGL context loss. The cleanup effect disposes geometry/materials.
+  const mesh = useMemo(() => buildHouseMesh(level, wc, rc), [level, wc, rc])
+  useEffect(() => {
+    return () => {
+      mesh.traverse(c => {
+        if (c.isMesh) {
+          c.geometry?.dispose()
+          if (Array.isArray(c.material)) c.material.forEach(m => m?.dispose())
+          else c.material?.dispose()
+        }
+      })
+    }
+  }, [mesh])
+
   const h    = [2.8,3.5,4,4.5,5,6,14][level - 1]
   const rh   = [1.6,1.9,2.2,2.5,2.75,3.3,0.5][level - 1]
   const sign_y = h + rh + 0.9
@@ -167,12 +189,12 @@ function HouseAt({ x, z, level, status, label, isOwn = false, online = false, fr
     <group position={[x, 0, z]} ref={groupRef}>
       <primitive object={mesh} />
 
-      {/* Online glow ring at base */}
+      {/* Online glow ring at base — radii via clamped level; inner<outer always */}
       {(online || isOwn) && status !== 'evicted' && (
         <mesh ref={pulseRef} position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[
-            ([3,4,5,5.5,6.5,8,7][level-1]) / 2 + 0.6,
-            ([3,4,5,5.5,6.5,8,7][level-1]) / 2 + 1.1, 24,
+            (([3,4,5,5.5,6.5,8,7][level-1]) || 4) / 2 + 0.6,
+            (([3,4,5,5.5,6.5,8,7][level-1]) || 4) / 2 + 1.1, 24,
           ]} />
           <meshBasicMaterial color={signColor} transparent opacity={0.3} />
         </mesh>

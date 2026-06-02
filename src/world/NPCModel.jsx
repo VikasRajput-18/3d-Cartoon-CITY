@@ -1,209 +1,76 @@
-import React, { useRef, useEffect, useMemo } from 'react'
-import { useFBX, useAnimations, Billboard, Text } from '@react-three/drei'
+// NPC avatar — lightweight primitive character (Avatar3D) instead of the
+// 65-bone / 49k-triangle Mixamo FBX. Same prop interface, groupRef, visibleRef
+// cull/fade, onClick and labels preserved so culling + chat still work.
+import React, { useRef, useEffect } from 'react'
+import { Billboard, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { SkeletonUtils } from 'three-stdlib'
-import * as THREE from 'three'
+import Avatar3D from './Avatar3D'
 
-const OUTFIT_COLORS = {
-  casual:      '#7C3AED',
-  school:      '#1D4ED8',
-  party:       '#DB2777',
-  traditional: '#D97706',
-  winter:      '#0F766E',
-  sports:      '#DC2626',
-}
-
-function boneRegion(name) {
-  const n = name.toLowerCase()
-  if (n.includes('toe')    || n.includes('foot'))                               return 'shoe'
-  if (n.includes('upleg')  || n.includes('leg'))                                return 'pants'
-  if (n.includes('hip'))                                                        return 'pants'
-  if (n.includes('forearm')|| n.includes('fore_arm') || n.includes('lowerarm')) return 'skin'
-  if (n.includes('hand')   || n.includes('finger')   || n.includes('thumb')    ||
-      n.includes('index')  || n.includes('middle')   || n.includes('ring')     || n.includes('pinky')) return 'skin'
-  if (n.includes('arm'))                                                        return 'shirt'
-  if (n.includes('head')   || n.includes('neck'))                               return 'skin'
-  return 'shirt'
-}
-
-const _pantsC = new THREE.Color('#1c1c2e')
-const _shoeC  = new THREE.Color('#120e08')
-
-function paintClothing(mesh, skinHex, outfitHex) {
-  const geo   = mesh.geometry
-  const bones = mesh.skeleton?.bones
-  if (!bones || !geo.attributes.skinIndex) {
-    mesh.material = new THREE.MeshToonMaterial({ color: skinHex, emissive: new THREE.Color(0.06, 0.06, 0.08) })
-    mesh.castShadow = true
-    return
-  }
-  const si    = geo.attributes.skinIndex
-  const sw    = geo.attributes.skinWeight
-  const count = geo.attributes.position.count
-  const skinC   = new THREE.Color(skinHex)
-  const outfitC = new THREE.Color(outfitHex)
-  let attr = geo.attributes.color
-  let arr
-  if (attr && attr.count === count) { arr = attr.array }
-  else                               { arr = new Float32Array(count * 3) }
-  for (let i = 0; i < count; i++) {
-    let maxW = -1, domIdx = 0
-    for (let j = 0; j < 4; j++) {
-      const w = sw.getComponent(i, j)
-      if (w > maxW) { maxW = w; domIdx = si.getComponent(i, j) }
-    }
-    const bone   = bones[domIdx]
-    const region = bone ? boneRegion(bone.name) : 'shirt'
-    const c = region === 'skin' ? skinC : region === 'pants' ? _pantsC : region === 'shoe' ? _shoeC : outfitC
-    arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b
-  }
-  if (attr && attr.count === count) { attr.needsUpdate = true }
-  else { geo.setAttribute('color', new THREE.BufferAttribute(arr, 3)) }
-  if (!mesh.material?.vertexColors) {
-    mesh.material = new THREE.MeshToonMaterial({ vertexColors: true, emissive: new THREE.Color(0.07, 0.07, 0.09) })
-  }
-  mesh.castShadow = true
-}
-
-function stripRootMotion(clip) {
-  for (const track of clip.tracks) {
-    const ln = track.name.toLowerCase()
-    if ((ln.includes('hips') || ln.includes('hip')) && ln.endsWith('.position')) {
-      for (let i = 0; i < track.values.length; i += 3) {
-        track.values[i] = 0; track.values[i + 2] = 0
-      }
-    }
-  }
-}
+const EMOTE_DURATION = { greet: 1600, handshake: 1800, laughing: 2000 }
 
 function NPCModel({
   outfit        = 'casual',
   skin          = '#F4C08A',
+  hair          = '#2C1810',
   walking       = false,
   name          = '',
   labelColor    = '#facc15',
   sublabel      = '',
   sublabelColor = '#f59e0b',
-  npcScale      = 0.01,
+  npcScale      = 1,
   onClick       = null,
   visibleRef    = null,
   emote         = '',
 }) {
-  const groupRef = useRef()
+  const groupRef   = useRef()
+  const bodyRef    = useRef()
+  const opacityRef = useRef(1)
 
-  const rawWalkFBX      = useFBX('/models/Walking.fbx')
-  const rawIdleFBX      = useFBX('/models/Standing_Idle.fbx')
-  const rawDanceFBX     = useFBX('/sounds/dance.fbx')
-  const rawGreetFBX     = useFBX('/sounds/greet.fbx')
-  const rawHandshakeFBX = useFBX('/sounds/handshake.fbx')
-  const rawLaughFBX     = useFBX('/sounds/laughing.fbx')
-
-  const walkFBX = useMemo(() => {
-    const clone = SkeletonUtils.clone(rawWalkFBX)
-    clone.traverse(c => { if (c.isSkinnedMesh) c.geometry = c.geometry.clone() })
-    return clone
-  }, [rawWalkFBX])
-
-  const outfitColor = OUTFIT_COLORS[outfit] || OUTFIT_COLORS.casual
-
-  useEffect(() => {
-    walkFBX.traverse(child => {
-      if (child.isSkinnedMesh) paintClothing(child, skin, outfitColor)
-    })
-  }, [walkFBX, skin, outfitColor])
-
-  const clips = useMemo(() => {
-    const result = []
-    if (rawWalkFBX.animations[0]) {
-      const clip = rawWalkFBX.animations[0].clone()
-      clip.name = 'Walking'
-      stripRootMotion(clip)
-      result.push(clip)
+  // ── Visibility cull + smooth fade (mirrors the previous FBX behaviour) ──────
+  // No skeleton/mixer to stop now — culling just toggles render + fades opacity.
+  useFrame((state, delta) => {
+    const g = groupRef.current
+    if (!g) return
+    const wantVisible = !(visibleRef && visibleRef.current === false)
+    const targetOp = wantVisible ? 1 : 0
+    const rate = wantVisible ? (1 / 0.5) : (1 / 0.3)
+    if (opacityRef.current !== targetOp) {
+      const step = rate * Math.min(delta, 0.05)
+      opacityRef.current = wantVisible
+        ? Math.min(1, opacityRef.current + step)
+        : Math.max(0, opacityRef.current - step)
+      const op = opacityRef.current
+      g.traverse(c => {
+        if (c.isMesh && c.material && c.material.transparent !== undefined) {
+          c.material.transparent = true   // set once-ish; primitives are cheap to recompile
+          c.material.opacity = op
+        }
+      })
     }
-    if (rawIdleFBX.animations[0]) {
-      const clip = rawIdleFBX.animations[0].clone()
-      clip.name = 'Idle'
-      result.push(clip)
-    }
-    const emoteSources = [
-      [rawDanceFBX, 'dance'], [rawGreetFBX, 'greet'],
-      [rawHandshakeFBX, 'handshake'], [rawLaughFBX, 'laughing'],
-    ]
-    for (const [fbx, clipName] of emoteSources) {
-      if (fbx.animations[0]) {
-        const clip = fbx.animations[0].clone()
-        clip.name = clipName
-        stripRootMotion(clip)
-        result.push(clip)
-      }
-    }
-    return result
-  }, [rawWalkFBX, rawIdleFBX, rawDanceFBX, rawGreetFBX, rawHandshakeFBX, rawLaughFBX])
+    g.visible = opacityRef.current > 0.01
 
-  const { actions, mixer } = useAnimations(clips, groupRef)
-
-  // Pause mixer when distance-culled
-  useFrame(() => {
-    if (mixer) mixer.timeScale = (visibleRef && visibleRef.current === false) ? 0 : 1
+    // Emote transforms on the body wrapper
+    const b = bodyRef.current
+    if (b) {
+      const t = state.clock.elapsedTime
+      if (emote === 'dance') { b.position.y = Math.abs(Math.sin(t * 6)) * 0.12; b.rotation.z = Math.sin(t * 6) * 0.18 }
+      else if (emote === 'laughing') { b.rotation.z = Math.sin(t * 10) * 0.12 }
+      else if (emote === 'greet' || emote === 'handshake') { b.position.y = Math.sin(t * 8) * 0.05 }
+      else { b.rotation.z += (0 - b.rotation.z) * Math.min(1, delta * 10); b.position.y += (0 - b.position.y) * Math.min(1, delta * 10) }
+    }
   })
-
-  // Start idle on mount
-  useEffect(() => {
-    if (actions['Idle']) actions['Idle'].reset().play()
-  }, [actions])
-
-  // Walk / idle crossfade (skips when emote is active)
-  useEffect(() => {
-    if (emote) return
-    const idle = actions['Idle']
-    const walk = actions['Walking']
-    if (!idle || !walk) return
-    if (walking) { idle.fadeOut(0.2); walk.reset().fadeIn(0.2).play() }
-    else         { walk.fadeOut(0.3); idle.reset().fadeIn(0.3).play() }
-  }, [walking, emote, actions])
-
-  // Emote controller (no onEmoteEnd needed — prop drives the transition)
-  const prevEmoteRef = useRef('')
-  useEffect(() => {
-    const prevEmote = prevEmoteRef.current
-    prevEmoteRef.current = emote
-
-    const idle = actions['Idle']
-    const walk = actions['Walking']
-
-    if (!emote) {
-      if (prevEmote) {
-        const prev = actions[prevEmote]
-        if (prev?.isRunning()) prev.fadeOut(0.2)
-        if (idle) idle.reset().fadeIn(0.2).play()
-      }
-      return
-    }
-
-    const emoteAction = actions[emote]
-    if (!emoteAction) return
-
-    if (idle?.isRunning()) idle.fadeOut(0.2)
-    if (walk?.isRunning()) walk.fadeOut(0.2)
-    if (prevEmote && prevEmote !== emote) {
-      const prev = actions[prevEmote]
-      if (prev?.isRunning()) prev.fadeOut(0.2)
-    }
-
-    const isDance = emote === 'dance'
-    emoteAction.reset()
-    if (isDance) {
-      emoteAction.setLoop(THREE.LoopRepeat, Infinity)
-    } else {
-      emoteAction.setLoop(THREE.LoopOnce, 1)
-      emoteAction.clampWhenFinished = true
-    }
-    emoteAction.fadeIn(0.2).play()
-  }, [emote, actions])
 
   return (
     <group ref={groupRef} onClick={onClick}>
-      <primitive object={walkFBX} scale={npcScale} position={[0, 0, 0]} />
+      <group ref={bodyRef} scale={[npcScale, npcScale, npcScale]}>
+        <Avatar3D
+          externalControl
+          walking={walking}
+          outfit={outfit}
+          skin={skin}
+          hair={hair}
+        />
+      </group>
       <Billboard position={[0, 2.4, 0]}>
         <Text fontSize={0.18} color={labelColor} anchorX="center" anchorY="middle">{name}</Text>
         {sublabel ? (

@@ -319,9 +319,9 @@ export async function initHouse(uid, playerName = null) {
 export async function fetchAllHouses() {
   if (!supabase) return []
   try {
+    // select('*') tolerates a missing player_name column (avoids a 400 error)
     const [{ data: houses }, { data: online }] = await Promise.all([
-      supabase.from('player_houses')
-        .select('player_id, player_name, house_number, house_level, is_evicted'),
+      supabase.from('player_houses').select('*'),
       supabase.from('players').select('id, is_online'),
     ])
     const onlineMap = new Map((online || []).map(p => [p.id, p.is_online === true]))

@@ -1,82 +1,14 @@
-import { useRef, useEffect, useMemo } from 'react'
-import { useFBX, useAnimations, Billboard, Text } from '@react-three/drei'
-import { SkeletonUtils } from 'three-stdlib'
-import * as THREE from 'three'
+// Local + remote player avatar — now a lightweight primitive character (Avatar3D)
+// instead of the 65-bone / 49k-triangle Mixamo FBX. Same prop interface and
+// groupRef contract so vehicle entry, labels, emotes and collision all still work.
+import { useRef, useEffect } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { Billboard, Text } from '@react-three/drei'
+import Avatar3D from './Avatar3D'
 
-const OUTFIT_COLORS = {
-  casual:      '#7C3AED',
-  school:      '#1D4ED8',
-  party:       '#DB2777',
-  traditional: '#D97706',
-  winter:      '#0F766E',
-  sports:      '#DC2626',
-}
-
-function boneRegion(name) {
-  const n = name.toLowerCase()
-  if (n.includes('toe')    || n.includes('foot'))                           return 'shoe'
-  if (n.includes('upleg')  || n.includes('leg'))                            return 'pants'
-  if (n.includes('hip'))                                                    return 'pants'
-  if (n.includes('forearm')|| n.includes('fore_arm')|| n.includes('lowerarm')) return 'skin'
-  if (n.includes('hand')   || n.includes('finger') || n.includes('thumb')  ||
-      n.includes('index')  || n.includes('middle') || n.includes('ring')   || n.includes('pinky')) return 'skin'
-  if (n.includes('arm'))                                                    return 'shirt'
-  if (n.includes('head')   || n.includes('neck'))                           return 'skin'
-  return 'shirt'
-}
-
-const _pantsC = new THREE.Color('#1c1c2e')
-const _shoeC  = new THREE.Color('#120e08')
-
-function paintClothing(mesh, skinHex, outfitHex) {
-  const geo   = mesh.geometry
-  const bones = mesh.skeleton?.bones
-  if (!bones || !geo.attributes.skinIndex) {
-    mesh.material = new THREE.MeshToonMaterial({ color: skinHex, emissive: new THREE.Color(0.06, 0.06, 0.08) })
-    mesh.castShadow = true
-    return
-  }
-  const si    = geo.attributes.skinIndex
-  const sw    = geo.attributes.skinWeight
-  const count = geo.attributes.position.count
-  const skinC   = new THREE.Color(skinHex)
-  const outfitC = new THREE.Color(outfitHex)
-  let attr = geo.attributes.color
-  let arr
-  if (attr && attr.count === count) { arr = attr.array }
-  else                               { arr = new Float32Array(count * 3) }
-  for (let i = 0; i < count; i++) {
-    let maxW = -1, domIdx = 0
-    for (let j = 0; j < 4; j++) {
-      const w = sw.getComponent(i, j)
-      if (w > maxW) { maxW = w; domIdx = si.getComponent(i, j) }
-    }
-    const bone = bones[domIdx]
-    const region = bone ? boneRegion(bone.name) : 'shirt'
-    const c = region === 'skin' ? skinC : region === 'pants' ? _pantsC : region === 'shoe' ? _shoeC : outfitC
-    arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b
-  }
-  if (attr && attr.count === count) { attr.needsUpdate = true }
-  else { geo.setAttribute('color', new THREE.BufferAttribute(arr, 3)) }
-  if (!mesh.material?.vertexColors) {
-    mesh.material = new THREE.MeshToonMaterial({ vertexColors: true, emissive: new THREE.Color(0.07, 0.07, 0.09) })
-  }
-  mesh.castShadow = true
-}
-
-// Strip X/Z root-motion from a clip's Hips position track
-function stripRootMotion(clip) {
-  for (const track of clip.tracks) {
-    const ln = track.name.toLowerCase()
-    if ((ln.includes('hips') || ln.includes('hip')) && ln.endsWith('.position')) {
-      for (let i = 0; i < track.values.length; i += 3) {
-        track.values[i] = 0; track.values[i + 2] = 0
-      }
-    }
-  }
-}
-
-const EMOTE_NAMES = ['dance', 'greet', 'handshake', 'laughing']
+// One-shot emotes finish after this long, then onEmoteEnd fires (mirrors the
+// old FBX clip-finished behaviour). 'dance' loops until the emote prop clears.
+const EMOTE_DURATION = { greet: 1600, handshake: 1800, laughing: 2000 }
 
 export default function PlayerModel({
   walking    = false,
@@ -85,153 +17,107 @@ export default function PlayerModel({
   name       = '',
   outfit     = 'casual',
   skin       = '#F4C08A',
+  hair       = '#2C1810',
   emote      = '',
   onEmoteEnd = null,
+  visibleRef = null,   // remote players pass this; local player leaves it null
 }) {
   const groupRef = useRef()
+  const bodyRef  = useRef()   // emote target (bob / tilt / sway)
 
-  const rawWalkFBX      = useFBX('/models/Walking.fbx')
-  const rawIdleFBX      = useFBX('/models/Standing_Idle.fbx')
-  const rawDanceFBX     = useFBX('/sounds/dance.fbx')
-  const rawGreetFBX     = useFBX('/sounds/greet.fbx')
-  const rawHandshakeFBX = useFBX('/sounds/handshake.fbx')
-  const rawLaughFBX     = useFBX('/sounds/laughing.fbx')
+  // ── Force-visible enforcement + remote cull ────────────────────────────────
+  // Something was leaving the avatar's solid (toon) materials at ~0 opacity so
+  // only the unlit eye-shine showed. Re-assert visibility each frame: solid
+  // materials (opacity unexpectedly < 0.1) are restored to 1/opaque, and the
+  // _keepPBR flag tells ToonStyle to leave these materials alone. Intentionally
+  // translucent bits (shadow 0.25, cheeks 0.6) are left untouched.
+  useFrame(() => {
+    const g = groupRef.current
+    if (!g) return
+    if (visibleRef) g.visible = visibleRef.current !== false
+    else            g.visible = true
 
-  const walkFBX = useMemo(() => {
-    const clone = SkeletonUtils.clone(rawWalkFBX)
-    clone.traverse(c => { if (c.isSkinnedMesh) c.geometry = c.geometry.clone() })
-    return clone
-  }, [rawWalkFBX])
-
-  const outfitColor = OUTFIT_COLORS[outfit] || OUTFIT_COLORS.casual
-
-  useEffect(() => {
-    walkFBX.traverse(child => {
-      if (child.isSkinnedMesh) paintClothing(child, skin, outfitColor)
+    // Force the local player's SOLID materials opaque every frame. The local
+    // player is the target of the camera→player occlusion raycast; something in
+    // that path was leaving the body/head/limb materials transparent, so they
+    // rendered see-through (only the eyes showed). This unconditionally re-asserts
+    // opacity, skipping the two INTENTIONALLY translucent bits:
+    //   • the ground shadow disc (depthWrite === false)
+    //   • the pink cheeks (#ffb6c1)
+    // Player-only — NPCs render fine and are not touched.
+    g.traverse(c => {
+      if (!c.isMesh || !c.material) return
+      c.visible = true
+      c.userData._keepPBR = true            // ToonStyle: leave these alone
+      const mats = Array.isArray(c.material) ? c.material : [c.material]
+      mats.forEach(m => {
+        if (m.depthWrite === false) return                       // shadow disc
+        if (m.color && m.color.getHexString() === 'ffb6c1') return // cheeks
+        if (m.opacity !== 1 || m.transparent) {
+          m.transparent = false
+          m.opacity = 1
+          m.depthWrite = true
+          m.needsUpdate = true
+        }
+      })
     })
-  }, [walkFBX, skin, outfitColor])
+  })
 
-  const clips = useMemo(() => {
-    const result = []
-    if (rawWalkFBX.animations[0]) {
-      const clip = rawWalkFBX.animations[0].clone()
-      clip.name = 'Walking'
-      stripRootMotion(clip)
-      result.push(clip)
-    }
-    if (rawIdleFBX.animations[0]) {
-      const clip = rawIdleFBX.animations[0].clone()
-      clip.name = 'Idle'
-      result.push(clip)
-    }
-    const emoteSources = [
-      [rawDanceFBX, 'dance'], [rawGreetFBX, 'greet'],
-      [rawHandshakeFBX, 'handshake'], [rawLaughFBX, 'laughing'],
-    ]
-    for (const [fbx, clipName] of emoteSources) {
-      if (fbx.animations[0]) {
-        const clip = fbx.animations[0].clone()
-        clip.name = clipName
-        stripRootMotion(clip)
-        result.push(clip)
-      }
-    }
-    return result
-  }, [rawWalkFBX, rawIdleFBX, rawDanceFBX, rawGreetFBX, rawHandshakeFBX, rawLaughFBX])
+  // ── Emotes via simple transforms (no skeleton) ─────────────────────────────
+  const emoteRef  = useRef('')
+  const emoteT    = useRef(0)
+  useEffect(() => { emoteRef.current = emote; emoteT.current = 0 }, [emote])
 
-  const { actions, mixer } = useAnimations(clips, groupRef)
-
-  // ── Start idle on mount ───────────────────────────────────────────────────
+  // One-shot emote completion → notify parent
   useEffect(() => {
-    if (actions['Idle']) actions['Idle'].reset().play()
-  }, [actions])
+    if (!emote || emote === 'dance') return
+    const dur = EMOTE_DURATION[emote] ?? 1600
+    const id = setTimeout(() => onEmoteEnd?.(), dur)
+    return () => clearTimeout(id)
+  }, [emote, onEmoteEnd])
 
-  // ── Walk / idle crossfade (skips when emote or sitting is active) ──────────
-  useEffect(() => {
-    if (emote || sitting) return
-    const idle = actions['Idle']
-    const walk = actions['Walking']
-    if (!idle || !walk) return
-    if (walking || running) { idle.fadeOut(0.2); walk.reset().fadeIn(0.2).play() }
-    else                    { walk.fadeOut(0.3); idle.reset().fadeIn(0.3).play() }
-  }, [walking, running, emote, sitting, actions])
-
-  // ── Sitting in vehicle — freeze mixer at current keyframe (avoids T-pose) ──
-  useEffect(() => {
-    if (!mixer) return
-    mixer.timeScale = sitting ? 0 : 1
-    // When sitting ends, timeScale returns to 1 and the walk/idle effect re-fires
-  }, [sitting, mixer])
-
-  // ── Walk timeScale for running ────────────────────────────────────────────
-  useEffect(() => {
-    if (actions['Walking']) actions['Walking'].timeScale = running ? 1.6 : 1.0
-  }, [running, actions])
-
-  // ── Emote controller ──────────────────────────────────────────────────────
-  const prevEmoteRef = useRef('')
-  useEffect(() => {
-    // Guard: if the emote didn't actually change (effect re-ran due to
-    // onEmoteEnd reference changing), don't restart the animation.
-    if (emote && emote === prevEmoteRef.current) return
-
-    const prevEmote = prevEmoteRef.current
-    prevEmoteRef.current = emote
-
-    const idle = actions['Idle']
-    const walk = actions['Walking']
-
-    if (!emote) {
-      // Leaving an emote — return to idle
-      if (prevEmote) {
-        const prev = actions[prevEmote]
-        if (prev?.isRunning()) prev.fadeOut(0.2)
-        if (idle) idle.reset().fadeIn(0.2).play()
-      }
+  useFrame((state, delta) => {
+    const b = bodyRef.current
+    if (!b) return
+    const e = emoteRef.current
+    if (!e) {
+      // ease back to neutral
+      b.rotation.z += (0 - b.rotation.z) * Math.min(1, delta * 10)
+      b.position.y += (0 - b.position.y) * Math.min(1, delta * 10)
       return
     }
-
-    const emoteAction = actions[emote]
-    if (!emoteAction) return
-
-    // Fade out walk, idle, and any previous emote
-    if (idle?.isRunning()) idle.fadeOut(0.2)
-    if (walk?.isRunning()) walk.fadeOut(0.2)
-    if (prevEmote && prevEmote !== emote) {
-      const prev = actions[prevEmote]
-      if (prev?.isRunning()) prev.fadeOut(0.2)
+    emoteT.current += delta
+    const t = state.clock.elapsedTime
+    if (e === 'dance') {
+      b.position.y = Math.abs(Math.sin(t * 6)) * 0.12
+      b.rotation.z = Math.sin(t * 6) * 0.18
+    } else if (e === 'laughing') {
+      b.rotation.z = Math.sin(t * 10) * 0.12
+    } else if (e === 'greet' || e === 'handshake') {
+      b.position.y = Math.sin(t * 8) * 0.05
     }
-
-    const isDance = emote === 'dance'
-    emoteAction.reset()
-    if (isDance) {
-      emoteAction.setLoop(THREE.LoopRepeat, Infinity)
-    } else {
-      emoteAction.setLoop(THREE.LoopOnce, 1)
-      emoteAction.clampWhenFinished = true
-    }
-    emoteAction.fadeIn(0.2).play()
-
-    // Notify parent when a one-shot emote finishes
-    if (!isDance && mixer) {
-      const onFinish = (e) => {
-        if (e.action === emoteAction) {
-          mixer.removeEventListener('finished', onFinish)
-          onEmoteEnd?.()
-        }
-      }
-      mixer.addEventListener('finished', onFinish)
-      return () => { mixer.removeEventListener('finished', onFinish) }
-    }
-  }, [emote, actions, mixer, onEmoteEnd])
+  })
 
   return (
     <group ref={groupRef}>
-      <primitive object={walkFBX} scale={0.01} position={[0, 0, 0]} />
+      {/* bodyRef wraps the avatar so emote transforms don't fight Avatar3D's
+          own limb animation (which uses externalControl + walking) */}
+      <group ref={bodyRef}>
+        <Avatar3D
+          externalControl
+          walking={walking || running}
+          outfit={outfit}
+          skin={skin}
+          hair={hair}
+          isPlayer={!visibleRef}
+        />
+      </group>
       {name ? (
         <Billboard position={[0, 2.4, 0]}>
           <Text fontSize={0.2} color="#facc15" anchorX="center" anchorY="middle">★ {name}</Text>
-          <Text fontSize={0.12} color="#facc15" anchorX="center" anchorY="middle" position={[0, -0.27, 0]}>• You</Text>
+          {!visibleRef && (
+            <Text fontSize={0.12} color="#facc15" anchorX="center" anchorY="middle" position={[0, -0.27, 0]}>• You</Text>
+          )}
         </Billboard>
       ) : null}
     </group>

@@ -95,22 +95,23 @@ function FallbackTrees({ placements }) {
 }
 
 function ChunkTreesInner({ allTrees }) {
-  const { scene: scene1 } = useGLTF('/models/tree1.glb')
+  // PERF: render all chunk trees with the lighter tree2.glb (7,678 tris) instead
+  // of tree1.glb (34,980 tris). Half rotated 180° for variety. tree1 is no longer
+  // used anywhere in the world — it was the dominant triangle cost.
   const { scene: scene2 } = useGLTF('/models/tree2.glb')
 
-  // Split alternately between tree1 and tree2 for variety
   const p1 = useMemo(
     () => allTrees.filter((_, i) => i % 2 === 0).map(t => [t.x, t.z, t.s, t.ry]),
     [allTrees]
   )
   const p2 = useMemo(
-    () => allTrees.filter((_, i) => i % 2 !== 0).map(t => [t.x, t.z, t.s, t.ry]),
+    () => allTrees.filter((_, i) => i % 2 !== 0).map(t => [t.x, t.z, t.s, t.ry + Math.PI]),
     [allTrees]
   )
 
   return (
     <>
-      <DynamicInstanced scene={scene1} placements={p1} />
+      <DynamicInstanced scene={scene2} placements={p1} />
       <DynamicInstanced scene={scene2} placements={p2} />
     </>
   )

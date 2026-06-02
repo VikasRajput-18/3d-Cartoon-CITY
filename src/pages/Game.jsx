@@ -116,8 +116,11 @@ export default function Game() {
       }
     })
     if (supabase) {
-      supabase.from('players').select('banned_until, ban_reason').eq('id', user.id).maybeSingle()
-        .then(({ data }) => {
+      // select('*') tolerates missing banned_until/ban_reason columns (no 400);
+      // both .then error arg and .catch keep a failed query from crashing login.
+      supabase.from('players').select('*').eq('id', user.id).maybeSingle()
+        .then(({ data, error }) => {
+          if (error) return
           if (data?.banned_until && new Date(data.banned_until) > new Date()) {
             setBanInfo({ reason: data.ban_reason, until: data.banned_until })
           }

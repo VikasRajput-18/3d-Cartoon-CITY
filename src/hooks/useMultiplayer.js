@@ -179,6 +179,10 @@ export function useMultiplayer({ userId, avatar }) {
       config: { presence: { key: userId } },
     })
     channelRef.current = channel
+    // Tracks whether the WebSocket has actually joined. Calling channel.send()
+    // before SUBSCRIBED makes Supabase fall back to the REST API (the console
+    // warning). We gate all broadcasts on this flag so they only go over WS.
+    let channelJoined = false
 
     // Presence sync
     channel.on('presence', { event: 'sync' }, () => {
@@ -329,7 +333,8 @@ export function useMultiplayer({ userId, avatar }) {
       .subscribe()
 
     channel.subscribe(async (status) => {
-      if (status !== 'SUBSCRIBED') return
+      if (status !== 'SUBSCRIBED') { channelJoined = false; return }
+      channelJoined = true
 
       // Initial upsert — announce ourselves to the DB (rate-limited)
       if (canUpsert()) {
@@ -366,6 +371,7 @@ export function useMultiplayer({ userId, avatar }) {
     // ── Position broadcast every 80 ms (no DB writes here) ───────────────
     const posInterval = setInterval(() => {
       if (channelRef.current !== channel) return
+      if (!channelJoined) return   // don't send before WS join (avoids REST fallback)
       const moving      = minimapState.isMoving
       const driving     = minimapState.drivingType
       const isPassenger = !!minimapState.passengerOf
@@ -492,7 +498,7 @@ export function useMultiplayer({ userId, avatar }) {
       vehicleState[vType].driverId    = null; vehicleState[vType].driverName    = null
       vehicleState[vType].passengerId = null; vehicleState[vType].passengerName = null
       vehicleState[vType].x = x; vehicleState[vType].z = z; vehicleState[vType].facing = facing
-      channel.send({
+      if (channelJoined) channel.send({
         type: 'broadcast', event: 'vehicle',
         payload: { vehicle_id: vType, x, z, facing, speed: 0, driver_id: null, passenger_id: null },
       })

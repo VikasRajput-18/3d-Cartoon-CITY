@@ -322,7 +322,9 @@ function CityPlaza() {
 }
 
 // ── Reusable Building ─────────────────────────────────────────────────────
-function Building({ pos, w = 2, d = 2, h = 4, color = '#d4c5a9', roof = '#8a7560' }) {
+// Original primitive building — kept as the Suspense fallback so the city never
+// breaks if a GLTF fails to load.
+function BuildingPrimitive({ pos, w = 2, d = 2, h = 4, color = '#d4c5a9', roof = '#8a7560' }) {
   return (
     <group position={pos}>
       <mesh position={[0, h / 2, 0]}>
@@ -339,6 +341,13 @@ function Building({ pos, w = 2, d = 2, h = 4, color = '#d4c5a9', roof = '#8a7560
       </mesh>
     </group>
   )
+}
+
+// REVERTED: render the original primitive building. The GLTF swap produced
+// red untextured blocks at wrong scale, so we are back to the working version
+// until assets are measured and verified (see MeasureAsset debug component).
+function Building(props) {
+  return <BuildingPrimitive {...props} />
 }
 
 // ── House ─────────────────────────────────────────────────────────────────
@@ -395,15 +404,19 @@ const TREE_DATA = [
   [-8,-20,.82],[-5,-20,.82],[5,-20,.82],[8,-20,.82],
 ]
 
+// PERF: tree1.glb is 34,980 tris/instance vs tree2.glb's 7,678 (4.5× lighter).
+// Render EVERY tree with tree2 — this alone cuts ~1.1M triangles. Half the
+// placements are rotated 180° so the city still looks varied. Tree positions
+// (and their collision circles) are unchanged.
 const MID = Math.ceil(TREE_DATA.length / 2)
-const TREE1_PLACEMENTS = TREE_DATA.slice(0, MID).map(([x, z, s]) => [x, z, s, 0])
-const TREE2_PLACEMENTS = TREE_DATA.slice(MID).map(([x, z, s]) => [x, z, s, Math.PI])
+const TREE2_A = TREE_DATA.slice(0, MID).map(([x, z, s]) => [x, z, s, 0])
+const TREE2_B = TREE_DATA.slice(MID).map(([x, z, s]) => [x, z, s, Math.PI])
 
 function GLBTrees() {
   return (
     <>
-      <InstancedGLBModel url="/models/tree1.glb" placements={TREE1_PLACEMENTS} scale={TREE_SCALE} />
-      <InstancedGLBModel url="/models/tree2.glb" placements={TREE2_PLACEMENTS} scale={TREE_SCALE} />
+      <InstancedGLBModel url="/models/tree2.glb" placements={TREE2_A} scale={TREE_SCALE} />
+      <InstancedGLBModel url="/models/tree2.glb" placements={TREE2_B} scale={TREE_SCALE} />
     </>
   )
 }
@@ -1096,6 +1109,13 @@ function Playground() {
 }
 
 // ── Center interactive buildings (Cafe, Arcade, Beach Club, etc.) ─────────
+// Swapped to real GLTF assets at their EXACT original positions. Type chosen by
+// the original height (≥5 large, 3–5 medium, <3 small). Collision boxes in
+// playerColliders.js were updated to the scaled footprints. Each SafeBuilding
+// falls back to the original primitive box if its GLTF fails to load.
+// REVERTED from GLTF — the City Kit building models were 12-13 materials each
+// (1500+ draw calls, 2.5M triangles → 10-17 FPS). Back to the lightweight
+// primitive boxes (3 draw calls each). Collision boxes restored to match.
 function CenterBuildings() {
   return (
     <>
@@ -1192,5 +1212,5 @@ const CityMap = React.memo(function CityMap() {
 
 export default CityMap
 
-useGLTF.preload('/models/tree1.glb')
+// tree1.glb no longer used (34,980 tris/instance) — only preload the light tree2
 useGLTF.preload('/models/tree2.glb')

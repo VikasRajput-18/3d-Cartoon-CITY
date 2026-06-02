@@ -1,14 +1,16 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { minimapState } from '@/lib/minimapState'
 import { registerChunk, unregisterChunk } from '@/lib/buildingColliders'
 import { addCollider, removeCollidersWithPrefix } from '@/lib/playerColliders'
 import { registerChunkTrees, unregisterChunkTrees } from '@/lib/chunkTreeState'
+import { gradientMap } from './ToonStyle'
 
-const CHUNK_SIZE = 60
+const CHUNK_SIZE = 80   // larger chunks (was 60) — more world per chunk, fewer regenerations
 const HALF       = CHUNK_SIZE / 2
-const VIEW_R     = 1  // 3×3 = 9 chunks active (was 25) — big draw-call + geometry cut
+const VIEW_R     = 1  // 3×3 = 9 chunks active — already at the "max 9" target
 
 // Skip the 3×3 city-centre chunks (CityMap covers this area)
 function isCityChunk(cx, cz) {
@@ -25,7 +27,14 @@ function lcg(seed) {
 }
 
 function makeMat(color) {
-  return new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0 })
+  // Born "complete": gradientMap baked in + _toon flag set, so the global
+  // ToonStyle pass skips these materials and never mutates gradientMap later.
+  // That mutation was forcing a shader recompile per chunk (the Programs spike).
+  // Each chunk still gets its OWN material instance so the per-chunk opacity
+  // fade-in keeps working — same shader program, different uniforms.
+  const m = new THREE.MeshToonMaterial({ color, transparent: true, opacity: 0, gradientMap })
+  m.userData._toon = true
+  return m
 }
 
 // Returns { group, colliders, playerBox, trees } for this chunk.
@@ -42,6 +51,7 @@ function buildChunkMesh(cx, cz) {
 
   const group = new THREE.Group()
   group.position.set(wx, 0, wz)
+  group.userData.dynamic = true   // streaming chunk — never merge (it disposes/reloads)
 
   // Ground
   const ground = new THREE.Mesh(
@@ -67,31 +77,41 @@ function buildChunkMesh(cx, cz) {
     treeList.push({ x: wx + localX, z: wz + localZ, s, ry })
   }
 
+  // Merge a road's lane dashes into ONE mesh. Each dash is a flat plane laid on
+  // the ground (rotated -90° on X); we bake that rotation + position into the
+  // geometry then merge, so 8 dashes become 1 draw call / 1 geometry per road.
+  const ROT_FLAT = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
+  function addMergedDashes(orientation) {
+    const dashCount = 8
+    const geos = []
+    for (let i = 0; i < dashCount; i++) {
+      const g = orientation === 'ns'
+        ? new THREE.PlaneGeometry(0.12, 4)
+        : new THREE.PlaneGeometry(4, 0.12)
+      g.applyMatrix4(ROT_FLAT)
+      const along = -HALF + (i + 0.5) * (CHUNK_SIZE / dashCount)
+      if (orientation === 'ns') g.applyMatrix4(new THREE.Matrix4().makeTranslation(0, 0.02, along))
+      else                      g.applyMatrix4(new THREE.Matrix4().makeTranslation(along, 0.02, 0))
+      geos.push(g)
+    }
+    const merged = mergeGeometries(geos, false)
+    geos.forEach(g => g.dispose())
+    if (merged) group.add(new THREE.Mesh(merged, makeMat('#facc15')))
+  }
+
   if (isNSRoad) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(4, CHUNK_SIZE), makeMat('#22252e'))
     road.rotation.x = -Math.PI / 2
     road.position.y  = 0.01
     group.add(road)
-    const dashCount = 8
-    for (let i = 0; i < dashCount; i++) {
-      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 4), makeMat('#facc15'))
-      dash.rotation.x = -Math.PI / 2
-      dash.position.set(0, 0.02, -HALF + (i + 0.5) * (CHUNK_SIZE / dashCount))
-      group.add(dash)
-    }
+    addMergedDashes('ns')   // 8 dash planes → 1 merged mesh
   }
   if (isEWRoad) {
     const road = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK_SIZE, 4), makeMat('#22252e'))
     road.rotation.x = -Math.PI / 2
     road.position.y  = 0.01
     group.add(road)
-    const dashCount = 8
-    for (let i = 0; i < dashCount; i++) {
-      const dash = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.12), makeMat('#facc15'))
-      dash.rotation.x = -Math.PI / 2
-      dash.position.set(-HALF + (i + 0.5) * (CHUNK_SIZE / dashCount), 0.02, 0)
-      group.add(dash)
-    }
+    addMergedDashes('ew')   // 8 dash planes → 1 merged mesh
   }
 
   // Roadside trees for road chunks
@@ -116,21 +136,25 @@ function buildChunkMesh(cx, cz) {
   // ── GRID PLACEMENT: checkerboard — only even (cx+cz) chunks get a building ──
   const eligible = (cx + cz) % 2 === 0
 
-  if (eligible && type < 0.55) {
+  if (eligible && type < 0.30) {
     // ── Building chunk: ONE building at chunk centre (local 0, 0) ────────────
+    // Spawn probability lowered 0.55 → 0.30 to roughly halve the number of
+    // chunk buildings on screen (≈ halves chunk-building draw calls). Freed
+    // probability falls through to lighter park / empty chunks.
     const w  = 4 + rng() * 4    // width  4-8  (capped for clear spacing)
     const h  = 5 + rng() * 13   // height 5-18
     const d  = 4 + rng() * 4    // depth  4-8
-    const ci = Math.floor(rng() * 6)
-    const colors = ['#475569', '#64748b', '#7c3aed', '#1e40af', '#374151', '#52525b']
+    // Muted, cohesive wall palette (no neon) — matches the stylized art direction
+    const colors = ['#F5E6C8', '#EDE0CC', '#B8A898', '#C17B5C', '#7B9BA6', '#7A9E7E', '#9E9087']
+    const ci = Math.floor(rng() * colors.length)
 
     // Building body at local (0, h/2, 0)
     const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), makeMat(colors[ci]))
     body.position.set(0, h / 2, 0)
     group.add(body)
 
-    // Roof parapet
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.35, d + 0.5), makeMat('#1e293b'))
+    // Roof parapet — dark slate roof tone
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.35, d + 0.5), makeMat('#2C3442'))
     roof.position.set(0, h + 0.175, 0)
     group.add(roof)
 
@@ -167,7 +191,9 @@ function buildChunkMesh(cx, cz) {
     parkGrass.rotation.x = -Math.PI / 2
     parkGrass.position.y  = -0.01
     group.add(parkGrass)
-    const count = 5 + Math.floor(rng() * 8)
+    // PERF: capped at 3-6 (was 5-13). Each tree is ~7.7k tris; park chunks were
+    // a major triangle source when several were active at once.
+    const count = 3 + Math.floor(rng() * 4)
     for (let i = 0; i < count; i++) {
       addTree((rng() - 0.5) * (CHUNK_SIZE - 8), (rng() - 0.5) * (CHUNK_SIZE - 8))
     }
@@ -190,6 +216,7 @@ export default function ProceduralWorld() {
   const chunksRef = useRef(new Map())
   const queueRef  = useRef([])
   const lastChunk = useRef({ x: null, z: null })
+  const lastGenTime = useRef(0)   // throttle: max one chunk generated per interval
 
   useFrame(() => {
     if (!worldRef.current) return
@@ -219,7 +246,11 @@ export default function ProceduralWorld() {
           if (entry) {
             worldRef.current.remove(entry.group)
             entry.group.traverse(child => {
-              if (child.isMesh) { child.geometry.dispose(); child.material.dispose() }
+              if (child.isMesh) {
+                child.geometry?.dispose()
+                if (Array.isArray(child.material)) child.material.forEach(m => m?.dispose())
+                else child.material?.dispose()
+              }
             })
             unregisterChunk(key)
             removeCollidersWithPrefix(`chunk:${key}:`)
@@ -230,25 +261,28 @@ export default function ProceduralWorld() {
       }
     }
 
-    // Generate 1 chunk per frame to avoid hitches
-    while (queueRef.current.length > 0) {
+    // Throttle: generate at most one chunk every 350ms. This spreads the
+    // geometry-creation spikes over time so a burst of newly-needed chunks can't
+    // add 100+ geometries in a single frame (the VRAM spike that crashed WebGL).
+    const nowMs = performance.now()
+    if (queueRef.current.length > 0 && nowMs - lastGenTime.current > 350) {
       const { cx, cz, key } = queueRef.current.shift()
-      if (chunksRef.current.has(key)) continue
-
-      const result = buildChunkMesh(cx, cz)
-      if (result) {
-        const { group, colliders, playerBox, trees } = result
-        const birthTime = performance.now() / 1000
-        group.userData.birthTime = birthTime
-        worldRef.current.add(group)
-        chunksRef.current.set(key, { group, birthTime, colliders })
-        if (colliders.length > 0) registerChunk(key, colliders)
-        if (playerBox) addCollider(playerBox.x, playerBox.z, playerBox.w, playerBox.d, `chunk:${key}:bldg`)
-        registerChunkTrees(key, trees || [])
-      } else {
-        chunksRef.current.set(key, null)  // city area — no mesh
+      if (!chunksRef.current.has(key)) {
+        lastGenTime.current = nowMs
+        const result = buildChunkMesh(cx, cz)
+        if (result) {
+          const { group, colliders, playerBox, trees } = result
+          const birthTime = performance.now() / 1000
+          group.userData.birthTime = birthTime
+          worldRef.current.add(group)
+          chunksRef.current.set(key, { group, birthTime, colliders })
+          if (colliders.length > 0) registerChunk(key, colliders)
+          if (playerBox) addCollider(playerBox.x, playerBox.z, playerBox.w, playerBox.d, `chunk:${key}:bldg`)
+          registerChunkTrees(key, trees || [])
+        } else {
+          chunksRef.current.set(key, null)  // city area — no mesh
+        }
       }
-      break
     }
 
     // Fade in newly added chunks

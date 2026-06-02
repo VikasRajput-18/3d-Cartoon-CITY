@@ -6,6 +6,8 @@ import { COSTS } from './costs'
 const _settings = {}
 const _listeners = new Set()
 let _ready = false
+let _initStarted = false   // guard against double init (double .on()/.subscribe())
+let _settingsChannel = null
 
 function _notify() { _listeners.forEach(fn => fn({ ..._settings })) }
 
@@ -56,6 +58,7 @@ function _applyCosts() {
 
 export async function initGameSettings() {
   if (!supabase) { _ready = true; return }
+
   try {
     const { data } = await supabase.from('game_settings').select('key, value')
     if (data) {
@@ -67,8 +70,15 @@ export async function initGameSettings() {
   _ready = true
   _notify()
 
-  // Subscribe to real-time settings changes (admin updates go live instantly)
-  supabase.channel('settings_rt')
+  // Subscribe ONCE. Calling initGameSettings twice previously added a second
+  // .on() to the already-subscribed channel → "cannot add postgres_changes
+  // callbacks after subscribe()". Guard + single channel fixes it.
+  if (_initStarted) return
+  _initStarted = true
+
+  // All .on() handlers MUST be chained before .subscribe()
+  _settingsChannel = supabase.channel('settings_rt')
+  _settingsChannel
     .on('postgres_changes', { event: '*', schema: 'public', table: 'game_settings' }, ({ new: row }) => {
       if (row?.key) {
         _settings[row.key] = row.value

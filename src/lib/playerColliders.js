@@ -39,7 +39,7 @@ export const boxColliders = [
   // PostOffice:    group (16, 22) mesh (0,2,0)    [5.6,4,4.4]
   { x:  16, z:  22, hw: 2.8, hd: 2.2, label: 'post-office' },
 
-  // ── Centre interactive buildings (Building component — mesh at group pos) ──
+  // ── Centre interactive buildings (primitive boxes — restored after GLTF revert) ──
   // Cafe:       pos=[-14,-14] w=4.4 d=4.4
   { x: -14, z: -14, hw: 2.2, hd: 2.2, label: 'cafe' },
   // Arcade:     pos=[ 14,-14] w=4.4 d=4.4
@@ -165,8 +165,5 @@ export function removeCollidersWithPrefix(prefix) {
 }
 
 export function logAllColliders() {
-  console.log('Collision boxes:', boxColliders.length, boxColliders)
-  console.log('Collision circles:', circleColliders.length, circleColliders)
+  /* diagnostics removed */
 }
-
-logAllColliders()
