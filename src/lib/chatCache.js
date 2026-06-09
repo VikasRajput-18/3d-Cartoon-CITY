@@ -6,7 +6,7 @@ const npcCache  = new Map()   // npcName → { msgs, hist }
 
 // ── Direct messages ──────────────────────────────────────────────────────────
 
-export function dmKey(a, b) {
+function dmKey(a, b) {
   return [a, b].sort().join('-')
 }
 

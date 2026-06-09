@@ -22,4 +22,8 @@ export const voiceState = {
   speakingSet:     new Set(),
   mutedSet:        loadMuted(),   // persisted in localStorage
   voiceEnabledSet: new Set(),
+  selfMuted:       false,         // local mic muted (still connected)
+  localMode:       'normal',      // 'normal' | 'whisper' | 'megaphone'
+  localModeUntil:  0,             // megaphone auto-expiry timestamp
+  remoteModes:     new Map(),     // uid → 'normal' | 'whisper' | 'megaphone'
 }

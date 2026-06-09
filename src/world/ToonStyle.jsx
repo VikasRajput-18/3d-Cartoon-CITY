@@ -92,22 +92,27 @@ export default function ToonStyle() {
   return null
 }
 
-// ── Simple stylized clouds — flat toon discs drifting slowly ──────────────────
+// ── Puffy volumetric-ish clouds — clusters of overlapping spheres, drifting ────
 export function Clouds() {
   const groupRef = useRef()
-  const cloudMat = useMemo(() => new THREE.MeshToonMaterial({
-    color: '#ffffff', transparent: true, opacity: 0.9, gradientMap, depthWrite: false,
+  const cloudMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#ffffff', transparent: true, opacity: 0.9, roughness: 1, metalness: 0, depthWrite: false,
   }), [])
 
   const clouds = useMemo(() => {
     const out = []
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
+      const puffN = 3 + Math.floor(Math.random() * 3)
       out.push({
-        x: (Math.random() - 0.5) * 220,
-        y: 42 + Math.random() * 16,
-        z: (Math.random() - 0.5) * 220,
-        s: 6 + Math.random() * 8,
-        speed: 0.4 + Math.random() * 0.5,
+        x: (Math.random() - 0.5) * 380,
+        y: 38 + Math.random() * 26,
+        z: (Math.random() - 0.5) * 380,
+        s: 3 + Math.random() * 5,                       // overall cloud scale (3 small … 8 large)
+        speed: 0.3 + Math.random() * 0.5,
+        puffs: Array.from({ length: puffN }, () => [
+          (Math.random() - 0.5) * 2.6, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 1.8,
+          0.6 + Math.random() * 0.6,
+        ]),
       })
     }
     return out
@@ -118,26 +123,75 @@ export function Clouds() {
     if (!g) return
     g.children.forEach((c, i) => {
       c.position.x += clouds[i].speed * delta
-      if (c.position.x > 120) c.position.x = -120
+      if (c.position.x > 220) c.position.x = -220     // wrap around
     })
   })
 
   return (
     <group ref={groupRef}>
       {clouds.map((c, i) => (
-        <group key={i} position={[c.x, c.y, c.z]}>
-          {/* a cloud = a few overlapping flat discs for a bold puffy silhouette */}
-          <mesh material={cloudMat} rotation={[-Math.PI / 2.2, 0, 0]}>
-            <circleGeometry args={[c.s, 16]} />
-          </mesh>
-          <mesh material={cloudMat} position={[c.s * 0.6, 0, c.s * 0.3]} rotation={[-Math.PI / 2.2, 0, 0]}>
-            <circleGeometry args={[c.s * 0.7, 16]} />
-          </mesh>
-          <mesh material={cloudMat} position={[-c.s * 0.6, 0, c.s * 0.2]} rotation={[-Math.PI / 2.2, 0, 0]}>
-            <circleGeometry args={[c.s * 0.65, 16]} />
-          </mesh>
+        <group key={i} position={[c.x, c.y, c.z]} scale={c.s} userData={{ noMerge: true }}>
+          {c.puffs.map((p, j) => (
+            <mesh key={j} material={cloudMat} position={[p[0], p[1], p[2]]} scale={p[3]}>
+              <sphereGeometry args={[1, 10, 8]} />
+            </mesh>
+          ))}
         </group>
       ))}
     </group>
+  )
+}
+
+// ── Sky dome — vertical gradient that tracks the day/night background colour ───
+// DayNightCycle keeps scene.background as a live Color (changes with time). The
+// dome reads it each frame for the horizon colour and darkens it toward the zenith,
+// so the gradient stays in sync with day/night instead of fighting it. It follows
+// the camera so the player is always inside it.
+export function SkyDome() {
+  const { scene, camera } = useThree()
+  const meshRef = useRef()
+  const uniforms = useMemo(() => ({
+    topColor:    { value: new THREE.Color('#1a6fa8') },
+    bottomColor: { value: new THREE.Color('#87CEEB') },
+    offset:      { value: 20 },
+    exponent:    { value: 0.4 },
+  }), [])
+
+  useFrame(() => {
+    if (meshRef.current) meshRef.current.position.copy(camera.position)
+    const bg = scene.background
+    if (bg && bg.isColor) {
+      uniforms.bottomColor.value.copy(bg)
+      uniforms.topColor.value.copy(bg).multiplyScalar(0.5)   // deeper blue overhead
+    }
+  })
+
+  return (
+    <mesh ref={meshRef} renderOrder={-1} frustumCulled={false}>
+      <sphereGeometry args={[500, 16, 16]} />
+      <shaderMaterial
+        uniforms={uniforms}
+        side={THREE.BackSide}
+        depthWrite={false}
+        vertexShader={`
+          varying vec3 vPos;
+          void main() {
+            vPos = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `}
+        fragmentShader={`
+          uniform vec3 topColor;
+          uniform vec3 bottomColor;
+          uniform float offset;
+          uniform float exponent;
+          varying vec3 vPos;
+          void main() {
+            float h = normalize(vPos + offset).y;
+            gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+          }
+        `}
+      />
+    </mesh>
   )
 }

@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useMemo, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import { timeWeatherState } from '@/lib/timeWeatherState'
+import { SwimmingPool, Airport } from './Locations'
 
 const windowMat    = new THREE.MeshStandardMaterial({ color: '#1e293b', transparent: true, opacity: 0.65, roughness: 0.1, metalness: 0.2 })
 const lampGlobeMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.3, metalness: 0.1, emissive: '#000000' })
@@ -13,61 +13,22 @@ const APT_WIN = [
   '#FEF9C3','#FEF9C3','#1e293b','#FEF9C3','#FEF9C3','#1e293b',
 ]
 
-const TREE_SCALE = 0.018
-
-function InstancedGLBModel({ url, placements, scale: gs = 1 }) {
-  const { scene } = useGLTF(url)
-  const { meshes, yOffset } = useMemo(() => {
-    scene.updateWorldMatrix(true, true)
-    const box = new THREE.Box3().setFromObject(scene)
-    const yOff = box.isEmpty() ? 0 : Math.max(0, -box.min.y)
-    const rootInv = new THREE.Matrix4().copy(scene.matrixWorld).invert()
-    const meshes = []
-    scene.traverse(child => {
-      if (!child.isMesh || !child.geometry) return
-      const mat = Array.isArray(child.material) ? child.material[0] : child.material
-      const localOffset = new THREE.Matrix4().multiplyMatrices(rootInv, child.matrixWorld)
-      meshes.push({ geo: child.geometry, mat, localOffset })
-    })
-    return { meshes, yOffset: yOff }
-  }, [scene])
-
-  const refs = useRef([])
-  useEffect(() => {
-    if (!meshes.length || !placements.length) return
-    const dummy = new THREE.Object3D()
-    placements.forEach(([x, z, s = 1, ry = 0], idx) => {
-      const es = s * gs
-      dummy.position.set(x, yOffset * es, z)
-      dummy.rotation.set(0, ry, 0)
-      dummy.scale.setScalar(es)
-      dummy.updateMatrix()
-      meshes.forEach(({ localOffset }, mi) => {
-        const ref = refs.current[mi]
-        if (ref) ref.setMatrixAt(idx, new THREE.Matrix4().multiplyMatrices(dummy.matrix, localOffset))
-      })
-    })
-    meshes.forEach((_, mi) => {
-      if (refs.current[mi]) refs.current[mi].instanceMatrix.needsUpdate = true
-    })
-  }, [meshes, placements, gs, yOffset])
-
-  return (
-    <>
-      {meshes.map(({ geo, mat }, mi) => (
-        <instancedMesh key={mi} ref={el => refs.current[mi] = el} args={[geo, mat, placements.length]}
-          castShadow={false} receiveShadow={false} frustumCulled={false} />
-      ))}
-    </>
-  )
-}
 
 // ── Ground ──────────────────────────────────────────────────────────────────
 function Ground() {
+  // Tiled grass texture for natural variation. If the external texture fails to
+  // load (offline/CORS) the material still shows the darker base colour, so this
+  // can never break the scene.
+  const grass = useMemo(() => {
+    const t = new THREE.TextureLoader().load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg')
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    t.repeat.set(40, 40)
+    return t
+  }, [])
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[500, 500]} />
-      <meshStandardMaterial color="#3a6b27" roughness={0.9} metalness={0} />
+      <meshStandardMaterial map={grass} color="#3d6b35" roughness={0.95} metalness={0} />
     </mesh>
   )
 }
@@ -325,20 +286,57 @@ function CityPlaza() {
 // Original primitive building — kept as the Suspense fallback so the city never
 // breaks if a GLTF fails to load.
 function BuildingPrimitive({ pos, w = 2, d = 2, h = 4, color = '#d4c5a9', roof = '#8a7560' }) {
+  // Window grid so these read as finished buildings (not plain boxes). Windows use
+  // the shared windowMat, so DynamicLighting makes them glow warm at night.
+  const cols = Math.max(2, Math.round(w / 1.4))
+  const rows = Math.max(1, Math.round((h - 1.2) / 1.4))
+  const wins = []
+  for (let r = 0; r < rows; r++) {
+    const wy = 1.4 + r * 1.4
+    if (wy > h - 0.5) break
+    for (let c = 0; c < cols; c++) {
+      const wx = -w / 2 + (c + 1) * (w / (cols + 1))
+      wins.push([wx, wy])
+    }
+  }
+  const winW = (w / (cols + 1)) * 0.62
   return (
     <group position={pos}>
+      {/* body */}
       <mesh position={[0, h / 2, 0]}>
         <boxGeometry args={[w, h, d]} />
         <meshStandardMaterial color={color} roughness={0.55} metalness={0.04} />
       </mesh>
+      {/* toon outline */}
       <mesh position={[0, h / 2, 0]} scale={[1.025, 1.01, 1.025]}>
         <boxGeometry args={[w, h, d]} />
         <meshBasicMaterial color="#000" side={THREE.BackSide} />
       </mesh>
+      {/* roof slab + trim */}
       <mesh position={[0, h + 0.15, 0]}>
         <boxGeometry args={[w + 0.15, 0.3, d + 0.15]} />
         <meshStandardMaterial color={roof} roughness={0.5} />
       </mesh>
+      <mesh position={[0, h + 0.34, 0]}>
+        <boxGeometry args={[w * 0.5, 0.18, d * 0.5]} />
+        <meshStandardMaterial color={roof} roughness={0.6} />
+      </mesh>
+      {/* door */}
+      <mesh position={[0, 0.7, d / 2 + 0.04]}>
+        <boxGeometry args={[Math.min(1.1, w * 0.28), 1.4, 0.08]} />
+        <meshStandardMaterial color="#3a2a1a" roughness={0.7} />
+      </mesh>
+      {/* windows on front (+z) and back (−z) */}
+      {wins.map(([wx, wy], i) => (
+        <group key={i}>
+          <mesh position={[wx, wy, d / 2 + 0.03]} material={windowMat}>
+            <planeGeometry args={[winW, 0.6]} />
+          </mesh>
+          <mesh position={[wx, wy, -d / 2 - 0.03]} rotation={[0, Math.PI, 0]} material={windowMat}>
+            <planeGeometry args={[winW, 0.6]} />
+          </mesh>
+        </group>
+      ))}
     </group>
   )
 }
@@ -386,39 +384,59 @@ function House({ pos, color = '#e8d5b7', roofColor = '#8b3a2a', rotate = 0 }) {
 
 // ── GLB Trees ─────────────────────────────────────────────────────────────
 const TREE_DATA = [
-  // Roundabout island
-  [-4,-4,1],[-4,4,1],[4,-4,1],[4,4,1],[-6,0,0.9],[6,0,0.9],[0,-6,0.9],[0,6,0.9],
-  // Along E-W highway footpaths
-  [-48,-9,.85],[-36,-9,.85],[-24,-9,.85],[-12,-9,.85],[12,-9,.85],[24,-9,.85],[36,-9,.85],[48,-9,.85],
-  [-48, 9,.85],[-36, 9,.85],[-24, 9,.85],[-12, 9,.85],[12, 9,.85],[24, 9,.85],[36, 9,.85],[48, 9,.85],
-  // Along N-S highway footpaths
-  [-9,-48,.85],[-9,-36,.85],[-9,-24,.85],[-9,-12,.85],[-9,12,.85],[-9,24,.85],[-9,36,.85],[-9,48,.85],
-  [ 9,-48,.85],[ 9,-36,.85],[ 9,-24,.85],[ 9,-12,.85],[ 9,12,.85],[ 9,24,.85],[ 9,36,.85],[ 9,48,.85],
-  // SE residential zone trees
-  [22,28,.8],[28,28,.8],[35,28,.8],[44,28,.8],
-  [22,38,.8],[28,38,.8],[35,38,.8],[44,38,.8],
-  [22,48,.8],[28,48,.8],[35,48,.8],[44,48,.8],
-  // NW zone
-  [-18,24,.8],[-22,24,.8],[-26,34,.8],[-36,34,.8],
-  // NE park zone
-  [-8,-20,.82],[-5,-20,.82],[5,-20,.82],[8,-20,.82],
+  // Sparse — only along the main highway footpath edges, spaced ≥24 units apart.
+  // 12 trees total (was 60). Must stay in sync with the tree collision circles
+  // in playerColliders.js (same positions).
+  // E-W highway south footpath (z=-9)
+  [-36,-9,.85],[-12,-9,.85],[12,-9,.85],[36,-9,.85],
+  // E-W highway north footpath (z=9)
+  [-24, 9,.85],[24, 9,.85],
+  // N-S highway west footpath (x=-9)
+  [-9,-36,.85],[-9,12,.85],
+  // N-S highway east footpath (x=9)
+  [ 9,-24,.85],[ 9,36,.85],
+  // SE residential edge
+  [44,38,.8],[28,48,.8],
 ]
 
-// PERF: tree1.glb is 34,980 tris/instance vs tree2.glb's 7,678 (4.5× lighter).
-// Render EVERY tree with tree2 — this alone cuts ~1.1M triangles. Half the
-// placements are rotated 180° so the city still looks varied. Tree positions
-// (and their collision circles) are unchanged.
-const MID = Math.ceil(TREE_DATA.length / 2)
-const TREE2_A = TREE_DATA.slice(0, MID).map(([x, z, s]) => [x, z, s, 0])
-const TREE2_B = TREE_DATA.slice(MID).map(([x, z, s]) => [x, z, s, Math.PI])
+// Primitive instanced trees — replaces the GLB tree models (which went missing
+// and crashed the loader). Two InstancedMeshes total: all trunks (cylinder) +
+// all foliage (cone). Positions/scales come from TREE_DATA, so tree placement
+// and collision circles are completely unchanged.
+function PrimitiveTrees({ placements }) {
+  const trunkRef = useRef()
+  const leafRef  = useRef()
+  const trunkGeo = useMemo(() => new THREE.CylinderGeometry(0.18, 0.28, 2.4, 6), [])
+  const leafGeo  = useMemo(() => new THREE.ConeGeometry(1.5, 3.4, 7), [])
+  const trunkMat = useMemo(() => new THREE.MeshToonMaterial({ color: '#5C3D2E' }), [])
+  const leafMat  = useMemo(() => new THREE.MeshToonMaterial({ color: '#3D8B37' }), [])
 
-function GLBTrees() {
+  useEffect(() => {
+    const tm = trunkRef.current, lm = leafRef.current
+    if (!tm || !lm) return
+    const d = new THREE.Object3D()
+    placements.forEach(([x, z, s = 1], i) => {
+      // trunk
+      d.position.set(x, 1.2 * s, z); d.scale.setScalar(s); d.rotation.set(0, 0, 0)
+      d.updateMatrix(); tm.setMatrixAt(i, d.matrix)
+      // foliage sits on top of the trunk
+      d.position.set(x, (2.4 + 1.4) * s, z)
+      d.updateMatrix(); lm.setMatrixAt(i, d.matrix)
+    })
+    tm.instanceMatrix.needsUpdate = true
+    lm.instanceMatrix.needsUpdate = true
+  }, [placements])
+
   return (
     <>
-      <InstancedGLBModel url="/models/tree2.glb" placements={TREE2_A} scale={TREE_SCALE} />
-      <InstancedGLBModel url="/models/tree2.glb" placements={TREE2_B} scale={TREE_SCALE} />
+      <instancedMesh ref={trunkRef} args={[trunkGeo, trunkMat, placements.length]} frustumCulled={false} />
+      <instancedMesh ref={leafRef}  args={[leafGeo,  leafMat,  placements.length]} frustumCulled={false} />
     </>
   )
+}
+
+function GLBTrees() {
+  return <PrimitiveTrees placements={TREE_DATA} />
 }
 
 // ── Instanced Lamps ───────────────────────────────────────────────────────
@@ -1183,6 +1201,10 @@ const CityMap = React.memo(function CityMap() {
 
       <CenterBuildings />
 
+      {/* New far-flung locations */}
+      <SwimmingPool />
+      <Airport />
+
       {/* SE Residential houses */}
       <House pos={[40, 0, 50]} color="#c8d8f0" roofColor="#2a4a80" />
       <House pos={[55, 0, 50]} color="#f0e8c0" roofColor="#8a6820" rotate={0.08} />
@@ -1212,5 +1234,4 @@ const CityMap = React.memo(function CityMap() {
 
 export default CityMap
 
-// tree1.glb no longer used (34,980 tris/instance) — only preload the light tree2
-useGLTF.preload('/models/tree2.glb')
+// Trees are primitive geometry now — no GLB to preload.

@@ -151,5 +151,3 @@ export default function BossCharacter() {
     </group>
   )
 }
-
-export { BOSS_POS }

@@ -245,7 +245,8 @@ export default function NPCTraffic() {
   return (
     <>
       {NPC_VEHICLES.map((cfg, i) => (
-        <group key={i} ref={el => { groups.current[i] = el }}>
+        <group key={i} ref={el => { groups.current[i] = el }}
+          userData={{ noMerge: true, isVehicle: true }}>
           {cfg.type === 'car'
             ? <Car3D  bodyColor={cfg.color}  wheelRefs={wObjs.current[i]} />
             : <Bike3D frameColor={cfg.color} wheelRefs={wObjs.current[i]} leanRef={null} dustRef={null} />

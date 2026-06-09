@@ -14,6 +14,7 @@ export default function PlayerModel({
   walking    = false,
   running    = false,
   sitting    = false,
+  swimming   = false,
   name       = '',
   outfit     = 'casual',
   skin       = '#F4C08A',
@@ -48,7 +49,10 @@ export default function PlayerModel({
     g.traverse(c => {
       if (!c.isMesh || !c.material) return
       c.visible = true
-      c.userData._keepPBR = true            // ToonStyle: leave these alone
+      c.userData._keepPBR = true            // ToonStyle: don't re-convert
+      c.userData.isPlayer = true            // CityMerger: NEVER merge/dispose
+      c.userData.noMerge  = true            // (the merger was eating the player)
+      c.userData.dynamic  = true
       const mats = Array.isArray(c.material) ? c.material : [c.material]
       mats.forEach(m => {
         if (m.depthWrite === false) return                       // shadow disc
@@ -79,6 +83,15 @@ export default function PlayerModel({
   useFrame((state, delta) => {
     const b = bodyRef.current
     if (!b) return
+    // Swimming pose: lean forward (face-down stroke) + gentle bob, overrides emotes.
+    if (swimming) {
+      const t = state.clock.elapsedTime
+      b.rotation.x += (-0.9 - b.rotation.x) * Math.min(1, delta * 8)
+      b.rotation.z = Math.sin(t * 6) * 0.12        // alternating roll like a freestyle stroke
+      b.position.y = Math.sin(t * 4) * 0.05
+      return
+    }
+    if (b.rotation.x !== 0) b.rotation.x += (0 - b.rotation.x) * Math.min(1, delta * 8)
     const e = emoteRef.current
     if (!e) {
       // ease back to neutral

@@ -10,7 +10,7 @@ import { voiceState } from '@/lib/voiceState'
 const VIS_DIST_SQ = 1600  // 40 units²
 
 // Module-level speech bubble store: uid → { text, expires, type }
-export const speechBubbles = new Map()
+const speechBubbles = new Map()
 
 export function showSpeechBubble(uid, text, type = 'chat') {
   speechBubbles.set(uid, { text: text.slice(0, 28), expires: Date.now() + 4500, type })

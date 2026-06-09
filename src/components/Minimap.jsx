@@ -36,6 +36,8 @@ const NAMED_BUILDINGS = [
   { x: 40, z: 50,  hw:1.8, hd:1.8, c:'#1d4ed8', name:'Blue House',   emoji:'🏠' },
   { x: 55, z: 50,  hw:1.8, hd:1.8, c:'#a16207', name:'Yellow House',  emoji:'🏠' },
   { x:  0, z: 52,  hw:2.8, hd:2.2, c:'#22c55e', name:'Playground',   emoji:'🎠' },
+  { x:300, z:-300, hw:15,  hd:9,   c:'#0ea5e9', name:'Swimming Pool', emoji:'🏊' },
+  { x:-600,z:-600, hw:30,  hd:20,  c:'#475569', name:'Airport',      emoji:'✈️' },
 ]
 
 const TREES = [

@@ -75,81 +75,24 @@ export const circleColliders = [
   // Fountain basin at roundabout centre — outer radius 2.1 (cylinderGeometry args=[1.8,2.1,0.5])
   { x:   0, z:   0, r: 2.1, label: 'fountain' },
 
-  // ── Roundabout island trees (match TREE_DATA exactly) ──────────────────────
-  { x:  -4, z:  -4, r: 0.4, label: 'tree-rab-0' },
-  { x:  -4, z:   4, r: 0.4, label: 'tree-rab-1' },
-  { x:   4, z:  -4, r: 0.4, label: 'tree-rab-2' },
-  { x:   4, z:   4, r: 0.4, label: 'tree-rab-3' },
-  { x:  -6, z:   0, r: 0.4, label: 'tree-rab-4' },
-  { x:   6, z:   0, r: 0.4, label: 'tree-rab-5' },
-  { x:   0, z:  -6, r: 0.4, label: 'tree-rab-6' },
-  { x:   0, z:   6, r: 0.4, label: 'tree-rab-7' },
-
-  // ── E-W highway south footpath trees (z = -9) ─────────────────────────────
-  { x: -48, z:  -9, r: 0.4, label: 'tree-ew-s-0' },
-  { x: -36, z:  -9, r: 0.4, label: 'tree-ew-s-1' },
-  { x: -24, z:  -9, r: 0.4, label: 'tree-ew-s-2' },
-  { x: -12, z:  -9, r: 0.4, label: 'tree-ew-s-3' },
-  { x:  12, z:  -9, r: 0.4, label: 'tree-ew-s-4' },
-  { x:  24, z:  -9, r: 0.4, label: 'tree-ew-s-5' },
-  { x:  36, z:  -9, r: 0.4, label: 'tree-ew-s-6' },
-  { x:  48, z:  -9, r: 0.4, label: 'tree-ew-s-7' },
-
-  // ── E-W highway north footpath trees (z = +9) ─────────────────────────────
-  { x: -48, z:   9, r: 0.4, label: 'tree-ew-n-0' },
-  { x: -36, z:   9, r: 0.4, label: 'tree-ew-n-1' },
-  { x: -24, z:   9, r: 0.4, label: 'tree-ew-n-2' },
-  { x: -12, z:   9, r: 0.4, label: 'tree-ew-n-3' },
-  { x:  12, z:   9, r: 0.4, label: 'tree-ew-n-4' },
-  { x:  24, z:   9, r: 0.4, label: 'tree-ew-n-5' },
-  { x:  36, z:   9, r: 0.4, label: 'tree-ew-n-6' },
-  { x:  48, z:   9, r: 0.4, label: 'tree-ew-n-7' },
-
-  // ── N-S highway west footpath trees (x = -9) ──────────────────────────────
-  { x:  -9, z: -48, r: 0.4, label: 'tree-ns-w-0' },
-  { x:  -9, z: -36, r: 0.4, label: 'tree-ns-w-1' },
-  { x:  -9, z: -24, r: 0.4, label: 'tree-ns-w-2' },
-  { x:  -9, z: -12, r: 0.4, label: 'tree-ns-w-3' },
-  { x:  -9, z:  12, r: 0.4, label: 'tree-ns-w-4' },
-  { x:  -9, z:  24, r: 0.4, label: 'tree-ns-w-5' },
-  { x:  -9, z:  36, r: 0.4, label: 'tree-ns-w-6' },
-  { x:  -9, z:  48, r: 0.4, label: 'tree-ns-w-7' },
-
-  // ── N-S highway east footpath trees (x = +9) ──────────────────────────────
-  { x:   9, z: -48, r: 0.4, label: 'tree-ns-e-0' },
-  { x:   9, z: -36, r: 0.4, label: 'tree-ns-e-1' },
-  { x:   9, z: -24, r: 0.4, label: 'tree-ns-e-2' },
-  { x:   9, z: -12, r: 0.4, label: 'tree-ns-e-3' },
-  { x:   9, z:  12, r: 0.4, label: 'tree-ns-e-4' },
-  { x:   9, z:  24, r: 0.4, label: 'tree-ns-e-5' },
-  { x:   9, z:  36, r: 0.4, label: 'tree-ns-e-6' },
-  { x:   9, z:  48, r: 0.4, label: 'tree-ns-e-7' },
-
-  // ── SE residential zone trees ──────────────────────────────────────────────
-  { x:  22, z:  28, r: 0.4, label: 'tree-se-0' },
-  { x:  28, z:  28, r: 0.4, label: 'tree-se-1' },
-  { x:  35, z:  28, r: 0.4, label: 'tree-se-2' },
-  { x:  44, z:  28, r: 0.4, label: 'tree-se-3' },
-  { x:  22, z:  38, r: 0.4, label: 'tree-se-4' },
-  { x:  28, z:  38, r: 0.4, label: 'tree-se-5' },
-  { x:  35, z:  38, r: 0.4, label: 'tree-se-6' },
-  { x:  44, z:  38, r: 0.4, label: 'tree-se-7' },
-  { x:  22, z:  48, r: 0.4, label: 'tree-se-8' },
-  { x:  28, z:  48, r: 0.4, label: 'tree-se-9' },
-  { x:  35, z:  48, r: 0.4, label: 'tree-se-10' },
-  { x:  44, z:  48, r: 0.4, label: 'tree-se-11' },
-
-  // ── NW zone trees ──────────────────────────────────────────────────────────
-  { x: -18, z:  24, r: 0.4, label: 'tree-nw-0' },
-  { x: -22, z:  24, r: 0.4, label: 'tree-nw-1' },
-  { x: -26, z:  34, r: 0.4, label: 'tree-nw-2' },
-  { x: -36, z:  34, r: 0.4, label: 'tree-nw-3' },
-
-  // ── NE park zone trees ─────────────────────────────────────────────────────
-  { x:  -8, z: -20, r: 0.4, label: 'tree-ne-0' },
-  { x:  -5, z: -20, r: 0.4, label: 'tree-ne-1' },
-  { x:   5, z: -20, r: 0.4, label: 'tree-ne-2' },
-  { x:   8, z: -20, r: 0.4, label: 'tree-ne-3' },
+  // ── City trees — 12 total, must match TREE_DATA in CityMap.jsx exactly ──────
+  // E-W highway south footpath (z=-9)
+  { x: -36, z:  -9, r: 0.4, label: 'tree-0' },
+  { x: -12, z:  -9, r: 0.4, label: 'tree-1' },
+  { x:  12, z:  -9, r: 0.4, label: 'tree-2' },
+  { x:  36, z:  -9, r: 0.4, label: 'tree-3' },
+  // E-W highway north footpath (z=9)
+  { x: -24, z:   9, r: 0.4, label: 'tree-4' },
+  { x:  24, z:   9, r: 0.4, label: 'tree-5' },
+  // N-S highway west footpath (x=-9)
+  { x:  -9, z: -36, r: 0.4, label: 'tree-6' },
+  { x:  -9, z:  12, r: 0.4, label: 'tree-7' },
+  // N-S highway east footpath (x=9)
+  { x:   9, z: -24, r: 0.4, label: 'tree-8' },
+  { x:   9, z:  36, r: 0.4, label: 'tree-9' },
+  // SE residential edge
+  { x:  44, z:  38, r: 0.4, label: 'tree-10' },
+  { x:  28, z:  48, r: 0.4, label: 'tree-11' },
 ]
 
 /** Dynamically add a box collider (used by procedural chunks). */

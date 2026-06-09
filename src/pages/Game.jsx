@@ -48,6 +48,17 @@ import { supabase } from '@/lib/supabase'
 import TutorialOverlay from '@/components/TutorialOverlay'
 import FeatureTip from '@/components/FeatureTip'
 import { initTutorial } from '@/lib/tutorialState'
+import { initLiveEvents, claimTreasure, talkToMysteryVisitor, recordFestivalNpcTalk } from '@/lib/liveEventState'
+import LiveEventBanner from '@/components/LiveEventBanner'
+import { initJobs } from '@/lib/jobService'
+import JobsPanel, { JobsButton } from '@/components/JobsPanel'
+import JobStatusBadge from '@/components/JobStatusBadge'
+import { initRelationships, sendRose, getRelationshipState, onRelationshipUpdate } from '@/lib/relationshipService'
+import RelationshipPanel, { HeartButton } from '@/components/RelationshipPanel'
+import VoiceHUD from '@/components/VoiceHUD'
+import { initCompanions } from '@/lib/companionService'
+import CompanionSetup from '@/components/CompanionSetup'
+import CompanionChat, { CompanionButton } from '@/components/CompanionChat'
 
 export default function Game() {
   const avatar   = useStore(s => s.avatar)
@@ -65,12 +76,18 @@ export default function Game() {
   const [showFastTravel,  setShowFastTravel]  = useState(false)
   const [dailyBonus,      setDailyBonus]      = useState(null)
   const [showShop,        setShowShop]        = useState(false)
+  const [showJobs,        setShowJobs]        = useState(false)
+  const [showRelationship, setShowRelationship] = useState(false)
+  const [relState,        setRelState]        = useState(getRelationshipState)
+  const [showCompanionSetup, setShowCompanionSetup] = useState(false)
+  const [showCompanionChat,  setShowCompanionChat]  = useState(false)
   const [showHouse,       setShowHouse]       = useState(false)
   const [showHouseInterior, setShowHouseInterior] = useState(false)
   const [houseAction,    setHouseAction]     = useState(null)   // 'rest'|'sleep'|null
   const [spawnedInHouse, setSpawnedInHouse]  = useState(false)
   const [banInfo,        setBanInfo]         = useState(null)   // { reason, until } | null
   const [maintenance,    setMaintenance]     = useState(false)
+  const [liveEvent,      setLiveEvent]       = useState(null)   // active city-wide event
   const [showOrbPanel,    setShowOrbPanel]    = useState(false)
   const [dmFlash,         setDmFlash]         = useState(false)
   const [showGameHub,     setShowGameHub]     = useState(false)
@@ -94,7 +111,57 @@ export default function Game() {
   }, [playerCtxMenu])
 
   useEffect(() => { chatState.activeNpcName = activeNPC?.name ?? null }, [activeNPC])
-  useEffect(() => { if (activeNPC?.name) recordNPCTalk(activeNPC.name) }, [activeNPC?.name])
+  useEffect(() => {
+    if (!activeNPC?.name) return
+    recordNPCTalk(activeNPC.name)
+    // City Festival event: bonus coins for chatting with any NPC (once per event)
+    recordFestivalNpcTalk()
+  }, [activeNPC?.name])
+
+  // Live-event F-key claims dispatched from the 3D scene (treasure / mystery visitor).
+  // Handled here because we have the local player's name + uid.
+  useEffect(() => {
+    const onTreasure = () => { claimTreasure(avatar?.name || 'A player') }
+    const onVisitor  = async () => {
+      const r = await talkToMysteryVisitor(avatar?.name || 'A player')
+      if (r?.fortune && user?.id) showSpeechBubble(user.id, r.fortune, 'global')
+    }
+    window.addEventListener('request-claim-treasure', onTreasure)
+    window.addEventListener('request-talk-visitor', onVisitor)
+    return () => {
+      window.removeEventListener('request-claim-treasure', onTreasure)
+      window.removeEventListener('request-talk-visitor', onVisitor)
+    }
+  }, [avatar?.name, user?.id])
+
+  // Relationship: badge state + rose/couple/breakup notifications.
+  useEffect(() => onRelationshipUpdate(setRelState), [])
+  useEffect(() => {
+    const toast = (fromName, text, onClick = null) => {
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), { id, type: 'global', fromName, text, onClick }])
+    }
+    const onRose     = (e) => { audioSystem.playChime?.(); toast('🌹 Rose received', `${e.detail.fromName} sent you a rose! Tap to respond.`, () => setShowRelationship(true)) }
+    const onDeclined = (e) => toast('💔 Rose declined', `${e.detail.name} declined your rose.`)
+    const onAnnounce = (e) => { try { sendGlobalMessage?.(e.detail.text) } catch {} }
+    const onStarted  = (e) => { audioSystem.playLevelUp?.(); toast('💕 In a relationship!', `You're now together with ${e.detail.partner?.name}. +50 coins!`) }
+    const onBroke    = (e) => toast('💔 Heartbreak', `Your relationship with ${e.detail.partnerName || 'your partner'} has ended.`)
+    const onEnded    = (e) => { if (e.detail.byPartner) toast('💔 Heartbreak', `${e.detail.partnerName || 'Your partner'} ended the relationship.`) }
+    window.addEventListener('rose-received', onRose)
+    window.addEventListener('rose-declined', onDeclined)
+    window.addEventListener('relationship-announce', onAnnounce)
+    window.addEventListener('relationship-started', onStarted)
+    window.addEventListener('relationship-broke', onBroke)
+    window.addEventListener('relationship-ended', onEnded)
+    return () => {
+      window.removeEventListener('rose-received', onRose)
+      window.removeEventListener('rose-declined', onDeclined)
+      window.removeEventListener('relationship-announce', onAnnounce)
+      window.removeEventListener('relationship-started', onStarted)
+      window.removeEventListener('relationship-broke', onBroke)
+      window.removeEventListener('relationship-ended', onEnded)
+    }
+  }, [sendGlobalMessage])
 
   const setWallet        = useStore(s => s.setWallet)
   const setOwnedOutfits  = useStore(s => s.setOwnedOutfits)
@@ -156,6 +223,10 @@ export default function Game() {
     initBoss()
     initGameState(user.id, avatar.name)
     initTutorial(user.id)
+    initLiveEvents(user.id, avatar.name)
+    initJobs(user.id, avatar.name)
+    initRelationships(user.id, avatar.name)
+    initCompanions(user.id, avatar.name).then(c => { if (!c) setShowCompanionSetup(true) })
     startPassiveIncome()
     return () => stopPassiveIncome()
   }, [user?.id])
@@ -302,7 +373,44 @@ export default function Game() {
     window.addEventListener('tournament-started',     onTournStarted)
     window.addEventListener('tournament-ended',       onTournEnded)
 
+    // ── City-wide live events ──────────────────────────────────────────────
+    const onLiveIncoming = ({ detail: e }) => {
+      if (!e) return
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global',
+        fromName: `${e.emoji} Something's coming…`,
+        text: `${e.name} begins in about a minute — be in the city!`,
+        duration: 12000,
+        onClick: null,
+      }])
+      audioSystem.playNotification?.() || audioSystem.playChime?.()
+    }
+    const onLiveStart = ({ detail: e }) => {
+      if (!e) return
+      // LiveEventBanner now renders the full banner + HUD badge; just play the sting.
+      audioSystem.playLevelUp?.()
+    }
+    const onLiveEnd = () => setLiveEvent(null)
+    const onTreasureFound = () => {
+      addCoins(150)
+      const id = ++toastIdRef.current
+      setMsgToasts(prev => [...prev.slice(-2), {
+        id, type: 'global', fromName: '💎 Treasure Found!',
+        text: 'You discovered the hidden treasure — +150 coins!', onClick: null,
+      }])
+      audioSystem.playCoinsEarned?.()
+    }
+    window.addEventListener('live-event-incoming', onLiveIncoming)
+    window.addEventListener('live-event-start',    onLiveStart)
+    window.addEventListener('live-event-end',      onLiveEnd)
+    window.addEventListener('treasure-found',      onTreasureFound)
+
     return () => {
+      window.removeEventListener('live-event-incoming', onLiveIncoming)
+      window.removeEventListener('live-event-start',    onLiveStart)
+      window.removeEventListener('live-event-end',      onLiveEnd)
+      window.removeEventListener('treasure-found',      onTreasureFound)
       window.removeEventListener('tournament-registering', onTournRegistering)
       window.removeEventListener('tournament-started',     onTournStarted)
       window.removeEventListener('tournament-ended',       onTournEnded)
@@ -507,6 +615,9 @@ export default function Game() {
       {/* Admin-driven announcement banners */}
       <GameAnnouncementBanner />
 
+      {/* City-wide live events — banner, HUD badge, next-event countdown */}
+      <LiveEventBanner />
+
       {mode === 'city' && (
         <WorldCanvas
           onNPCChat={npc => { window.dispatchEvent(new CustomEvent('tutorial-npc-chat')); setActiveNPC(npc) }}
@@ -612,8 +723,13 @@ export default function Game() {
           >📍</button>
           <HouseQuickButton onClick={() => setShowHouse(true)} />
           <ShopButton onClick={() => setShowShop(true)} />
+          <JobsButton onClick={() => setShowJobs(true)} />
+          <HeartButton onClick={() => setShowRelationship(true)} hasRose={relState.incomingRoses.length > 0} />
+          <CompanionButton onClick={() => setShowCompanionChat(true)} />
         </div>
       )}
+
+      {/* Live-event banner / HUD badge / countdown are rendered by <LiveEventBanner /> above. */}
 
       {/* Boss banner */}
       {bossBanner && (
@@ -717,6 +833,15 @@ export default function Game() {
                 voice.isPlayerMuted(playerCtxMenu.uid)
                   ? voice.unmutePlayer(playerCtxMenu.uid)
                   : voice.mutePlayer(playerCtxMenu.uid)
+                setPlayerCtxMenu(null)
+              },
+            },
+            {
+              label: '🌹 Send Rose (🪙10)',
+              action: () => {
+                const r = sendRose(playerCtxMenu.uid, playerCtxMenu.name)
+                const id = ++toastIdRef.current
+                setMsgToasts(prev => [...prev.slice(-2), { id, type: 'global', fromName: r.ok ? '🌹 Rose sent' : '🚫 Cannot send', text: r.ok ? `You sent a rose to ${playerCtxMenu.name}.` : r.reason }])
                 setPlayerCtxMenu(null)
               },
             },
@@ -875,6 +1000,16 @@ export default function Game() {
       )}
 
       <Shop open={showShop} onClose={() => setShowShop(false)} />
+
+      <JobsPanel open={showJobs} onClose={() => setShowJobs(false)} playerName={avatar?.name} />
+      <JobStatusBadge />
+
+      <RelationshipPanel open={showRelationship} onClose={() => setShowRelationship(false)} />
+
+      {mode === 'city' && <VoiceHUD voice={voice} />}
+
+      {showCompanionSetup && <CompanionSetup onDone={() => setShowCompanionSetup(false)} />}
+      <CompanionChat open={showCompanionChat} onClose={() => setShowCompanionChat(false)} />
 
       <HousePanel
         open={showHouse}

@@ -20,7 +20,7 @@ import RemotePlayer from './RemotePlayer'
 import RemoteVehicle from './RemoteVehicle'
 import ProceduralWorld from './ProceduralChunks'
 import NPCTraffic from './NPCTraffic'
-import { parkedVehicles, onParkedVehicleChange, notifyParkedVehicleChange } from '@/lib/parkedVehicleState'
+import { parkedVehicles, onParkedVehicleChange, notifyParkedVehicleChange, parkedVehicleMeshes } from '@/lib/parkedVehicleState'
 import { navState } from '@/lib/navState'
 import { isBlocked } from '@/lib/buildingColliders'
 import { boxColliders, circleColliders, logAllColliders } from '@/lib/playerColliders'
@@ -33,13 +33,20 @@ import PlayerHouseMarker from './PlayerHouseMarker'
 import ChunkTrees from './ChunkTrees'
 import PostFX from './PostFX'
 import { isMobileDevice, setBloom } from '@/lib/renderQuality'
-import ToonStyle, { Clouds } from './ToonStyle'
+import { getSpeedMultiplier } from '@/lib/liveEventState'
+import { POOL, POOL_DIVE, nearPool } from '@/lib/locations'
+import ToonStyle, { Clouds, SkyDome } from './ToonStyle'
+import Companion3D from './Companion3D'
+import LiveEvents from './LiveEvents'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
-import { spendCoins, getEconomyState } from '@/lib/economyState'
+import { spendCoins, getEconomyState, addCoins } from '@/lib/economyState'
 import { COSTS } from '@/lib/costs'
 import { getHouseState } from '@/lib/houseService'
+
+// Shared empty array for missing parked-vehicle wheel/dust refs (avoids per-frame alloc).
+const EMPTY_REFS = []
 
 // ── Collision system ──────────────────────────────────────────────────────────
 const CHAR_R = 0.28
@@ -489,7 +496,7 @@ function PlayerController({
   avatar, myUserId,
   onNearVehicle, onDrivingChange, onSpeedChange,
   onNearBuilding, onEnterBuilding, onPassengerChange,
-  onNearParkedVehicle,
+  onNearParkedVehicle, onVehicleLabel,
 }) {
   const { camera, gl, scene } = useThree()
   const setPlayerPos = useStore(s => s.setPlayerPos)
@@ -539,20 +546,21 @@ function PlayerController({
   const speedKmhRef   = useRef(0)
 
   // ── Parked vehicle driving ────────────────────────────────────────────────
+  // We do NOT spawn a separate "driven" mesh. On entry we grab the registry
+  // entry for the parked vehicle (its real group + wheel/dust/lean refs) and
+  // move THAT mesh while driving. One mesh per vehicle — no duplicate possible.
   const activeParkedIdx   = useRef(null)  // index into parkedVehicles, or null
+  const activeParkedMesh  = useRef(null)  // parkedVehicleMeshes[id] entry, or null
   const parkedDriveState  = useRef(null)  // { pos, facing, speed } while driving
-  const parkedGroupRef    = useRef()
-  const parkedWheels      = useRef([null, null, null, null])
-  const parkedDusts       = useRef([null, null])
-  const parkedLean        = useRef(null)
-  const parkedBDust       = useRef(null)
-  // Stable prop-wrapper objects that Car3D / Bike3D write into via ref callbacks
-  const pvWheelRef  = useRef({ current: null })
-  const pvDustRef   = useRef({ current: null })
-  pvWheelRef.current.current = parkedWheels.current
-  pvDustRef.current.current  = parkedDusts.current
   const nearParkedRef = useRef(null)
-  const [drivingParked, setDrivingParked] = useState(null) // null | {type,color}
+  const pvDebugT = useRef(0)              // TEMP: throttle for parked-mesh debug log
+
+  // ── Swimming (pool) ────────────────────────────────────────────────────────
+  const swimming   = useRef(false)
+  const swimLapEnd = useRef(null)        // 'w' | 'e' | null — last pool end reached
+  const swimLaps   = useRef(0)
+  const lastDive   = useRef(0)
+  const [isSwimming, setIsSwimming] = useState(false)
 
   const [inVehicle,   setInVehicle]   = useState(false)
   const [isPassenger, setIsPassenger] = useState(false)
@@ -611,8 +619,35 @@ function PlayerController({
         if (e.code === 'Escape' && emoteRef.current)  { cancelEmote(); return }
       }
 
+      // ── Pool: dive off the board (F) for a quick reward, on foot only ──
+      if (e.code === 'KeyF' && !activeVeh.current && !passengerVeh.current && activeParkedIdx.current === null) {
+        // POOL_DIVE.x/z are already world coordinates.
+        const dist = Math.hypot(charPos.current.x - POOL_DIVE.x, charPos.current.z - POOL_DIVE.z)
+        if (dist < 4 && Date.now() - lastDive.current > 3000) {
+          lastDive.current = Date.now()
+          addCoins(10)
+          swimming.current = true; setIsSwimming(true); swimLapEnd.current = null
+          window.dispatchEvent(new CustomEvent('pool-dive', { detail: { coins: 10 } }))
+          audioSystem.playEnter()
+          return
+        }
+      }
+
       if (e.code === 'KeyE') {
         audioSystem.playInteractE()
+        // ── 0. Pool: toggle swimming (on foot only) ───────────────────────
+        if (!passengerVeh.current && !activeVeh.current && activeParkedIdx.current === null) {
+          if (swimming.current) {
+            swimming.current = false; setIsSwimming(false)
+            audioSystem.playEnter()
+            return
+          }
+          if (nearPool(charPos.current.x, charPos.current.z)) {
+            swimming.current = true; setIsSwimming(true); swimLapEnd.current = null
+            audioSystem.playEnter()
+            return
+          }
+        }
         // ── 1. Exit passenger mode ────────────────────────────────────────
         if (passengerVeh.current) {
           const vType = passengerVeh.current
@@ -647,6 +682,7 @@ function PlayerController({
           nearVehRef.current = null
           setInVehicle(false)
           onDrivingChange(null)
+          onVehicleLabel?.(null)
           onNearVehicle(null)
           onSpeedChange(0)
           audioSystem.stopEngine()
@@ -666,15 +702,15 @@ function PlayerController({
           if (playerGroupRef.current) playerGroupRef.current.visible = true
           pv.x = vst.pos.x; pv.z = vst.pos.z; pv.facing = vst.facing; pv.driverId = null
           activeParkedIdx.current = null
+          activeParkedMesh.current = null   // mesh stays where it stopped
           parkedDriveState.current = null
           setInVehicle(false)
-          setDrivingParked(null)
           onDrivingChange(null)
+          onVehicleLabel?.(null)
           onNearVehicle(null)
           onSpeedChange(0)
           audioSystem.stopEngine()
           audioSystem.playEnter()
-          notifyParkedVehicleChange()
           return
         }
 
@@ -697,6 +733,7 @@ function PlayerController({
             if (playerGroupRef.current) playerGroupRef.current.visible = false
             setInVehicle(true)
             onDrivingChange('car')
+            onVehicleLabel?.('Car')
             onNearVehicle(null)
             audioSystem.startEngine('car')
             audioSystem.playEnter()
@@ -734,6 +771,7 @@ function PlayerController({
             if (playerGroupRef.current) playerGroupRef.current.visible = false
             setInVehicle(true)
             onDrivingChange('bike')
+            onVehicleLabel?.('Bike')
             onNearVehicle(null)
             audioSystem.startEngine('bike')
             audioSystem.playEnter()
@@ -770,6 +808,8 @@ function PlayerController({
             if (emoteRef.current) cancelEmote()
             pv.driverId = myUserId
             activeParkedIdx.current = bestIdx
+            // Drive the EXISTING parked mesh — no second mesh is created.
+            activeParkedMesh.current = parkedVehicleMeshes[pv.id] || null
             parkedDriveState.current = {
               pos:    new THREE.Vector3(pv.x, 0, pv.z),
               facing: pv.facing,
@@ -779,13 +819,12 @@ function PlayerController({
             vehLean.current = 0
             if (playerGroupRef.current) playerGroupRef.current.visible = false
             setInVehicle(true)
-            setDrivingParked({ type: pv.type, color: pv.color })
             onDrivingChange(pv.type)
+            onVehicleLabel?.(pv.vehicleLabel || (pv.type === 'car' ? 'Car' : 'Bike'))
             onNearVehicle(null)
             onNearParkedVehicle?.(null)
             audioSystem.startEngine(pv.type)
             audioSystem.playEnter()
-            notifyParkedVehicleChange()
             return
           }
         }
@@ -908,7 +947,7 @@ function PlayerController({
 
   useFrame((_, rawDelta) => {
     const delta  = Math.min(rawDelta, 0.05)
-    const BOUNDS = 500
+    const BOUNDS = 800
 
     // ══════════════════════════════════════════════════════════════════════
     // VEHICLE MODE (I am the driver)
@@ -939,7 +978,7 @@ function PlayerController({
         boostTimeAcc.current = 0
       }
 
-      const maxSpd = cfg.maxSpeed * (boost ? cfg.boostMult : 1)
+      const maxSpd = cfg.maxSpeed * (boost ? cfg.boostMult : 1) * getSpeedMultiplier()
 
       if (fwd) {
         vst.speed = Math.min(vst.speed + cfg.accel * delta, maxSpd)
@@ -1068,15 +1107,26 @@ function PlayerController({
       const isCar  = pv.type === 'car'
       const vst    = parkedDriveState.current
       const cfg    = isCar ? CAR_CFG : BIKE_CFG
-      const vGroup = parkedGroupRef.current
-      const wRefs  = parkedWheels.current
+      // The driven mesh IS the parked mesh (looked up from the registry on entry).
+      const reg    = activeParkedMesh.current
+      const vGroup = reg && reg.group.current
+      const wRefs  = (reg && reg.wheels.current) || EMPTY_REFS
+
+      // TEMP debug — verify the parked mesh ref is actually found (throttled ~1/s)
+      pvDebugT.current += delta
+      if (pvDebugT.current > 1) {
+        pvDebugT.current = 0
+        const meshData = parkedVehicleMeshes[pv.id]
+        console.log('Driving parked:', pv.id, 'mesh found:', !!meshData?.group?.current,
+          'pos:', vst.pos.x.toFixed(1), vst.pos.z.toFixed(1))
+      }
 
       const fwd    = keys.current.has('KeyW') || keys.current.has('ArrowUp')
       const bwd    = keys.current.has('KeyS') || keys.current.has('ArrowDown')
       const left   = keys.current.has('KeyA') || keys.current.has('ArrowLeft')
       const right  = keys.current.has('KeyD') || keys.current.has('ArrowRight')
       const boost  = keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')
-      const maxSpd = cfg.maxSpeed * (boost ? cfg.boostMult : 1)
+      const maxSpd = cfg.maxSpeed * (boost ? cfg.boostMult : 1) * getSpeedMultiplier()
 
       if (fwd) {
         vst.speed = Math.min(vst.speed + cfg.accel * delta, maxSpd)
@@ -1104,7 +1154,7 @@ function PlayerController({
 
       const [vx, vz] = resolveCollisions(vst.pos.x, vst.pos.z, cfg.collRadius)
       if (Math.abs(vx - vst.pos.x) > 0.002 || Math.abs(vz - vst.pos.z) > 0.002) vst.speed *= 0.05
-      const BOUNDS = 500
+      const BOUNDS = 800
       vst.pos.x = THREE.MathUtils.clamp(vx, -BOUNDS, BOUNDS)
       vst.pos.z = THREE.MathUtils.clamp(vz, -BOUNDS, BOUNDS)
 
@@ -1129,18 +1179,21 @@ function PlayerController({
       const spin = (vst.speed * delta) / cfg.wheelRadius
       for (let i = 0; i < wRefs.length; i++) { if (wRefs[i]) wRefs[i].rotation.x -= spin }
 
-      if (!isCar && parkedLean.current) {
+      const leanG = reg && reg.lean.current
+      if (!isCar && leanG) {
         const steer     = left ? 1 : right ? -1 : 0
         const speedFrac = Math.min(absSpd / cfg.maxSpeed, 1)
         const target    = -steer * cfg.leanAngle * speedFrac
         vehLean.current += (target - vehLean.current) * Math.min(1, delta * 6)
-        parkedLean.current.rotation.z = vehLean.current
+        leanG.rotation.z = vehLean.current
       }
 
       const dustOpacity = (fwd && absSpd > 2) ? Math.min(0.6, absSpd * 0.04) : 0
+      const dustArr = (reg && reg.dusts.current) || EMPTY_REFS
+      const bdust   = reg && reg.bdust.current
       if (isCar) {
-        for (let i = 0; i < parkedDusts.current.length; i++) {
-          const dm = parkedDusts.current[i]
+        for (let i = 0; i < dustArr.length; i++) {
+          const dm = dustArr[i]
           if (dm) {
             dm.material.opacity = dustOpacity > 0
               ? dustOpacity * (0.7 + Math.random() * 0.3)
@@ -1148,8 +1201,8 @@ function PlayerController({
             if (dustOpacity > 0) dm.scale.setScalar(0.8 + absSpd * 0.04)
           }
         }
-      } else if (parkedBDust.current) {
-        const dm = parkedBDust.current
+      } else if (bdust) {
+        const dm = bdust
         dm.material.opacity = dustOpacity > 0
           ? dustOpacity * (0.7 + Math.random() * 0.3)
           : dm.material.opacity * 0.8
@@ -1247,21 +1300,28 @@ function PlayerController({
       teleportRequest.pending = false
     }
 
-    // Sync parked vehicle groups from vehicleState (handles remote driver parking)
-    const carOccupied = vehicleState.car.driverId !== null && vehicleState.car.driverId !== myUserId
-    if (carGroupRef.current) {
-      carGroupRef.current.visible = !carOccupied
-      if (!carOccupied) {
+    // Sync shared car/bike groups from vehicleState. Three cases:
+    //   • local player is driving it → DON'T touch it here; the driving block
+    //     above already owns its position. (Resetting it here every frame left
+    //     the car behind at the spawn spot → looked like a duplicate vehicle.)
+    //   • a remote player is driving it → hide our static copy.
+    //   • nobody driving → show it at the synced vehicleState position.
+    const carRemote = vehicleState.car.driverId !== null && vehicleState.car.driverId !== myUserId
+    const carMine   = activeVeh.current === 'car'
+    if (carGroupRef.current && !carMine) {
+      carGroupRef.current.visible = !carRemote
+      if (!carRemote) {
         carGroupRef.current.position.set(vehicleState.car.x, 0, vehicleState.car.z)
         carGroupRef.current.rotation.y = vehicleState.car.facing
         carState.current.pos.set(vehicleState.car.x, 0, vehicleState.car.z)
         carState.current.facing = vehicleState.car.facing
       }
     }
-    const bikeOccupied = vehicleState.bike.driverId !== null && vehicleState.bike.driverId !== myUserId
-    if (bikeGroupRef.current) {
-      bikeGroupRef.current.visible = !bikeOccupied
-      if (!bikeOccupied) {
+    const bikeRemote = vehicleState.bike.driverId !== null && vehicleState.bike.driverId !== myUserId
+    const bikeMine   = activeVeh.current === 'bike'
+    if (bikeGroupRef.current && !bikeMine) {
+      bikeGroupRef.current.visible = !bikeRemote
+      if (!bikeRemote) {
         bikeGroupRef.current.position.set(vehicleState.bike.x, 0, vehicleState.bike.z)
         bikeGroupRef.current.rotation.y = vehicleState.bike.facing
         bikeState.current.pos.set(vehicleState.bike.x, 0, vehicleState.bike.z)
@@ -1300,7 +1360,7 @@ function PlayerController({
       }
     }
 
-    const SPEED = 8
+    const SPEED = 8 * getSpeedMultiplier()   // live-event "Turbo Mode" doubles this
     let moving = false, moveSpeed = 1
     _move.current.set(0, 0, 0)
     const sy = Math.sin(camYaw.current), cy = Math.cos(camYaw.current)
@@ -1323,10 +1383,11 @@ function PlayerController({
       }
     }
 
-    const isRunNow = moving && boost
+    const isRunNow = moving && boost && !swimming.current
+    const swimFactor = swimming.current ? 0.6 : 1   // swim at 60% speed
     if (moving) {
       _move.current.normalize()
-      const step = SPEED * moveSpeed * (isRunNow ? 1.6 : 1) * delta
+      const step = SPEED * swimFactor * moveSpeed * (isRunNow ? 1.6 : 1) * delta
       charFacing.current = Math.atan2(_move.current.x, _move.current.z)
       const ox = charPos.current.x, oz = charPos.current.z
       const [rx] = resolveCollisions(ox + _move.current.x * step, oz)
@@ -1338,7 +1399,24 @@ function PlayerController({
       charPos.current.x = THREE.MathUtils.clamp(cx, -BOUNDS, BOUNDS)
       charPos.current.z = THREE.MathUtils.clamp(cz, -BOUNDS, BOUNDS)
     }
-    charPos.current.y = 0
+
+    // ── Swimming: keep the player inside the pool + count laps ──
+    if (swimming.current) {
+      charPos.current.x = THREE.MathUtils.clamp(charPos.current.x, POOL.cx - POOL.halfW + 0.5, POOL.cx + POOL.halfW - 0.5)
+      charPos.current.z = THREE.MathUtils.clamp(charPos.current.z, POOL.cz - POOL.halfD + 0.5, POOL.cz + POOL.halfD - 0.5)
+      const end = charPos.current.x <= POOL.cx - POOL.halfW + 3 ? 'w'
+                : charPos.current.x >= POOL.cx + POOL.halfW - 3 ? 'e' : null
+      if (end && end !== swimLapEnd.current) {
+        if (swimLapEnd.current !== null) {   // completed an end-to-end length
+          swimLaps.current += 1
+          addCoins(5)
+          if (swimLaps.current === 10) addCoins(50)
+          window.dispatchEvent(new CustomEvent('pool-lap', { detail: { laps: swimLaps.current } }))
+        }
+        swimLapEnd.current = end
+      }
+    }
+    charPos.current.y = swimming.current ? POOL.surfaceY : 0
     minimapState.playerX     = charPos.current.x
     minimapState.playerZ     = charPos.current.z
     minimapState.playerFacing = charFacing.current
@@ -1521,11 +1599,12 @@ function PlayerController({
     <>
       {/* Player avatar — hidden while driving or in passenger seat */}
       <group ref={playerGroupRef} position={[0, 0, 6]}>
-        <PlayerModel walking={isWalking} running={isRunning} sitting={inVehicle} name={avatar.name} outfit={avatar.outfit} skin={avatar.skin} emote={emote} onEmoteEnd={handleEmoteEnd} />
+        <PlayerModel walking={isWalking} running={isRunning} sitting={inVehicle} swimming={isSwimming} name={avatar.name} outfit={avatar.outfit} skin={avatar.skin} emote={emote} onEmoteEnd={handleEmoteEnd} />
       </group>
 
       {/* Car — hidden when a remote player is driving it (handled in useFrame) */}
-      <group ref={carGroupRef} position={[vehicleState.car.x, 0, vehicleState.car.z]}>
+      <group ref={carGroupRef} position={[vehicleState.car.x, 0, vehicleState.car.z]}
+        userData={{ noMerge: true, isVehicle: true }}>
         <Car3D wheelRefs={carWheels} dustRefs={carDustRefs} />
         {!inVehicle && !isPassenger && (
           <Billboard position={[0, 2.2, 0]}>
@@ -1535,7 +1614,8 @@ function PlayerController({
       </group>
 
       {/* Bike — hidden when a remote player is driving it (handled in useFrame) */}
-      <group ref={bikeGroupRef} position={[vehicleState.bike.x, 0, vehicleState.bike.z]}>
+      <group ref={bikeGroupRef} position={[vehicleState.bike.x, 0, vehicleState.bike.z]}
+        userData={{ noMerge: true, isVehicle: true }}>
         <Bike3D wheelRefs={bikeWheels} leanRef={bikeLeanRef} dustRef={bikeDustRef} />
         {!inVehicle && !isPassenger && (
           <Billboard position={[0, 2.0, 0]}>
@@ -1544,15 +1624,8 @@ function PlayerController({
         )}
       </group>
 
-      {/* Parked vehicle being driven by local player */}
-      {drivingParked && (
-        <group ref={parkedGroupRef}>
-          {drivingParked.type === 'car'
-            ? <Car3D  bodyColor={drivingParked.color} wheelRefs={pvWheelRef.current} dustRefs={pvDustRef.current} />
-            : <Bike3D frameColor={drivingParked.color} wheelRefs={pvWheelRef.current} leanRef={parkedLean} dustRef={parkedBDust} />
-          }
-        </group>
-      )}
+      {/* No separate "driven parked" mesh — the parked vehicle's own mesh is
+          driven directly (see ParkedVehicles + the registry in parkedVehicleState). */}
     </>
   )
 }
@@ -1586,6 +1659,8 @@ const PLACES = [
   { id: 'house1',      pos: [ 40, 0, 50],  emoji: '🏠', label: 'Blue House',   color: '#3b82f6' },
   { id: 'house2',      pos: [ 55, 0, 50],  emoji: '🏠', label: 'Yellow House', color: '#eab308' },
   { id: 'gamearea',    pos: [ 22, 0,-10],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
+  { id: 'pool',        pos: [300, 0,-300], emoji: '🏊', label: 'Swimming Pool', color: '#38bdf8' },
+  { id: 'airport',     pos: [-600,0,-600], emoji: '✈️', label: 'Airport',       color: '#94a3b8' },
 ]
 
 const NPCS = [
@@ -1604,32 +1679,50 @@ const NPCS = [
   { name: 'Vivek',  skin: '#C68642', outfit: 'casual',      color: '#6ee7b7', pos: [ 6,  0,  0]  },
 ]
 
-// ── Parked vehicles — enterable; re-renders when any vehicle is entered/exited ─
+// ── Parked vehicles — enterable; the SAME mesh is driven when entered ─────────
+// Each item owns its group + wheel/dust/lean refs and registers them in
+// parkedVehicleMeshes so the driving loop can move this exact mesh. There is no
+// separate "driven" mesh and no hide-on-drive logic — one mesh per vehicle.
+function ParkedVehicleItem({ v }) {
+  const groupRef = useRef()
+  const wheels   = useRef(v.type === 'car' ? [null, null, null, null] : [null, null])
+  const dusts    = useRef([null, null])
+  const lean     = useRef(null)
+  const bdust    = useRef(null)
+
+  useEffect(() => {
+    parkedVehicleMeshes[v.id] = { group: groupRef, wheels, dusts, lean, bdust }
+    return () => { delete parkedVehicleMeshes[v.id] }
+  }, [v.id])
+
+  return (
+    <group ref={groupRef} position={[v.x, 0, v.z]} rotation={[0, v.facing, 0]}
+      userData={{ noMerge: true, isVehicle: true }}>
+      {v.type === 'car'
+        ? <Car3D  bodyColor={v.color} wheelRefs={wheels} dustRefs={dusts} />
+        : <Bike3D frameColor={v.color} wheelRefs={wheels} leanRef={lean} dustRef={bdust} />
+      }
+      {/* Personal vehicle nameplate (owner-owned vehicles parked at home) */}
+      {v.owner && (
+        <Billboard position={[0, 2.1, 0]}>
+          <Text fontSize={0.26} color="#fbbf24" anchorX="center" anchorY="middle"
+            outlineWidth={0.03} outlineColor="#000">
+            {`${v.ownerName || 'Player'}'s ${v.vehicleLabel || 'Vehicle'}`}
+          </Text>
+        </Billboard>
+      )}
+    </group>
+  )
+}
+
 function ParkedVehicles() {
+  // Re-renders only when the vehicle SET changes (e.g. home vehicles spawned),
+  // never on entry/exit — the driven vehicle is moved in place via its registry ref.
   const [pvList, setPvList] = useState(() => [...parkedVehicles])
   useEffect(() => onParkedVehicleChange(() => setPvList([...parkedVehicles])), [])
   return (
     <>
-      {pvList.map(v => {
-        if (v.driverId !== null) return null  // hidden while driven
-        return (
-          <group key={v.id} position={[v.x, 0, v.z]} rotation={[0, v.facing, 0]}>
-            {v.type === 'car'
-              ? <Car3D bodyColor={v.color} />
-              : <Bike3D frameColor={v.color} leanRef={null} dustRef={null} />
-            }
-            {/* Personal vehicle nameplate (owner-owned vehicles parked at home) */}
-            {v.owner && (
-              <Billboard position={[0, 2.1, 0]}>
-                <Text fontSize={0.26} color="#fbbf24" anchorX="center" anchorY="middle"
-                  outlineWidth={0.03} outlineColor="#000">
-                  {`${v.ownerName || 'Player'}'s ${v.vehicleLabel || 'Vehicle'}`}
-                </Text>
-              </Billboard>
-            )}
-          </group>
-        )
-      })}
+      {pvList.map(v => <ParkedVehicleItem key={v.id} v={v} />)}
     </>
   )
 }
@@ -1790,7 +1883,9 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
       <FpsTracker />
       <PerfLogger />
       <ToonStyle />
+      <SkyDome />
       <Clouds />
+      <Companion3D />
       <DayNightCycle />
       <WeatherSystem />
       <CityMap />
@@ -1838,6 +1933,9 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
 
       {/* GLB trees for all procedural chunks (2 draw calls total) */}
       <ChunkTrees />
+
+      {/* City-wide live events (meteor shower, snow, flash mob, treasure, stranger) */}
+      <LiveEvents />
     </>
   )
 })
@@ -1940,6 +2038,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
 
   const [nearVeh,       setNearVeh]       = useState(null)
   const [drivingType,   setDrivingType]   = useState(null)
+  const [drivingLabel,  setDrivingLabel]  = useState(null)  // human label of driven vehicle
   const [isPassenger,   setIsPassenger]   = useState(false)
   const [speedKmh,      setSpeedKmh]      = useState(0)
   const [nearBuilding,  setNearBuilding]  = useState(null)
@@ -2024,6 +2123,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
             myUserId={myUserId}
             onNearVehicle={setNearVeh}
             onDrivingChange={setDrivingType}
+            onVehicleLabel={setDrivingLabel}
             onSpeedChange={setSpeedKmh}
             onNearBuilding={setNearBuilding}
             onEnterBuilding={onEnterBuilding}
@@ -2077,6 +2177,11 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
             background: 'rgba(0,0,0,0.65)', color: '#fff', padding: '6px 16px',
             borderRadius: 8, fontFamily: 'monospace', fontSize: 13, pointerEvents: 'none',
           }}>
+            {drivingLabel && (
+              <><span style={{ color: '#facc15', fontWeight: 700 }}>
+                {drivingType === 'car' ? '🚗' : '🏍'} {drivingLabel}
+              </span> &nbsp;|&nbsp;</>
+            )}
             <strong>E</strong> — Exit &nbsp;|&nbsp;
             <strong>W/S</strong> Accel/Brake &nbsp;|&nbsp;
             <strong>A/D</strong> Steer &nbsp;|&nbsp;

@@ -76,7 +76,7 @@ function RemoteVehicle({ vehicleId, myUserId }) {
   const labelY = vehicleId === 'car' ? 2.8 : 2.6
 
   return (
-    <group ref={groupRef} visible={false}>
+    <group ref={groupRef} visible={false} userData={{ noMerge: true, isVehicle: true }}>
       {vehicleId === 'car'
         ? <Car3D wheelRefs={wheelRefs} dustRefs={carDustRefs} />
         : <Bike3D wheelRefs={wheelRefs} leanRef={bikeLeanRef} dustRef={bikeDustRef} />

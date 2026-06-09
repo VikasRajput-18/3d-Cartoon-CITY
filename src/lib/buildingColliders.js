@@ -15,7 +15,7 @@ const PAD = 1.2
  * Register a fixed city-centre building.
  * cx/cz = world-space centre, hw/hd = visual half-extents.
  */
-export function registerFixed(cx, cz, hw, hd) {
+function registerFixed(cx, cz, hw, hd) {
   _fixed.push({
     minX: cx - hw - PAD, maxX: cx + hw + PAD,
     minZ: cz - hd - PAD, maxZ: cz + hd + PAD,

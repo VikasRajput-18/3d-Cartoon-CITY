@@ -114,13 +114,13 @@ function buildChunkMesh(cx, cz) {
     addMergedDashes('ew')   // 8 dash planes → 1 merged mesh
   }
 
-  // Roadside trees for road chunks
+  // Roadside trees for road chunks — at most 1, only ~5% of chunks, at the road
+  // edge (never chunk centre). Keeps the world from looking like a forest.
   if (isNSRoad || isEWRoad) {
-    const treeCount = 2 + Math.floor(rng() * 4)
-    for (let i = 0; i < treeCount; i++) {
+    if (rng() < 0.05) {
       const side  = rng() > 0.5 ? 1 : -1
       const along = (rng() - 0.5) * CHUNK_SIZE
-      const away  = side * (4 + rng() * (HALF - 5))
+      const away  = side * (HALF - 4)   // pinned to the chunk edge near the road
       if (isNSRoad) addTree(away, along)
       else          addTree(along, away)
     }
@@ -174,13 +174,7 @@ function buildChunkMesh(cx, cz) {
     })
     playerBox = { x: wx, z: wz, w, d }
 
-    // Sidewalk trees around building
-    const treeCount = 2 + Math.floor(rng() * 3)
-    for (let i = 0; i < treeCount; i++) {
-      const ang  = rng() * Math.PI * 2
-      const dist = 6 + rng() * 6
-      addTree(Math.cos(ang) * dist, Math.sin(ang) * dist)
-    }
+    // No sidewalk trees around buildings — keep them clear of structures.
 
   } else if (type < 0.75) {
     // ── Park chunk: grass + trees ─────────────────────────────────────────────
@@ -191,9 +185,8 @@ function buildChunkMesh(cx, cz) {
     parkGrass.rotation.x = -Math.PI / 2
     parkGrass.position.y  = -0.01
     group.add(parkGrass)
-    // PERF: capped at 3-6 (was 5-13). Each tree is ~7.7k tris; park chunks were
-    // a major triangle source when several were active at once.
-    const count = 3 + Math.floor(rng() * 4)
+    // Sparse parks (1-2 trees) to reduce overall clutter.
+    const count = 1 + Math.floor(rng() * 2)
     for (let i = 0; i < count; i++) {
       addTree((rng() - 0.5) * (CHUNK_SIZE - 8), (rng() - 0.5) * (CHUNK_SIZE - 8))
     }

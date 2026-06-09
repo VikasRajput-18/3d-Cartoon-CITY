@@ -4,7 +4,7 @@ import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { onMissionUpdate, getMissionStatus } from '@/lib/missionState'
 
-export const ORB_POS = [0, 1.2, 14]
+const ORB_POS = [0, 1.2, 14]
 
 const PARTICLE_COUNT = 22
 const _dummy = new THREE.Object3D()

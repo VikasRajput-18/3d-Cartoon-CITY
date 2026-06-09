@@ -3,16 +3,28 @@ import { supabase } from '@/lib/supabase'
 import { remotePlayersRef } from '@/lib/multiplayerState'
 import { minimapState } from '@/lib/minimapState'
 import { voiceState, saveMuted } from '@/lib/voiceState'
+import { spendCoins } from '@/lib/economyState'
 
 const MAX_DIST  = 20
 const NEAR_DIST = 5
 const MID_DIST  = 15
+const WHISPER_DIST   = 3
+const MEGAPHONE_DIST = 100
+export const MEGAPHONE_COST = 10   // coins per use
+export const MEGAPHONE_MS   = 30 * 1000
 
 function distToGain(dist) {
   if (dist >= MAX_DIST)  return 0
   if (dist <= NEAR_DIST) return 1
   if (dist <= MID_DIST)  return 1 - ((dist - NEAR_DIST) / (MID_DIST - NEAR_DIST)) * 0.9
   return 0.1 * (1 - (dist - MID_DIST) / (MAX_DIST - MID_DIST))
+}
+
+// Gain depends on the SPEAKER's mode (whisper shrinks audible range, megaphone expands it).
+function gainFor(dist, mode) {
+  if (mode === 'whisper')   return dist >= WHISPER_DIST   ? 0 : Math.max(0, 1 - dist / WHISPER_DIST)
+  if (mode === 'megaphone') return dist >= MEGAPHONE_DIST ? 0 : Math.max(0.15, 1 - dist / MEGAPHONE_DIST)
+  return distToGain(dist)
 }
 
 // Clerk UIDs contain special chars; PeerJS IDs must be alphanumeric only
@@ -44,6 +56,10 @@ export function useVoiceChat({ userId, onlinePlayers }) {
   const enabledRef      = useRef(false)
   const pttModeRef      = useRef(false)
   const outputVolRef    = useRef(1)
+  const voiceChanRef    = useRef(null)   // 'game-voice' channel, for mode broadcasts
+  const megaTimerRef    = useRef(null)
+  const [selfMuted, setSelfMuted] = useState(false)
+  const [voiceMode, setVoiceModeState] = useState('normal')
   const onlinePlayersRef = useRef(onlinePlayers)
   const userIdRef        = useRef(userId)
 
@@ -149,10 +165,10 @@ export function useVoiceChat({ userId, onlinePlayers }) {
         const dx   = data ? data.x - myX : MAX_DIST + 1
         const dz   = data ? data.z - myZ : 0
         const dist = Math.sqrt(dx * dx + dz * dz)
-        const gain = Math.max(0, Math.min(1, distToGain(dist) * outputVolRef.current))
+        const mode = voiceState.remoteModes.get(uid) || 'normal'
+        const gain = Math.max(0, Math.min(1, gainFor(dist, mode) * outputVolRef.current))
 
         p.audio.volume = gain
-        console.log(`[Voice] ${uid.slice(-6)} dist=${dist.toFixed(1)} vol=${gain.toFixed(2)}`)
       }
     }, 500)
     return () => clearInterval(id)
@@ -187,7 +203,7 @@ export function useVoiceChat({ userId, onlinePlayers }) {
   // ── Push-to-talk (V key) ─────────────────────────────────────────────────
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (e.code !== 'KeyV' || !enabledRef.current || !pttModeRef.current) return
+      if (e.code !== 'KeyV' || e.shiftKey || !enabledRef.current || !pttModeRef.current) return  // Shift+V = whisper
       if (voiceState.pttActive) return
       voiceState.pttActive = true
       localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = true })
@@ -211,6 +227,7 @@ export function useVoiceChat({ userId, onlinePlayers }) {
   useEffect(() => {
     if (!supabase || !userId) return
     const ch = supabase.channel('game-voice')
+    voiceChanRef.current = ch
     ch.on('broadcast', { event: 'voice-status' }, ({ payload }) => {
       if (!payload?.uid || payload.uid === userId) return
       const uid = payload.uid
@@ -225,10 +242,16 @@ export function useVoiceChat({ userId, onlinePlayers }) {
         peersRef.current.delete(uid)
         analysersRef.current.delete(uid)
         voiceState.speakingSet.delete(uid)
+        voiceState.remoteModes.delete(uid)
       }
     })
+    // Speaker voice-mode (whisper/megaphone) so listeners apply the right range.
+    ch.on('broadcast', { event: 'voice-mode' }, ({ payload }) => {
+      if (!payload?.uid || payload.uid === userId) return
+      voiceState.remoteModes.set(payload.uid, payload.mode || 'normal')
+    })
     ch.subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => { voiceChanRef.current = null; supabase.removeChannel(ch) }
   }, [userId, callPeer])
 
   // Call newly voice-enabled players as they appear in onlinePlayers list
@@ -458,6 +481,52 @@ export function useVoiceChat({ userId, onlinePlayers }) {
     setOutputVolState(val)
   }, [])
 
+  // ── Self-mute (stay connected, just stop transmitting) ───────────────────
+  const toggleSelfMute = useCallback(() => {
+    const next = !voiceState.selfMuted
+    voiceState.selfMuted = next
+    setSelfMuted(next)
+    localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !next })
+  }, [])
+
+  // ── Voice mode: normal / whisper / megaphone — broadcast so peers apply range ──
+  const broadcastMode = useCallback(() => {
+    voiceChanRef.current?.send({ type: 'broadcast', event: 'voice-mode', payload: { uid: userIdRef.current, mode: voiceState.localMode } })
+  }, [])
+
+  const setVoiceMode = useCallback((mode, durationMs = 0) => {
+    clearTimeout(megaTimerRef.current)
+    voiceState.localMode = mode
+    voiceState.localModeUntil = durationMs ? Date.now() + durationMs : 0
+    setVoiceModeState(mode)
+    broadcastMode()
+    if (durationMs) megaTimerRef.current = setTimeout(() => setVoiceMode('normal'), durationMs)
+  }, [broadcastMode])
+
+  const toggleWhisper = useCallback(() => {
+    setVoiceMode(voiceState.localMode === 'whisper' ? 'normal' : 'whisper')
+  }, [setVoiceMode])
+
+  const activateMegaphone = useCallback(() => {
+    if (voiceState.localMode === 'megaphone') return { ok: false, reason: 'Megaphone already active' }
+    if (!spendCoins(MEGAPHONE_COST)) return { ok: false, reason: `Need ${MEGAPHONE_COST} coins` }
+    setVoiceMode('megaphone', MEGAPHONE_MS)
+    return { ok: true }
+  }, [setVoiceMode])
+
+  // Shift+V toggles whisper mode (ignored while typing).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.code !== 'KeyV' || !e.shiftKey || !enabledRef.current) return
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      e.preventDefault()
+      toggleWhisper()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleWhisper])
+
   const mutePlayer    = useCallback((uid) => {
     voiceState.mutedSet.add(uid)
     saveMuted()
@@ -478,5 +547,7 @@ export function useVoiceChat({ userId, onlinePlayers }) {
     toggleVoice, togglePttMode,
     setInputVolume, setOutputVolume,
     mutePlayer, unmutePlayer, isPlayerMuted,
+    selfMuted, toggleSelfMute,
+    voiceMode, toggleWhisper, activateMegaphone,
   }
 }

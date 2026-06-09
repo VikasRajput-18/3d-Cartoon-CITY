@@ -88,11 +88,6 @@ export function prevStep() {
   }
 }
 
-export function goToStep(n) {
-  _s.step = Math.max(0, Math.min(n, TUTORIAL_STEP_COUNT - 1))
-  _saveStep(); emit()
-}
-
 // ── Finish ───────────────────────────────────────────────────────────────────
 async function _persistComplete() {
   if (_s.uid) { try { localStorage.setItem(doneKey(_s.uid), 'true') } catch {} }
@@ -145,10 +140,6 @@ function _grantBadge(badge) {
       localStorage.setItem('clu_badges', JSON.stringify(badges))
     }
   } catch {}
-}
-
-export function getBadges() {
-  try { return JSON.parse(localStorage.getItem('clu_badges') || '[]') } catch { return [] }
 }
 
 // ── Returning-player feature tips ────────────────────────────────────────────

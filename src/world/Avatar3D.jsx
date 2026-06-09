@@ -31,6 +31,7 @@ export default function Avatar3D({
   externalControl = false, // when true, parent group owns position/rotation
   walking = false,          // used when externalControl=true
   positionRef = null,       // {x,z} object kept in sync each frame (NPCs only)
+  outfitColorOverride = null, // raw hex to override the named-outfit colour (companions)
 }) {
   const group   = useRef()
   const bodyRef = useRef()
@@ -48,7 +49,7 @@ export default function Avatar3D({
   const _target     = useRef(new THREE.Vector3())
   const _dir        = useRef(new THREE.Vector3())
 
-  const outfitColor = OUTFIT_COLORS[outfit] || OUTFIT_COLORS.casual
+  const outfitColor = outfitColorOverride || OUTFIT_COLORS[outfit] || OUTFIT_COLORS.casual
 
   useFrame((_, delta) => {
     if (!group.current) return

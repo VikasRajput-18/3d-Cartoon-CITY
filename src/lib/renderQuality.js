@@ -3,7 +3,7 @@
 export const isMobileDevice =
   typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
-export const renderQuality = {
+const renderQuality = {
   bloom:   !isMobileDevice,   // post-processing bloom (desktop only by default)
   postFx:  !isMobileDevice,   // whole post-processing stack
   listeners: new Set(),
@@ -11,19 +11,8 @@ export const renderQuality = {
 
 function _emit() { renderQuality.listeners.forEach(fn => fn(renderQuality)) }
 
-export function onQualityChange(fn) {
-  renderQuality.listeners.add(fn)
-  return () => renderQuality.listeners.delete(fn)
-}
-
 export function setBloom(on) {
   if (renderQuality.bloom === on) return
   renderQuality.bloom = on
-  _emit()
-}
-
-export function setPostFx(on) {
-  if (renderQuality.postFx === on) return
-  renderQuality.postFx = on
   _emit()
 }

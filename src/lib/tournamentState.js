@@ -55,7 +55,7 @@ export function getTournamentState() {
   }
 }
 
-export function isJoined() {
+function isJoined() {
   if (!_t.current || !_t.myId) return false
   const parts = _t.current.participants || []
   return parts.some(p => p.id === _t.myId)
@@ -206,8 +206,7 @@ async function _endTournament(t) {
           .update({ rank: i + 1 })
           .eq('id', scores[i].id)
       }
-      // Award prizes to registered participants who are online via Supabase rpc or direct update
-      // (actual coin award happens in claimTournamentPrize)
+      // Ranks recorded above; prize payout is handled elsewhere when claimed.
     }
     await supabase.from('tournaments').update({ status: 'completed' }).eq('id', t.id)
     window.dispatchEvent(new CustomEvent('tournament-ended', { detail: { ...t, scores } }))
@@ -250,38 +249,6 @@ export async function submitTournamentScore(uid, name, score) {
       detail: { text: `${name} scored ${score} in the ${_t.current.game_id} tournament!` },
     }))
   } catch {}
-}
-
-export async function claimTournamentPrize(uid) {
-  if (!supabase) return
-  try {
-    // Find completed tournaments where player ranked top 3 and hasn't claimed
-    const { data } = await supabase
-      .from('tournament_scores')
-      .select('*, tournaments(prize_1st, prize_2nd, prize_3rd, game_id)')
-      .eq('player_id', uid)
-      .not('rank', 'is', null)
-      .is('claimed', null)   // claimed column optional — handled gracefully
-    if (!data?.length) return
-    let totalPrize = 0
-    for (const row of data) {
-      const t = row.tournaments
-      const prize = row.rank === 1 ? (t?.prize_1st ?? PRIZE_1ST)
-                  : row.rank === 2 ? (t?.prize_2nd ?? PRIZE_2ND)
-                  : (t?.prize_3rd ?? PRIZE_3RD)
-      totalPrize += prize
-    }
-    if (totalPrize > 0) {
-      addCoins(totalPrize)
-      window.dispatchEvent(new CustomEvent('achievement', {
-        detail: { text: `🏆 Tournament prize claimed: +${totalPrize} coins!` },
-      }))
-    }
-  } catch {}
-}
-
-export function getTournamentGameId() {
-  return _t.current?.game_id ?? null
 }
 
 export { ENTRY_FEE, PRIZE_1ST, PRIZE_2ND, PRIZE_3RD }

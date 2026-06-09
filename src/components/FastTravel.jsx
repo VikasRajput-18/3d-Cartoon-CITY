@@ -22,6 +22,8 @@ const LOCATIONS = [
   { id: 'school',     pos: [-34, 0, -5],  emoji: '🏫', label: 'School'          },
   { id: 'restaurant', pos: [12,  0, 28],  emoji: '🍕', label: 'Restaurant'      },
   { id: 'gamearea',   pos: [22,  0,-10],  emoji: '🎮', label: 'Game Zone'        },
+  { id: 'pool',       pos: [300, 0,-300], emoji: '🏊', label: 'Swimming Pool', cost: 15 },
+  { id: 'airport',    pos: [-600,0,-600], emoji: '✈️', label: 'Airport',       cost: 30 },
 ]
 
 function walkTime(x, z) {
@@ -41,15 +43,16 @@ export default function FastTravel({ open, onClose, onTravel, onOpenShop }) {
   useEffect(() => onEconomyUpdate(setEco), [])
   useEffect(() => onHouseUpdate(setHs),  [])
 
+  const costOf = (loc) => loc.isHome ? HOUSE_COST : (loc.cost ?? COST)
+
   const selectLoc = useCallback((loc) => {
-    const cost = loc.isHome ? HOUSE_COST : COST
-    if (eco.coins < cost) return
+    if (eco.coins < costOf(loc)) return
     setConfirm(loc)
   }, [eco.coins])
 
   const confirmTravel = useCallback(() => {
     if (!confirm) return
-    const cost = confirm.isHome ? HOUSE_COST : COST
+    const cost = costOf(confirm)
     if (eco.coins < cost) { setConfirm(null); return }
     spendCoins(cost)
     teleportRequest.x       = confirm.pos[0]
@@ -68,7 +71,7 @@ export default function FastTravel({ open, onClose, onTravel, onOpenShop }) {
     : null
 
   const allLocations = homeLoc ? [homeLoc, ...LOCATIONS] : LOCATIONS
-  const canAfford    = (loc) => eco.coins >= (loc.isHome ? HOUSE_COST : COST)
+  const canAfford    = (loc) => eco.coins >= costOf(loc)
 
   return (
     <div
@@ -130,7 +133,7 @@ export default function FastTravel({ open, onClose, onTravel, onOpenShop }) {
           >
             <div className="text-slate-200 text-[13px] font-bold mb-2">
               {confirm.emoji} Fast travel to <span className="text-violet-400">{confirm.label}</span>
-              {' '}costs {confirm.isHome ? HOUSE_COST : COST} coins
+              {' '}costs {costOf(confirm)} coins
             </div>
             <div className="text-slate-500 text-[11px] mb-[10px]">
               Or close this panel to walk for free.
@@ -141,7 +144,7 @@ export default function FastTravel({ open, onClose, onTravel, onOpenShop }) {
                 className="flex-1 py-[9px] rounded-lg text-white font-bold text-[13px] cursor-pointer font-body border-0"
                 style={{ background: 'rgba(124,58,237,0.7)' }}
               >
-                Travel (🪙 {confirm.isHome ? HOUSE_COST : COST})
+                Travel (🪙 {costOf(confirm)})
               </button>
               <button
                 onClick={() => setConfirm(null)}
@@ -160,7 +163,7 @@ export default function FastTravel({ open, onClose, onTravel, onOpenShop }) {
         {/* Location list */}
         <div className="overflow-y-auto" style={{ padding: '8px 10px 12px' }}>
           {allLocations.map(loc => {
-            const cost       = loc.isHome ? HOUSE_COST : COST
+            const cost       = costOf(loc)
             const affordable = canAfford(loc)
             return (
               <button

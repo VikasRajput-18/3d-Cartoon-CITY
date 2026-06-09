@@ -175,11 +175,28 @@ export async function initEconomy(uid) {
   return bonusResult
 }
 
+// ── Live-event coin hooks ───────────────────────────────────────────────────
+// Live events (double-coins multiplier, community-challenge counter) register
+// here so addCoins stays the single coin chokepoint without a circular import.
+let _coinMultiplier = () => 1
+let _onCoinsEarned  = null
+export function setCoinMultiplier(fn) { _coinMultiplier = fn || (() => 1) }
+export function setOnCoinsEarned(fn)  { _onCoinsEarned  = fn }
+
 // ── Coin helpers ──────────────────────────────────────────────────────────────
-export function addCoins(n) {
+// opts.raw = true  → skip the live-event multiplier + earned hook (used by the
+// event system itself when granting fixed rewards, to avoid double-counting).
+export function addCoins(n, opts = {}) {
   if (n <= 0) return
-  _s.coins += n
+  let amount = n
+  if (!opts.raw) {
+    const mult = _coinMultiplier() || 1
+    amount = Math.round(n * mult)
+  }
+  _s.coins += amount
   _persist(); emit()
+  if (!opts.raw && _onCoinsEarned) { try { _onCoinsEarned(amount) } catch {} }
+  return amount
 }
 
 export function spendCoins(n) {

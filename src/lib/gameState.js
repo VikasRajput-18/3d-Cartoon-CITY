@@ -20,7 +20,7 @@ export const RANKS = [
   { name: 'Master',   emoji: '⚡', color: '#a78bfa', min: 200  },
   { name: 'Legend',   emoji: '👑', color: '#fbbf24', min: 500  },
 ]
-export function calcRank(wins = 0) {
+function calcRank(wins = 0) {
   let rank = RANKS[0]
   for (const r of RANKS) { if (wins >= r.min) rank = r }
   return rank
@@ -48,7 +48,7 @@ export const ACHIEVEMENTS = [
 
 // ── Ticker (last 20 events) ────────────────────────────────────────────────────
 const _ticker = []
-export function addTickerEvent(text) {
+function addTickerEvent(text) {
   _ticker.unshift({ text, ts: Date.now() })
   if (_ticker.length > 20) _ticker.pop()
   window.dispatchEvent(new CustomEvent('ticker-event', { detail: { text } }))
@@ -84,9 +84,7 @@ export function onGameUpdate(fn) {
 }
 
 export function getLeaderboard(gameId) { return _s.scores[gameId] || [] }
-export function getAllLeaderboards()   { return _s.scores }
 export function getMyStats()           { return _s.myStats }
-export function getMyUid()             { return _s.myUid }
 export function getDailyStreak()       { return _s.dailyStreak }
 export function getWinStreak()         { return { streak: _s.winStreak, game: _s.winStreakGame } }
 export function getAchievements()      { return [..._s.achievements] }
@@ -137,9 +135,6 @@ function _loadStreaksLocal() {
   } catch {}
 }
 
-export function getPendingChallenges() {
-  return _s.challenges.filter(c => c.challenged_uid === _s.myUid && c.status === 'pending')
-}
 export function getMyChallenges() { return _s.challenges }
 
 function emptyStats() {
@@ -211,7 +206,7 @@ export async function fetchLeaderboards() {
   emit()
 }
 
-export async function fetchMyStats() {
+async function fetchMyStats() {
   if (!supabase) {
     const raw = localStorage.getItem(`gs_stats_${_s.myUid}`)
     _s.myStats = raw ? JSON.parse(raw) : emptyStats()
@@ -379,15 +374,6 @@ export async function submitScore(gameId, score, powerUpMultiplier = 1) {
     globalBest:   _s.scores[gameId]?.[0],
     myRank: (_s.scores[gameId]?.findIndex(r => r.player_uid === _s.myUid) ?? -1) + 1,
   }
-}
-
-// Called from tournamentState when player wins a tournament
-export function recordTournamentWin() {
-  _s.tournamentWins++
-  _saveStreaksLocal()
-  _awardAchievement('tournament_win')
-  if (_s.tournamentWins >= 3)  _awardAchievement('triple_champ')
-  if (_s.tournamentWins >= 10) _awardAchievement('legend_ten')
 }
 
 export async function sendChallenge(challengedUid, challengedName, gameId, myScore) {

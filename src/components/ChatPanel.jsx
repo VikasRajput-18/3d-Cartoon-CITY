@@ -7,6 +7,7 @@ import { audioSystem } from '@/lib/audioSystem'
 import { groqChat, getTimeLabel, getWeatherDesc, LANGUAGE_RULE } from '@/lib/groqChat'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 import { getNpcCache, setNpcCache } from '@/lib/chatCache'
+import { sendRoseToNpc } from '@/lib/relationshipService'
 
 // ── Visual identity per city NPC ──────────────────────────────────────────
 const NPC_META = {
@@ -220,6 +221,14 @@ export default function ChatPanel({ npc, onClose }) {
   const cachedSession = npc ? getNpcCache(npc.name) : null
   const [msgs, setMsgs] = useState(cachedSession?.msgs ?? [])
   const [input, setInput] = useState('')
+  const [roseMsg, setRoseMsg] = useState('')
+
+  const handleSendRose = () => {
+    const r = sendRoseToNpc(npc.name)
+    if (r.ok) { setRoseMsg(`💕 ${npc.name} accepted your rose!`); audioSystem.playChime?.() }
+    else      { setRoseMsg(r.reason || 'Could not send a rose.') }
+    setTimeout(() => setRoseMsg(''), 3000)
+  }
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef()
   const inputRef = useRef()
@@ -335,12 +344,24 @@ export default function ChatPanel({ npc, onClose }) {
             <p className="text-white/40 text-[11px]">City resident · AI powered</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={handleSendRose}
+              title="Send a rose (🪙10)"
+              className="px-2 py-1 rounded-xl text-sm hover:bg-white/10 transition-all"
+              style={{ border: '1px solid rgba(244,63,94,0.5)' }}
+            >🌹</button>
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
             <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-white/10 transition-all">
               <X size={16} className="text-white/60" />
             </button>
           </div>
         </div>
+
+        {roseMsg && (
+          <div className="px-3 py-1.5 text-center text-[12px] font-bold" style={{ background: 'rgba(244,63,94,0.15)', color: '#fda4af' }}>
+            {roseMsg}
+          </div>
+        )}
 
         {/* Messages */}
         <div className="px-3 py-3 h-64 overflow-y-auto space-y-2.5 scroll-smooth">
