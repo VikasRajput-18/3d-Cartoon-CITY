@@ -8,22 +8,24 @@ import { getHouseState, onHouseUpdate } from '@/lib/houseService'
 const COST       = COSTS.fastTravel
 const HOUSE_COST = COSTS.houseTravel
 
+// Teleport drop-points sit just OFF each building (on the road/footpath side)
 const LOCATIONS = [
   { id: 'center',     pos: [0,   0,  6],  emoji: '🏙️', label: 'City Center'    },
-  { id: 'cafe',       pos: [-10, 0, -6],  emoji: '☕', label: 'Cafe'            },
-  { id: 'arcade',     pos: [10,  0, -6],  emoji: '🕹️', label: 'Arcade'          },
-  { id: 'beach',      pos: [0,   0,-14],  emoji: '🏖️', label: 'Beach Club'      },
-  { id: 'rooftop',    pos: [-14, 0,  4],  emoji: '🌙', label: 'Rooftop Bar'     },
-  { id: 'musicroom',  pos: [14,  0,  4],  emoji: '🎵', label: 'Music Room'      },
-  { id: 'park',       pos: [0,   0, 14],  emoji: '🌳', label: 'Park'            },
-  { id: 'mall',       pos: [-16, 0,-28],  emoji: '🛍️', label: 'Shopping Mall'   },
-  { id: 'cinema',     pos: [16,  0,-28],  emoji: '🎬', label: 'Cinema'          },
-  { id: 'hospital',   pos: [34,  0, -5],  emoji: '🏥', label: 'Hospital'        },
-  { id: 'school',     pos: [-34, 0, -5],  emoji: '🏫', label: 'School'          },
-  { id: 'restaurant', pos: [12,  0, 28],  emoji: '🍕', label: 'Restaurant'      },
-  { id: 'gamearea',   pos: [22,  0,-10],  emoji: '🎮', label: 'Game Zone'        },
+  { id: 'cafe',       pos: [-80, 0, -10], emoji: '☕', label: 'Cafe'            },
+  { id: 'arcade',     pos: [80,  0, -10], emoji: '🕹️', label: 'Arcade'          },
+  { id: 'beach',      pos: [170, 0,-48],  emoji: '🏖️', label: 'Beach Club'      },
+  { id: 'rooftop',    pos: [12,  0,-115], emoji: '🌙', label: 'Rooftop Bar'     },
+  { id: 'musicroom',  pos: [12,  0,-160], emoji: '🎵', label: 'Music Room'      },
+  { id: 'park',       pos: [-12, 0, 170], emoji: '🌳', label: 'Park'            },
+  { id: 'mall',       pos: [-22, 0, 196], emoji: '🛍️', label: 'Shopping Mall'   },
+  { id: 'cinema',     pos: [12,  0, 90],  emoji: '🎬', label: 'Cinema'          },
+  { id: 'hospital',   pos: [100, 0, 9],   emoji: '🏥', label: 'Hospital'        },
+  { id: 'school',     pos: [-160,0, 9],   emoji: '🏫', label: 'School'          },
+  { id: 'restaurant', pos: [12,  0, 135], emoji: '🍕', label: 'Restaurant'      },
+  { id: 'gamearea',   pos: [13,  0, 180], emoji: '🎮', label: 'Game Zone'        },
   { id: 'pool',       pos: [300, 0,-300], emoji: '🏊', label: 'Swimming Pool', cost: 15 },
   { id: 'airport',    pos: [-600,0,-600], emoji: '✈️', label: 'Airport',       cost: 30 },
+  { id: 'shore',      pos: [185, 0, 0],   emoji: '🌅', label: 'Sunset Shore',  cost: 15 },
 ]
 
 function walkTime(x, z) {

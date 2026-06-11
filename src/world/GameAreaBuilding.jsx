@@ -4,8 +4,8 @@ import { Text, Billboard } from '@react-three/drei'
 import * as THREE from 'three'
 import { onGameUpdate, getLeaderboard, GAME_IDS, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
 
-// Building position
-export const GAME_AREA_POS = [22, 0, -10]
+// Building position — south arm of the N-S highway (GTA-style spread)
+export const GAME_AREA_POS = [20, 0, 180]
 export const GAME_AREA_ID  = 'gamearea'
 
 // Neon flicker helper

@@ -6,6 +6,8 @@ import { vehicleState } from '@/lib/vehicleState'
 import { voiceState } from '@/lib/voiceState'
 import { emitChatNotification } from '@/lib/chatNotifications'
 import { appendDmCache, getDmCache } from '@/lib/chatCache'
+import { companionState } from '@/lib/companionState'
+import { getCompanion } from '@/lib/companionService'
 
 const BROADCAST_MS   = 80     // position broadcast interval (ms) — WebSocket only, not HTTP
 const OFFLINE_MS     = 15000  // prune players silent for 15 s
@@ -250,6 +252,11 @@ export function useMultiplayer({ userId, avatar }) {
         skin:          payload.skin   || existing.skin   || '#F4C08A',
         voice_enabled:  voiceOn,
         current_emote:  payload.current_emote || '',
+        companion_name:  payload.companion_name || null,
+        companion_color: payload.companion_color || '#FF6B6B',
+        companion_skin:  payload.companion_skin  || '#FDBCB4',
+        companion_x:     payload.companion_x ?? payload.x,
+        companion_z:     payload.companion_z ?? payload.z,
         x:      existing.x      ?? payload.x,
         z:      existing.z      ?? payload.z,
         facing: existing.facing ?? payload.facing,
@@ -393,6 +400,12 @@ export function useMultiplayer({ userId, avatar }) {
           skin:          avatarRef.current.skin,
           voice_enabled:  voiceState.enabled,
           current_emote:  minimapState.currentEmote || '',
+          // companion follow-state so other players see your buddy
+          companion_name:  (() => { const c = getCompanion(); return c && c.visible !== false ? c.name : null })(),
+          companion_color: getCompanion()?.outfitColor || null,
+          companion_skin:  getCompanion()?.skinColor || null,
+          companion_x:     companionState.x,
+          companion_z:     companionState.z,
         },
       })
 

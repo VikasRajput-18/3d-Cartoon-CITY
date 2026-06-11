@@ -53,14 +53,24 @@ function buildChunkMesh(cx, cz) {
   group.position.set(wx, 0, wz)
   group.userData.dynamic = true   // streaming chunk — never merge (it disposes/reloads)
 
+  // Sunset Shore exclusion — the beach/ocean band east of the city
+  // (x > 150, |z| < 100). These chunks get a bare sand ground and NOTHING else,
+  // so no procedural buildings/roads/trees ever pop out of the water.
+  const inShore = (wx + HALF > 150) && (Math.abs(wz) - HALF < 100)
+
   // Ground
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE),
-    makeMat('#2d5a27')
+    makeMat(inShore ? '#efd9a7' : '#5e9444')   // C.sand / C.grass tokens
   )
   ground.rotation.x = -Math.PI / 2
   ground.position.y  = -0.02
   group.add(ground)
+
+  if (inShore) {
+    group.userData.birthTime = -1
+    return { group, colliders: [], trees: [] }
+  }
 
   const isNSRoad = cx % 3 === 0
   const isEWRoad = cz % 3 === 0
@@ -96,18 +106,18 @@ function buildChunkMesh(cx, cz) {
     }
     const merged = mergeGeometries(geos, false)
     geos.forEach(g => g.dispose())
-    if (merged) group.add(new THREE.Mesh(merged, makeMat('#facc15')))
+    if (merged) group.add(new THREE.Mesh(merged, makeMat('#f2c94c')))   // C.laneYellow
   }
 
   if (isNSRoad) {
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(4, CHUNK_SIZE), makeMat('#22252e'))
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(4, CHUNK_SIZE), makeMat('#3a3f47'))
     road.rotation.x = -Math.PI / 2
     road.position.y  = 0.01
     group.add(road)
     addMergedDashes('ns')   // 8 dash planes → 1 merged mesh
   }
   if (isEWRoad) {
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK_SIZE, 4), makeMat('#22252e'))
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK_SIZE, 4), makeMat('#3a3f47'))
     road.rotation.x = -Math.PI / 2
     road.position.y  = 0.01
     group.add(road)
@@ -133,6 +143,15 @@ function buildChunkMesh(cx, cz) {
   const colliders = []
   let playerBox = null
 
+  // Highway-corridor exclusion: the spread city's landmarks line the main
+  // highway arms (|x|<60 or |z|<60 well beyond the core). Chunks in those
+  // corridors stay clear of buildings/trees so nothing crowds the landmarks.
+  const inCorridor = Math.abs(wx) < 60 || Math.abs(wz) < 60
+  if (inCorridor) {
+    group.userData.birthTime = -1
+    return { group, colliders: [], trees: [] }
+  }
+
   // ── GRID PLACEMENT: checkerboard — only even (cx+cz) chunks get a building ──
   const eligible = (cx + cz) % 2 === 0
 
@@ -144,8 +163,8 @@ function buildChunkMesh(cx, cz) {
     const w  = 4 + rng() * 4    // width  4-8  (capped for clear spacing)
     const h  = 5 + rng() * 13   // height 5-18
     const d  = 4 + rng() * 4    // depth  4-8
-    // Muted, cohesive wall palette (no neon) — matches the stylized art direction
-    const colors = ['#F5E6C8', '#EDE0CC', '#B8A898', '#C17B5C', '#7B9BA6', '#7A9E7E', '#9E9087']
+    // Storybook token walls (designTokens.js) — same family as the city centre
+    const colors = ['#f2e8d5', '#e3d3b4', '#d9886a', '#7e93a8', '#f7f3ea', '#e3d3b4', '#f2e8d5']
     const ci = Math.floor(rng() * colors.length)
 
     // Building body at local (0, h/2, 0)
@@ -153,8 +172,8 @@ function buildChunkMesh(cx, cz) {
     body.position.set(0, h / 2, 0)
     group.add(body)
 
-    // Roof parapet — dark slate roof tone
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.35, d + 0.5), makeMat('#2C3442'))
+    // Roof parapet — slate token
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.35, d + 0.5), makeMat('#3d4a5c'))
     roof.position.set(0, h + 0.175, 0)
     group.add(roof)
 
@@ -180,7 +199,7 @@ function buildChunkMesh(cx, cz) {
     // ── Park chunk: grass + trees ─────────────────────────────────────────────
     const parkGrass = new THREE.Mesh(
       new THREE.PlaneGeometry(CHUNK_SIZE - 4, CHUNK_SIZE - 4),
-      makeMat('#4ade80')
+      makeMat('#4f8f3f')   // C.parkGrass token
     )
     parkGrass.rotation.x = -Math.PI / 2
     parkGrass.position.y  = -0.01

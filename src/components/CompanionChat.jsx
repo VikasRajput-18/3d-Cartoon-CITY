@@ -5,12 +5,14 @@ import { gameControls } from '@/lib/gameControls'
 import { timeWeatherState } from '@/lib/timeWeatherState'
 import { getEconomyState } from '@/lib/economyState'
 import { getCompanion, onCompanionUpdate, chatWithCompanion, setCompanionVisible } from '@/lib/companionService'
+import { getPhotos } from '@/lib/photoAlbum'
 
 export default function CompanionChat({ open, onClose }) {
   const [comp, setComp] = useState(getCompanion)
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [album, setAlbum] = useState(false)
   const inputRef = useRef(null)
   const scrollRef = useRef(null)
 
@@ -45,6 +47,10 @@ export default function CompanionChat({ open, onClose }) {
             <div style={{ color: '#fff', fontWeight: 900, fontSize: 16 }}>💗 {comp.name}</div>
             <div style={{ color: '#94a3b8', fontSize: 12 }}>{comp.personality} · Lv {comp.level} · {comp.xp} XP</div>
           </div>
+          <button onClick={() => setAlbum(a => !a)} title="Photo album"
+            style={{ background: album ? '#2563eb' : '#1e293b', border: 'none', borderRadius: 8, color: '#cbd5e1', padding: '6px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            📸
+          </button>
           <button onClick={() => setCompanionVisible(comp.visible === false)} title="Toggle companion visibility"
             style={{ background: '#1e293b', border: 'none', borderRadius: 8, color: '#cbd5e1', padding: '6px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
             {comp.visible === false ? '🙈 Hidden' : '👁 Visible'}
@@ -52,7 +58,27 @@ export default function CompanionChat({ open, onClose }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer' }}>×</button>
         </div>
 
-        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {album && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
+            {getPhotos().length === 0 ? (
+              <div style={{ color: '#64748b', textAlign: 'center', marginTop: 30, fontSize: 13 }}>No photos yet — accept a 📸 photo challenge!</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {getPhotos().map((p, i) => (
+                  <div key={i} style={{ background: '#f8fafc', padding: '6px 6px 0', borderRadius: 3 }}>
+                    {p.dataUrl && <img src={p.dataUrl} alt="" style={{ width: '100%', display: 'block', borderRadius: 2 }} />}
+                    <div style={{ padding: '6px 2px 8px', color: '#1f2937', fontSize: 10, fontWeight: 700 }}>
+                      {p.caption}
+                      <div style={{ color: '#6b7280', fontWeight: 400 }}>{p.date}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 14, display: album ? 'none' : 'flex', flexDirection: 'column', gap: 10 }}>
           {msgs.length === 0 && <div style={{ color: '#64748b', textAlign: 'center', marginTop: 20, fontSize: 13 }}>Say hi to {comp.name}! 👋</div>}
           {msgs.map((m, i) => (
             <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '82%', background: m.role === 'user' ? '#2563eb' : '#1e293b', color: '#fff', padding: '8px 12px', borderRadius: 12, fontSize: 14 }}>{m.content}</div>
@@ -60,7 +86,7 @@ export default function CompanionChat({ open, onClose }) {
           {busy && <div style={{ alignSelf: 'flex-start', color: '#64748b', fontSize: 13 }}>{comp.name} is typing…</div>}
         </div>
 
-        <div style={{ padding: 10, borderTop: '1px solid #1e293b', display: 'flex', gap: 8 }}>
+        <div style={{ padding: 10, borderTop: '1px solid #1e293b', display: album ? 'none' : 'flex', gap: 8 }}>
           <input
             ref={inputRef}
             value={input}

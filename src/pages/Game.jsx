@@ -59,6 +59,9 @@ import VoiceHUD from '@/components/VoiceHUD'
 import { initCompanions } from '@/lib/companionService'
 import CompanionSetup from '@/components/CompanionSetup'
 import CompanionChat, { CompanionButton } from '@/components/CompanionChat'
+import { initCompanionChallenges, setChallengeInCity } from '@/lib/companionChallenges'
+import ChallengePopup from '@/components/ChallengePopup'
+import { initPhotoAlbum } from '@/lib/photoAlbum'
 
 export default function Game() {
   const avatar   = useStore(s => s.avatar)
@@ -226,7 +229,16 @@ export default function Game() {
     initLiveEvents(user.id, avatar.name)
     initJobs(user.id, avatar.name)
     initRelationships(user.id, avatar.name)
-    initCompanions(user.id, avatar.name).then(c => { if (!c) setShowCompanionSetup(true) })
+    initCompanions(user.id, avatar.name).then(c => {
+      // Show setup ONLY if: no companion anywhere AND never completed AND never skipped.
+      const companionDone    = localStorage.getItem('clu_companion_done')
+      const companionSkipped = localStorage.getItem('clu_companion_skipped')
+      const shouldShow = !c && !companionDone && !companionSkipped
+      console.log('Companion check - done:', companionDone, 'skipped:', companionSkipped, 'will show:', shouldShow)
+      if (shouldShow) setShowCompanionSetup(true)
+    })
+    initCompanionChallenges()
+    initPhotoAlbum(user.id)
     startPassiveIncome()
     return () => stopPassiveIncome()
   }, [user?.id])
@@ -467,6 +479,9 @@ export default function Game() {
 
   const [mode,           setMode]           = useState('city')
   const [activeBuilding, setActiveBuilding] = useState(null)
+
+  // Gate companion challenges to the open city (never inside a building interior).
+  useEffect(() => { setChallengeInCity(mode === 'city' && !showHouseInterior) }, [mode, showHouseInterior])
   const [fading,         setFading]         = useState(false)
   const [chatNpc,        setChatNpc]        = useState(null)
   const [showGameMenu,   setShowGameMenu]   = useState(false)
@@ -1010,6 +1025,7 @@ export default function Game() {
 
       {showCompanionSetup && <CompanionSetup onDone={() => setShowCompanionSetup(false)} />}
       <CompanionChat open={showCompanionChat} onClose={() => setShowCompanionChat(false)} />
+      {mode === 'city' && <ChallengePopup playerName={avatar?.name} />}
 
       <HousePanel
         open={showHouse}

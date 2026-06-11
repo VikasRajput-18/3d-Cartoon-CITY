@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import NPCModel from './NPCModel'
+import Avatar3D from './Avatar3D'
 import { remotePlayersRef } from '@/lib/multiplayerState'
 import { minimapState } from '@/lib/minimapState'
 import { voiceState } from '@/lib/voiceState'
@@ -215,6 +216,7 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
   const handlePointerUpCancel = () => { clearTimeout(longPressTimerRef.current) }
 
   return (
+   <>
     <group ref={groupRef} visible={false}>
       {/* Invisible hitbox */}
       <mesh
@@ -295,6 +297,51 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
         npcScale={0.01}
         visibleRef={visRef}
       />
+    </group>
+    <RemoteCompanion uid={uid} />
+   </>
+  )
+}
+
+// A remote player's companion — follows their broadcast companion position. No
+// speech bubbles / challenges / mood, just the character + name label.
+function RemoteCompanion({ uid }) {
+  const ref = useRef()
+  const [disp, setDisp] = useState(null)
+  useFrame((_, rawDelta) => {
+    const g = ref.current
+    if (!g) return
+    const data = remotePlayersRef.current.get(uid)
+    if (!data || !data.companion_name) { g.visible = false; return }
+    const dx = data.companion_x - minimapState.playerX
+    const dz = data.companion_z - minimapState.playerZ
+    if (dx * dx + dz * dz > VIS_DIST_SQ) { g.visible = false; return }
+    g.visible = true
+    // Same CityMerger protection as the local companion — without these flags the
+    // merger disposes the remote companion's opaque body 3s after load.
+    g.traverse(c => {
+      if (!c.isMesh) return
+      c.userData.isCompanion = true
+      c.userData.noMerge = true
+      c.userData.dynamic = true
+    })
+    const a = Math.min(1, Math.min(rawDelta, 0.05) * 10)
+    g.position.x = THREE.MathUtils.lerp(g.position.x || data.companion_x, data.companion_x, a)
+    g.position.z = THREE.MathUtils.lerp(g.position.z || data.companion_z, data.companion_z, a)
+    if (!disp || disp.name !== data.companion_name || disp.color !== data.companion_color) {
+      setDisp({ name: data.companion_name, color: data.companion_color, skin: data.companion_skin })
+    }
+  })
+  return (
+    <group ref={ref} visible={false}>
+      {disp && <Avatar3D externalControl skin={disp.skin} outfitColorOverride={disp.color} />}
+      {disp && (
+        <Billboard position={[0, 2.2, 0]}>
+          <Text fontSize={0.17} color="#f9a8d4" anchorX="center" anchorY="middle" outlineWidth={0.02} outlineColor="#000">
+            {`💗 ${disp.name}`}
+          </Text>
+        </Billboard>
+      )}
     </group>
   )
 }

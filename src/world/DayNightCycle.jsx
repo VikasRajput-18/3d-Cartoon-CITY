@@ -6,37 +6,41 @@ import { audioSystem } from '@/lib/audioSystem'
 
 // Real-world time drives day/night — no fake clock needed
 
-// Sky background colour stops [hour, hex]
+// Sky background colour stops [hour, hex] — "Storybook Sunset City" grade.
+// This colour is the HORIZON: SkyDome blends it toward deep blue at the zenith,
+// and fog copies it, so retuning these stops regrades the whole atmosphere.
 const SKY_STOPS = [
-  [0,    '#000d1a'],
-  [4,    '#05081a'],
-  [5.5,  '#8b3a10'],
-  [6,    '#e06820'],
-  [6.8,  '#7aadda'],
-  [9,    '#4db8f5'],
-  [12,   '#38aef0'],
-  [17,   '#5ab4e8'],
-  [18,   '#e05820'],
-  [18.9, '#7a2050'],
-  [20,   '#100820'],
-  [21,   '#000d1a'],
-  [24,   '#000d1a'],
+  [0,    '#0e1830'],   // deep night — blue, never void-black
+  [4,    '#101a35'],
+  [5,    '#3a2a55'],   // pre-dawn violet
+  [5.8,  '#ff9d5c'],   // dawn fire
+  [6.6,  '#ffc77e'],   // golden morning
+  [8,    '#a8d8ee'],
+  [12,   '#bfe3f2'],   // noon — soft warm blue
+  [16.5, '#afd4e8'],
+  [17.5, '#ffc77e'],   // golden hour begins
+  [18.5, '#ff8e5a'],   // sunset peak
+  [19.2, '#8a4f8f'],   // dusk violet
+  [20,   '#26305c'],
+  [21,   '#0e1830'],
+  [24,   '#0e1830'],
 ]
 
-// Ambient light stops [hour, intensity, colour] — night minimum is 0.3 for playability
+// Ambient light stops [hour, intensity, colour] — night minimum kept ≥0.3 for
+// playability; golden hour gets a saturated amber wash so walls "catch fire".
 const AMB_STOPS = [
-  [0,    0.30, '#7080b0'],
-  [5,    0.32, '#8090a8'],
-  [5.5,  0.40, '#ff9060'],
-  [6,    0.42, '#ffb080'],
-  [7,    0.58, '#fff5e8'],
-  [9,    0.65, '#fff8f0'],
-  [12,   0.70, '#fff5e0'],
-  [17,   0.65, '#ffe8d0'],
-  [18,   0.42, '#ff8040'],
-  [18.9, 0.35, '#9060c0'],
-  [20,   0.30, '#4060c0'],
-  [24,   0.30, '#7080b0'],
+  [0,    0.34, '#8088b8'],   // moonlit blue (slightly warmer than before — cozy)
+  [5,    0.36, '#8e86b0'],
+  [5.8,  0.45, '#ffac78'],   // dawn warm
+  [6.6,  0.52, '#ffd9b0'],
+  [8,    0.62, '#fff2e0'],
+  [12,   0.68, '#fff6e6'],   // warm noon
+  [16.5, 0.62, '#ffead0'],
+  [17.5, 0.50, '#ffc490'],   // golden hour amber
+  [18.5, 0.42, '#ff9868'],
+  [19.2, 0.36, '#9b78c8'],
+  [20,   0.33, '#6878c0'],
+  [24,   0.34, '#8088b8'],
 ]
 
 // Reusable colour temporaries — avoids per-frame allocation
@@ -122,7 +126,9 @@ export default function DayNightCycle() {
     // Sync fog color to sky so distant objects blend into the horizon
     if (scene.fog) {
       scene.fog.color.copy(bgColor.current)
-      scene.fog.density = timeWeatherState.isNight ? 0.009 : 0.005
+      // Clearer days (let the city read), cozier nights, thick golden-hour haze
+      const golden = (hour > 17 && hour < 19) || (hour > 5.5 && hour < 7)
+      scene.fog.density = timeWeatherState.isNight ? 0.0085 : golden ? 0.006 : 0.0045
     }
 
     // ── Ambient light ─────────────────────────────────────────────────
@@ -156,9 +162,10 @@ export default function DayNightCycle() {
       sunRef.current.position.set(Math.cos(arc) * -35, Math.max(0.1, sunH), -8)
       sunRef.current.visible = hour >= 5 && hour < 20
       const edge   = hour < 8 || hour > 17   // golden hour bands
-      const intens = Math.max(0, sunH / 28) * 1.4 * (1 - timeWeatherState.rainIntensity * 0.65)
+      const intens = Math.max(0, sunH / 28) * (edge ? 1.55 : 1.4) * (1 - timeWeatherState.rainIntensity * 0.65)
       sunRef.current.intensity = intens
-      sunRef.current.color.setRGB(1.0, edge ? 0.72 : 0.97, edge ? 0.42 : 0.88)
+      // Warm storybook key: rich amber at the edges, honeyed white at midday
+      sunRef.current.color.setRGB(1.0, edge ? 0.65 : 0.94, edge ? 0.35 : 0.80)
     }
 
     // ── Moon: arc during 19-6 ────────────────────────────────────────

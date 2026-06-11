@@ -8,6 +8,7 @@ import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { POOL, POOL_DIVE, AIRPORT } from '@/lib/locations'
+import { C } from '@/lib/designTokens'
 
 // ── Swimming pool complex ─────────────────────────────────────────────────────
 export function SwimmingPool() {
@@ -21,12 +22,12 @@ export function SwimmingPool() {
       {/* grass ground patch */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
         <planeGeometry args={[halfW * 2 + 40, halfD * 2 + 40]} />
-        <meshStandardMaterial color="#3a6b27" roughness={0.95} />
+        <meshStandardMaterial color={C.grass} roughness={0.95} />
       </mesh>
-      {/* concrete deck */}
+      {/* warm concrete deck */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <planeGeometry args={[halfW * 2 + 8, halfD * 2 + 8]} />
-        <meshStandardMaterial color="#cbd5e1" roughness={0.8} />
+        <meshStandardMaterial color={C.sidewalk} roughness={0.8} />
       </mesh>
       {/* sunken basin */}
       <mesh position={[0, -0.6, 0]}>

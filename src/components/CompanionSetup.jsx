@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { gameControls } from '@/lib/gameControls'
 import {
   PERSONALITIES, OUTFIT_COLORS, SKIN_COLORS, NAME_SUGGESTIONS, createCompanion,
+  markCompanionSkipped,
 } from '@/lib/companionService'
 
 export default function CompanionSetup({ onDone }) {
@@ -29,6 +30,11 @@ export default function CompanionSetup({ onDone }) {
           <span style={{ fontSize: 24 }}>🤖</span>
           <div style={{ flex: 1, color: '#fff', fontWeight: 900, fontSize: 17 }}>Meet your AI Companion</div>
           <span style={{ color: '#64748b', fontSize: 12 }}>Step {step}/3</span>
+          <button
+            onClick={() => { markCompanionSkipped(); onDone?.() }}
+            title="Skip — you can create a companion later"
+            style={{ background: 'none', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', padding: '4px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+          >Skip</button>
         </div>
 
         <div style={{ padding: 18 }}>

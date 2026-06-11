@@ -4,59 +4,37 @@
 // Positions are world-space X/Z centres (accounting for group + local offsets).
 
 export const boxColliders = [
-  // ── City buildings ──────────────────────────────────────────────────────────
-  // CityHall:      group (0,-24)  mesh (0,4,0)    [10.4,8,6.4]
-  { x:   0, z: -24, hw: 5.2, hd: 3.2, label: 'city-hall' },
-  // Supermarket:   group(-32,-24) mesh (0,2,0)    [12.4,4,8.4]
-  { x: -32, z: -24, hw: 6.2, hd: 4.2, label: 'supermarket' },
-  // Library:       group(-52,-24) mesh (0,2.5,0)  [8.4,5,5.6]
-  { x: -52, z: -24, hw: 4.2, hd: 2.8, label: 'library' },
-  // School:        group(-52,-42) mesh (0,3.5,0)  [9.6,7,6.4]
-  { x: -52, z: -42, hw: 4.8, hd: 3.2, label: 'school' },
-  // Hospital:      group (32,-24) mesh (0,4,0)    [9.6,8,6.4]
-  { x:  32, z: -24, hw: 4.8, hd: 3.2, label: 'hospital' },
-  // PoliceStation: group (52,-24) mesh (0,2.5,0)  [5.6,5,5.6]
-  { x:  52, z: -24, hw: 2.8, hd: 2.8, label: 'police' },
-  // Bank:          group (32,-42) mesh (0,3,0)    [8.4,6,5.6]
-  { x:  32, z: -42, hw: 4.2, hd: 2.8, label: 'bank' },
-  // FireStation:   group (52,-42) mesh (0,2.5,0)  [7.6,5,5.6]
-  { x:  52, z: -42, hw: 3.8, hd: 2.8, label: 'fire-station' },
-  // Church:        group(-30, 26) mesh (0,3,0)    [6.4,6,7.6]
-  { x: -30, z:  26, hw: 3.2, hd: 3.8, label: 'church' },
-  // Gym:           group(-50, 26) mesh (0,2.5,0)  [6.4,5,6.4]
-  { x: -50, z:  26, hw: 3.2, hd: 3.2, label: 'gym' },
-  // GasStation:    group(-16, 22) mesh (0,1.5,-1.5) [4.2,3,3.2]
-  // World center = (-16, *, 22-1.5 = 20.5)
-  { x: -16, z: 20.5, hw: 2.2, hd: 1.7, label: 'gas-station' },
-  // Apartments:    group(-30, 46) mesh (0,6,0)    [5.6,12,4.4]
-  { x: -30, z:  46, hw: 2.8, hd: 2.2, label: 'apartments' },
-  // Cinema:        group (30, 26) mesh (0,3.5,0)  [10.4,7,7.6]
-  { x:  30, z:  26, hw: 5.2, hd: 3.8, label: 'cinema' },
-  // Mall:          group (30, 46) mesh (0,3,0)    [14.4,6,8.4]
-  { x:  30, z:  46, hw: 7.2, hd: 4.2, label: 'mall' },
-  // Restaurant:    group (50, 26) mesh (0,2.5,0)  [7.6,5,5.6]
-  { x:  50, z:  26, hw: 3.8, hd: 2.8, label: 'restaurant' },
-  // PostOffice:    group (16, 22) mesh (0,2,0)    [5.6,4,4.4]
-  { x:  16, z:  22, hw: 2.8, hd: 2.2, label: 'post-office' },
+  // ── City buildings — GTA-style spread along the highway arms ───────────────
+  // Positions MUST match the bespoke group positions in CityMap.jsx.
+  { x: -18, z: -90, hw: 5.2, hd: 3.2, label: 'city-hall' },
+  { x: -120, z: 16, hw: 6.2, hd: 4.2, label: 'supermarket' },
+  { x: -130, z: -16, hw: 4.2, hd: 2.8, label: 'library' },
+  { x: -160, z: 16, hw: 4.8, hd: 3.2, label: 'school' },
+  { x: 100, z: 16, hw: 4.8, hd: 3.2, label: 'hospital' },
+  { x: 120, z: -16, hw: 2.8, hd: 2.8, label: 'police' },
+  { x: 135, z: 16, hw: 4.2, hd: 2.8, label: 'bank' },
+  { x: 18, z: -200, hw: 3.8, hd: 2.8, label: 'fire-station' },
+  { x: -185, z: -18, hw: 3.2, hd: 3.8, label: 'church' },
+  { x: -18, z: -140, hw: 3.2, hd: 3.2, label: 'gym' },
+  // GasStation: group(65,16), mesh local z offset −1.5 → world (65, 14.5)
+  { x: 65, z: 14.5, hw: 2.2, hd: 1.7, label: 'gas-station' },
+  { x: -18, z: -190, hw: 2.8, hd: 2.2, label: 'apartments' },
+  { x: 18, z: 90, hw: 5.2, hd: 3.8, label: 'cinema' },
+  { x: -22, z: 205, hw: 7.2, hd: 4.2, label: 'mall' },
+  { x: 18, z: 135, hw: 3.8, hd: 2.8, label: 'restaurant' },
+  { x: 18, z: -75, hw: 2.8, hd: 2.2, label: 'post-office' },
 
-  // ── Centre interactive buildings (primitive boxes — restored after GLTF revert) ──
-  // Cafe:       pos=[-14,-14] w=4.4 d=4.4
-  { x: -14, z: -14, hw: 2.2, hd: 2.2, label: 'cafe' },
-  // Arcade:     pos=[ 14,-14] w=4.4 d=4.4
-  { x:  14, z: -14, hw: 2.2, hd: 2.2, label: 'arcade-shop' },
-  // Beach Club: pos=[0,-32]  w=6.4 d=4.4
-  { x:   0, z: -32, hw: 3.2, hd: 2.2, label: 'beach-club' },
-  // Rooftop Bar:pos=[-14,14] w=4.4 d=4.4
-  { x: -14, z:  14, hw: 2.2, hd: 2.2, label: 'rooftop-bar' },
-  // Music Room: pos=[14,14]  w=4.4 d=4.4
-  { x:  14, z:  14, hw: 2.2, hd: 2.2, label: 'music-room' },
-  // Game Zone:  pos=[0,-40]  w=6.4 d=4.4
-  { x:   0, z: -40, hw: 3.2, hd: 2.2, label: 'game-zone' },
+  // ── Interactive destination buildings (CenterBuildings — now spread out) ───
+  { x: -80, z: -16, hw: 2.2, hd: 2.2, label: 'cafe' },
+  { x:  80, z: -16, hw: 2.2, hd: 2.2, label: 'arcade-shop' },
+  { x: 170, z: -55, hw: 3.2, hd: 2.2, label: 'beach-club' },
+  { x:  18, z: -115, hw: 2.2, hd: 2.2, label: 'rooftop-bar' },
+  { x:  18, z: -160, hw: 2.2, hd: 2.2, label: 'music-room' },
+  { x: -80, z:  16, hw: 3.2, hd: 2.2, label: 'game-zone' },
 
   // ── ParkArea building ───────────────────────────────────────────────────────
-  // ParkArea group=(0,0,16), building mesh local=(0,2.5,4.2) [7.6,5,5.6]
-  // World centre = (0, *, 16+4.2 = 20.2)
-  { x:   0, z: 20.2, hw: 3.8, hd: 2.8, label: 'park-building' },
+  // ParkArea group=(-18,0,170), building mesh local=(0,2.5,4.2)
+  { x: -18, z: 174.2, hw: 3.8, hd: 2.8, label: 'park-building' },
 
   // ── SE Residential houses (House component, main body [3,2.4,3] + slab [3.3]) ──
   { x:  40, z:  50, hw: 1.65, hd: 1.65, label: 'house-1' },
@@ -66,16 +44,16 @@ export const boxColliders = [
   { x:  25, z:  50, hw: 1.65, hd: 1.65, label: 'house-5' },
   { x:  25, z:  60, hw: 1.65, hd: 1.65, label: 'house-6' },
 
-  // ── Game Area building (GameAreaBuilding.jsx, GAME_AREA_POS=[22,0,-10]) ──────
+  // ── Game Area building (GameAreaBuilding.jsx, GAME_AREA_POS=[20,0,180]) ─────
   // Main mesh (0,3.5,0) args=[9,7,7]
-  { x:  22, z: -10, hw: 4.5, hd: 3.5, label: 'game-area' },
+  { x:  20, z: 180, hw: 4.5, hd: 3.5, label: 'game-area' },
 ]
 
 export const circleColliders = [
-  // Fountain basin at roundabout centre — outer radius 2.1 (cylinderGeometry args=[1.8,2.1,0.5])
-  { x:   0, z:   0, r: 2.1, label: 'fountain' },
+  // Grand fountain at plaza centre — outer basin radius 3.8 (CityMap Fountain rebuild)
+  { x:   0, z:   0, r: 4.0, label: 'fountain' },
 
-  // ── City trees — 12 total, must match TREE_DATA in CityMap.jsx exactly ──────
+  // ── City trees — 18 total, must match TREE_DATA in CityMap.jsx exactly ──────
   // E-W highway south footpath (z=-9)
   { x: -36, z:  -9, r: 0.4, label: 'tree-0' },
   { x: -12, z:  -9, r: 0.4, label: 'tree-1' },
@@ -93,6 +71,14 @@ export const circleColliders = [
   // SE residential edge
   { x:  44, z:  38, r: 0.4, label: 'tree-10' },
   { x:  28, z:  48, r: 0.4, label: 'tree-11' },
+  // Park cluster (park at -18,170)
+  { x: -25,   z: 169.5, r: 0.4, label: 'tree-12' },
+  { x: -11,   z: 169.5, r: 0.4, label: 'tree-13' },
+  { x: -24.5, z: 176.5, r: 0.4, label: 'tree-14' },
+  { x: -11.5, z: 176.5, r: 0.4, label: 'tree-15' },
+  // Playground corners (playground at -18,130)
+  { x: -28.5, z: 124, r: 0.4, label: 'tree-16' },
+  { x:  -7.5, z: 136, r: 0.4, label: 'tree-17' },
 ]
 
 /** Dynamically add a box collider (used by procedural chunks). */

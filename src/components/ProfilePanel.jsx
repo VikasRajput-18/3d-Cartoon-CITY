@@ -8,6 +8,7 @@ import { getEconomyState, onEconomyUpdate, purchaseOutfit, msUntilNextTicket, sp
 import { getMissionState, onMissionUpdate, calcLevel } from '@/lib/missionState'
 import { getMyStats, onGameUpdate, GAME_IDS, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
 import { supabase } from '@/lib/supabase'
+import { getPhotos, deletePhoto } from '@/lib/photoAlbum'
 
 const NAME_CHANGE_COST   = 50
 const NAME_COOLDOWN_MS   = 24 * 60 * 60 * 1000   // 24 hours
@@ -58,6 +59,8 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
   const stats       = useStore(s => s.stats)
 
   const [tab, setTab]   = useState('profile')
+  const [photoSel, setPhotoSel] = useState(null)   // full-size photo view
+  const [photoTick, setPhotoTick] = useState(0)    // refresh after delete
   const [eco, setEco]   = useState(getEconomyState())
   const [ms,  setMs]    = useState(getMissionState())
   const [nextTicket, setNextTicket] = useState(msUntilNextTicket())
@@ -381,7 +384,7 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
 
         {/* Tabs */}
         <div className="flex" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {[['profile','👤 Profile'],['shop','🛍️ Shop'],['games','🎮 Games'],['stats','📊 Stats']].map(([id, label]) => (
+          {[['profile','👤 Profile'],['shop','🛍️ Shop'],['games','🎮 Games'],['stats','📊 Stats'],['photos','📸 Photos']].map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -537,6 +540,51 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
               ))}
             </div>
           )}
+
+          {tab === 'photos' && (() => {
+            const photos = getPhotos()
+            return (
+              <div>
+                <div className="text-white/35 text-[11px] font-bold mb-2 tracking-[0.06em]">
+                  📸 COMPANION PHOTOS · {photos.length} / 20
+                </div>
+                {photos.length === 0 ? (
+                  <div className="text-slate-500 text-[12px] text-center py-8">
+                    No photos yet — accept a 📸 photo challenge from your companion!
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-[10px]">
+                    {photos.map((p, i) => (
+                      <div key={i} onClick={() => setPhotoSel({ ...p, index: i })}
+                        className="cursor-pointer" style={{ background: '#f8fafc', padding: '5px 5px 0', borderRadius: 3 }}>
+                        {p.dataUrl && <img src={p.dataUrl} alt="" style={{ width: '100%', display: 'block', borderRadius: 2 }} />}
+                        <div style={{ padding: '4px 2px 6px', color: '#1f2937', fontSize: 9, fontWeight: 700 }}>
+                          {p.caption}<div style={{ color: '#6b7280', fontWeight: 400 }}>{p.date}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {photoSel && (
+                  <div onClick={() => setPhotoSel(null)} style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: '#f8fafc', padding: '12px 12px 0', borderRadius: 4, maxWidth: '88vw' }}>
+                      {photoSel.dataUrl && <img src={photoSel.dataUrl} alt="" style={{ maxWidth: '80vw', maxHeight: '60vh', display: 'block', borderRadius: 2 }} />}
+                      <div style={{ padding: '10px 4px', color: '#1f2937' }}>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>{photoSel.caption}</div>
+                        <div style={{ color: '#6b7280', fontSize: 11 }}>{photoSel.playerName || ''} · {photoSel.date}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, padding: '0 4px 12px' }}>
+                        <a href={photoSel.dataUrl} download={`photo-${photoSel.date}.png`} style={{ flex: 1, textAlign: 'center', background: '#2563eb', color: '#fff', borderRadius: 6, padding: '7px 0', fontWeight: 800, fontSize: 12, textDecoration: 'none' }}>⬇ Download</a>
+                        <button onClick={() => { if (confirm('Delete this photo?')) { deletePhoto(photoSel.index); setPhotoSel(null); setPhotoTick(t => t + 1) } }}
+                          style={{ flex: 1, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>🗑 Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
       </motion.div>
     </motion.div>

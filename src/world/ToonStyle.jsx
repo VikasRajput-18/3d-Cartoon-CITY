@@ -101,8 +101,8 @@ export function Clouds() {
 
   const clouds = useMemo(() => {
     const out = []
-    for (let i = 0; i < 12; i++) {
-      const puffN = 3 + Math.floor(Math.random() * 3)
+    for (let i = 0; i < 8; i++) {          // 8 clouds × 3 puffs = 24 draws (was up to 60)
+      const puffN = 3
       out.push({
         x: (Math.random() - 0.5) * 380,
         y: 38 + Math.random() * 26,
@@ -142,6 +142,8 @@ export function Clouds() {
   )
 }
 
+const _zenithBlue = new THREE.Color('#1a2c5a')   // fixed deep-sky tone for the dome zenith
+
 // ── Sky dome — vertical gradient that tracks the day/night background colour ───
 // DayNightCycle keeps scene.background as a live Color (changes with time). The
 // dome reads it each frame for the horizon colour and darkens it toward the zenith,
@@ -162,7 +164,10 @@ export function SkyDome() {
     const bg = scene.background
     if (bg && bg.isColor) {
       uniforms.bottomColor.value.copy(bg)
-      uniforms.topColor.value.copy(bg).multiplyScalar(0.5)   // deeper blue overhead
+      // Zenith = horizon blended toward a fixed deep sky-blue. multiplyScalar
+      // turned golden-hour orange into mud; lerping keeps sunsets luminous
+      // while noon still reads as a proper blue dome.
+      uniforms.topColor.value.copy(bg).lerp(_zenithBlue, 0.55)
     }
   })
 

@@ -37,6 +37,7 @@ import { getSpeedMultiplier } from '@/lib/liveEventState'
 import { POOL, POOL_DIVE, nearPool } from '@/lib/locations'
 import ToonStyle, { Clouds, SkyDome } from './ToonStyle'
 import Companion3D from './Companion3D'
+import ChallengeScene from './ChallengeScene'
 import LiveEvents from './LiveEvents'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
@@ -1632,33 +1633,35 @@ function PlayerController({
 
 // ── Places ────────────────────────────────────────────────────────────────────
 // Positions match CityMap.jsx building positions exactly
+// Positions match the GTA-style spread in CityMap.jsx — buildings line the
+// highway arms; only the plaza remains at the centre.
 const PLACES = [
-  { id: 'cafe',        pos: [-14, 0,-14],  emoji: '☕', label: 'Cafe',         color: '#F59E0B' },
-  { id: 'arcade',      pos: [ 14, 0,-14],  emoji: '🕹️', label: 'Arcade',       color: '#7C3AED' },
-  { id: 'beach',       pos: [  0, 0,-32],  emoji: '🏖️', label: 'Beach Club',   color: '#38BDF8' },
-  { id: 'rooftop',     pos: [-14, 0, 14],  emoji: '🌙', label: 'Rooftop Bar',  color: '#6366F1' },
-  { id: 'musicroom',   pos: [ 14, 0, 14],  emoji: '🎵', label: 'Music Room',   color: '#EC4899' },
-  { id: 'park',        pos: [  0, 0, 16],  emoji: '🌳', label: 'Park',         color: '#22C55E' },
-  { id: 'cityhall',    pos: [  0, 0,-24],  emoji: '🏛️', label: 'City Hall',    color: '#94a3b8' },
-  { id: 'mall',        pos: [ 30, 0, 46],  emoji: '🛍️', label: 'Shopping Mall',color: '#b45309' },
-  { id: 'cinema',      pos: [ 30, 0, 26],  emoji: '🎬', label: 'Cinema',       color: '#334155' },
-  { id: 'supermarket', pos: [-32, 0,-24],  emoji: '🛒', label: 'Supermarket',  color: '#4a7c59' },
-  { id: 'bank',        pos: [ 32, 0,-42],  emoji: '🏦', label: 'Bank',         color: '#92400e' },
-  { id: 'hospital',    pos: [ 32, 0,-24],  emoji: '🏥', label: 'Hospital',     color: '#0ea5e9' },
-  { id: 'police',      pos: [ 52, 0,-24],  emoji: '👮', label: 'Police Dept',  color: '#1d4ed8' },
-  { id: 'firestation', pos: [ 52, 0,-42],  emoji: '🚒', label: 'Fire Station', color: '#dc2626' },
-  { id: 'school',      pos: [-52, 0,-42],  emoji: '🏫', label: 'School',       color: '#c8b983' },
-  { id: 'library',     pos: [-52, 0,-24],  emoji: '📚', label: 'Library',      color: '#8b6914' },
-  { id: 'gym',         pos: [-50, 0, 26],  emoji: '💪', label: 'Gym',          color: '#1a2035' },
-  { id: 'restaurant',  pos: [ 50, 0, 26],  emoji: '🍕', label: 'Restaurant',   color: '#f97316' },
-  { id: 'gasstation',  pos: [-16, 0, 22],  emoji: '⛽', label: 'Gas Station',  color: '#ef4444' },
-  { id: 'church',      pos: [-30, 0, 26],  emoji: '⛪', label: 'Temple',       color: '#d4b896' },
-  { id: 'postoffice',  pos: [ 16, 0, 22],  emoji: '📮', label: 'Post Office',  color: '#8b6355' },
-  { id: 'apartments',  pos: [-30, 0, 46],  emoji: '🏢', label: 'Apartments',   color: '#475569' },
-  { id: 'playground',  pos: [  0, 0, 52],  emoji: '🎠', label: 'Playground',   color: '#22c55e' },
+  { id: 'cafe',        pos: [-80, 0,-16],  emoji: '☕', label: 'Cafe',         color: '#F59E0B' },
+  { id: 'arcade',      pos: [ 80, 0,-16],  emoji: '🕹️', label: 'Arcade',       color: '#7C3AED' },
+  { id: 'beach',       pos: [170, 0,-55],  emoji: '🏖️', label: 'Beach Club',   color: '#38BDF8' },
+  { id: 'rooftop',     pos: [ 18, 0,-115], emoji: '🌙', label: 'Rooftop Bar',  color: '#6366F1' },
+  { id: 'musicroom',   pos: [ 18, 0,-160], emoji: '🎵', label: 'Music Room',   color: '#EC4899' },
+  { id: 'park',        pos: [-18, 0, 170], emoji: '🌳', label: 'Park',         color: '#22C55E' },
+  { id: 'cityhall',    pos: [-18, 0,-90],  emoji: '🏛️', label: 'City Hall',    color: '#94a3b8' },
+  { id: 'mall',        pos: [-22, 0, 205], emoji: '🛍️', label: 'Shopping Mall',color: '#b45309' },
+  { id: 'cinema',      pos: [ 18, 0, 90],  emoji: '🎬', label: 'Cinema',       color: '#334155' },
+  { id: 'supermarket', pos: [-120,0, 16],  emoji: '🛒', label: 'Supermarket',  color: '#4a7c59' },
+  { id: 'bank',        pos: [135, 0, 16],  emoji: '🏦', label: 'Bank',         color: '#92400e' },
+  { id: 'hospital',    pos: [100, 0, 16],  emoji: '🏥', label: 'Hospital',     color: '#0ea5e9' },
+  { id: 'police',      pos: [120, 0,-16],  emoji: '👮', label: 'Police Dept',  color: '#1d4ed8' },
+  { id: 'firestation', pos: [ 18, 0,-200], emoji: '🚒', label: 'Fire Station', color: '#dc2626' },
+  { id: 'school',      pos: [-160,0, 16],  emoji: '🏫', label: 'School',       color: '#c8b983' },
+  { id: 'library',     pos: [-130,0,-16],  emoji: '📚', label: 'Library',      color: '#8b6914' },
+  { id: 'gym',         pos: [-18, 0,-140], emoji: '💪', label: 'Gym',          color: '#1a2035' },
+  { id: 'restaurant',  pos: [ 18, 0, 135], emoji: '🍕', label: 'Restaurant',   color: '#f97316' },
+  { id: 'gasstation',  pos: [ 65, 0, 16],  emoji: '⛽', label: 'Gas Station',  color: '#ef4444' },
+  { id: 'church',      pos: [-185,0,-18],  emoji: '⛪', label: 'Temple',       color: '#d4b896' },
+  { id: 'postoffice',  pos: [ 18, 0,-75],  emoji: '📮', label: 'Post Office',  color: '#8b6355' },
+  { id: 'apartments',  pos: [-18, 0,-190], emoji: '🏢', label: 'Apartments',   color: '#475569' },
+  { id: 'playground',  pos: [-18, 0, 130], emoji: '🎠', label: 'Playground',   color: '#22c55e' },
   { id: 'house1',      pos: [ 40, 0, 50],  emoji: '🏠', label: 'Blue House',   color: '#3b82f6' },
   { id: 'house2',      pos: [ 55, 0, 50],  emoji: '🏠', label: 'Yellow House', color: '#eab308' },
-  { id: 'gamearea',    pos: [ 22, 0,-10],  emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
+  { id: 'gamearea',    pos: [ 20, 0, 180], emoji: '🎮', label: 'Game Zone',    color: '#a78bfa' },
   { id: 'pool',        pos: [300, 0,-300], emoji: '🏊', label: 'Swimming Pool', color: '#38bdf8' },
   { id: 'airport',     pos: [-600,0,-600], emoji: '✈️', label: 'Airport',       color: '#94a3b8' },
 ]
@@ -1728,7 +1731,7 @@ function ParkedVehicles() {
 }
 
 // ── Real-world clock tower — shows actual current time ────────────────────────
-// Placed on top of City Hall (world pos 0, 0, -22)
+// Placed on top of City Hall (world pos -18, 0, -88 — moved with the spread)
 function ClockTower() {
   const hourRef = useRef()
   const minRef  = useRef()
@@ -1751,7 +1754,7 @@ function ClockTower() {
   const handMat = new THREE.MeshToonMaterial({ color: '#1e293b' })
 
   return (
-    <group position={[0, 0, -22]}>
+    <group position={[-18, 0, -88]}>
       {/* Tower body rising from City Hall roof */}
       <mesh position={[0, 10, 0]}>
         <boxGeometry args={[2.2, 8, 2.2]} />
@@ -1886,6 +1889,7 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
       <SkyDome />
       <Clouds />
       <Companion3D />
+      <ChallengeScene />
       <DayNightCycle />
       <WeatherSystem />
       <CityMap />
@@ -2100,7 +2104,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
       <Canvas
         dpr={DPR}
         camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 600 }}
-        gl={{ antialias: !postFxOn, toneMapping: THREE.NoToneMapping, outputColorSpace: THREE.SRGBColorSpace, powerPreference: 'high-performance' }}
+        gl={{ antialias: !postFxOn, toneMapping: THREE.NoToneMapping, outputColorSpace: THREE.SRGBColorSpace, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
         onCreated={({ gl }) => {
           // Auto-recover from a GPU context loss instead of leaving a black screen
           gl.domElement.addEventListener('webglcontextlost', (e) => {
