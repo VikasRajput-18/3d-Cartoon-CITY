@@ -440,6 +440,14 @@ export default function ProfilePanel({ onClose, onOpenShop, onOpenFastTravel }) 
               </button>
 
               <button
+                onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('replay-intro')) }}
+                className="w-full py-[10px] rounded-[10px] text-amber-400 text-[13px] font-bold cursor-pointer font-body border-0"
+                style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)' }}
+              >
+                🎬 Replay Intro
+              </button>
+
+              <button
                 onClick={handleSignOut}
                 className="w-full py-[11px] mt-1 rounded-[10px] text-red-400 text-[13px] font-bold cursor-pointer font-body border-0 hover:bg-[rgba(239,68,68,0.2)]"
                 style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}

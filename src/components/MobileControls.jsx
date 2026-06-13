@@ -182,6 +182,24 @@ export default function MobileControls() {
 
         {/* Button row */}
         <div className="flex gap-[10px] items-center">
+          {/* Jump */}
+          <ActionBtn
+            color="#22c55e"
+            onPress={() => window.dispatchEvent(new CustomEvent('mobile-jump'))}
+          >
+            <span>⤴️</span>
+            <span className="text-[9px] opacity-70">JUMP</span>
+          </ActionBtn>
+
+          {/* Fly toggle */}
+          <ActionBtn
+            color="#38bdf8"
+            onPress={() => window.dispatchEvent(new CustomEvent('toggle-fly'))}
+          >
+            <span>✈️</span>
+            <span className="text-[9px] opacity-70">FLY</span>
+          </ActionBtn>
+
           {/* Emote */}
           <ActionBtn
             color="#7c3aed"

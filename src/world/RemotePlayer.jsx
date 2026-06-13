@@ -4,6 +4,7 @@ import { Billboard, Text } from '@react-three/drei'
 import * as THREE from 'three'
 import NPCModel from './NPCModel'
 import Avatar3D from './Avatar3D'
+import Accessories from './Accessories'
 import { remotePlayersRef } from '@/lib/multiplayerState'
 import { minimapState } from '@/lib/minimapState'
 import { voiceState } from '@/lib/voiceState'
@@ -45,6 +46,11 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
 
   const remoteEmoteRef = useRef('')
   const [remoteEmote, setRemoteEmote] = useState('')
+
+  // Wardrobe accessories + level — change rarely; diff by JSON to avoid re-renders
+  const gearJsonRef = useRef('')
+  const [gear, setGear] = useState(null)
+  const [level, setLevel] = useState(1)
 
   // Speech bubble state
   const [bubble, setBubble] = useState(null)
@@ -163,6 +169,14 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
       remoteEmoteRef.current = nowEmote
       setRemoteEmote(nowEmote)
     }
+
+    // ── Wardrobe accessories + level (rarely change) ──────────────────────
+    const gj = data.equipped_items ? JSON.stringify(data.equipped_items) : ''
+    if (gj !== gearJsonRef.current) {
+      gearJsonRef.current = gj
+      setGear(data.equipped_items || null)
+    }
+    if ((data.level || 1) !== level) setLevel(data.level || 1)
 
     // ── Speech bubble check (every 500 ms) ───────────────────────────────
     bubbleCheckRef.current += delta
@@ -292,11 +306,13 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
         emote={remoteEmote}
         name={`★ ${display.name}`}
         labelColor="#ffd700"
-        sublabel="● Online"
+        sublabel={`● Online · Lv ${level}`}
         sublabelColor="#00e5ff"
         npcScale={0.01}
         visibleRef={visRef}
       />
+      {/* Their wardrobe style — synced equipped accessories */}
+      {gear && <Accessories items={gear} />}
     </group>
     <RemoteCompanion uid={uid} />
    </>

@@ -48,37 +48,11 @@ export function isBlocked(x, z) {
   return false
 }
 
-// ── Pre-register fixed city buildings (mirrors CityMap.jsx positions) ────────
-const CITY_BUILDINGS = [
-  { cx: 0,   cz:-24,  hw:5.2, hd:3.2 }, // City Hall
-  { cx:-32,  cz:-24,  hw:6.2, hd:4.2 }, // Supermarket
-  { cx:-52,  cz:-24,  hw:4.2, hd:2.8 }, // Library
-  { cx:-52,  cz:-42,  hw:4.8, hd:3.2 }, // School
-  { cx: 32,  cz:-24,  hw:4.8, hd:3.2 }, // Hospital
-  { cx: 52,  cz:-24,  hw:2.8, hd:2.8 }, // Police
-  { cx: 32,  cz:-42,  hw:4.2, hd:2.8 }, // Bank
-  { cx: 52,  cz:-42,  hw:3.8, hd:2.8 }, // Fire Station
-  { cx:-30,  cz: 26,  hw:3.2, hd:3.8 }, // Church
-  { cx:-50,  cz: 26,  hw:3.2, hd:3.2 }, // Gym
-  { cx:-16,  cz:20.5, hw:2.2, hd:1.7 }, // Gas Station (mesh at local z=-1.5 → world z=20.5)
-  { cx:-30,  cz: 46,  hw:2.8, hd:2.2 }, // Apartments
-  { cx: 30,  cz: 26,  hw:5.2, hd:3.8 }, // Cinema
-  { cx: 30,  cz: 46,  hw:7.2, hd:4.2 }, // Mall
-  { cx: 50,  cz: 26,  hw:3.8, hd:2.8 }, // Restaurant
-  { cx: 16,  cz: 22,  hw:2.8, hd:2.2 }, // Post Office
-  { cx:-14,  cz:-14,  hw:2.2, hd:2.2 }, // Cafe
-  { cx: 14,  cz:-14,  hw:2.2, hd:2.2 }, // Arcade
-  { cx: 0,   cz:-32,  hw:3.2, hd:2.2 }, // Beach Club
-  { cx:-14,  cz: 14,  hw:2.2, hd:2.2 }, // Rooftop Bar
-  { cx: 14,  cz: 14,  hw:2.2, hd:2.2 }, // Music Room
-  { cx: 0,   cz:20.2, hw:3.8, hd:2.8 }, // Park building (mesh at local z=4.2 → world z=20.2)
-  { cx: 0,   cz:-40,  hw:3.2, hd:2.2 }, // Game Zone
-  { cx: 40,  cz: 50,  hw:1.65,hd:1.65}, // House 1
-  { cx: 55,  cz: 50,  hw:1.65,hd:1.65}, // House 2
-  { cx: 40,  cz: 60,  hw:1.65,hd:1.65}, // House 3
-  { cx: 55,  cz: 60,  hw:1.65,hd:1.65}, // House 4
-  { cx: 25,  cz: 50,  hw:1.65,hd:1.65}, // House 5
-  { cx: 25,  cz: 60,  hw:1.65,hd:1.65}, // House 6
-]
+// ── Pre-register fixed city buildings ─────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH: derive from playerColliders.boxColliders so the
+// NPC/vehicle collision can never desync from player collision again. (The old
+// hand-copied list went stale after the GTA-style spread — NPCs collided with
+// ghost boxes at the buildings' OLD positions and walked through the new ones.)
+import { boxColliders } from './playerColliders'
 
-CITY_BUILDINGS.forEach(({ cx, cz, hw, hd }) => registerFixed(cx, cz, hw, hd))
+boxColliders.forEach(({ x, z, hw, hd }) => registerFixed(x, z, hw, hd))

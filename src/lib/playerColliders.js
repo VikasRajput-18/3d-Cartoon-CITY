@@ -47,6 +47,23 @@ export const boxColliders = [
   // ── Game Area building (GameAreaBuilding.jsx, GAME_AREA_POS=[20,0,180]) ─────
   // Main mesh (0,3.5,0) args=[9,7,7]
   { x:  20, z: 180, hw: 4.5, hd: 3.5, label: 'game-area' },
+
+  // ── Swimming pool complex (Locations.jsx, centre 300,-300) ──────────────────
+  // Changing rooms: local (±17.5, 9.5) [4,2.4,3]
+  { x: 282.5, z: -290.5, hw: 2.0, hd: 1.5, label: 'pool-changing-1' },
+  { x: 317.5, z: -290.5, hw: 2.0, hd: 1.5, label: 'pool-changing-2' },
+  // Lifeguard tower: local (14, 6.5)
+  { x: 314, z: -293.5, hw: 1.1, hd: 1.1, label: 'pool-lifeguard' },
+  // Diving board pillar: local (-13, 0)
+  { x: 287, z: -300, hw: 0.6, hd: 0.6, label: 'pool-diveboard' },
+
+  // ── Airport (Locations.jsx, centre -600,-600) ───────────────────────────────
+  // Terminal: local (0, 50) [60,8,20]
+  { x: -600, z: -550, hw: 30, hd: 10, label: 'airport-terminal' },
+  // Control tower: local (34, 44) [5,25,5]
+  { x: -566, z: -556, hw: 2.6, hd: 2.6, label: 'airport-tower' },
+  // Hangar: local (-40, 10) [40,12,30]
+  { x: -640, z: -590, hw: 20, hd: 15, label: 'airport-hangar' },
 ]
 
 export const circleColliders = [
@@ -79,6 +96,13 @@ export const circleColliders = [
   // Playground corners (playground at -18,130)
   { x: -28.5, z: 124, r: 0.4, label: 'tree-16' },
   { x:  -7.5, z: 136, r: 0.4, label: 'tree-17' },
+  // Sunset Shore palms (PALM_POS in SunsetShore.jsx)
+  { x: 168, z: -42, r: 0.35, label: 'palm-0' },
+  { x: 176, z: -18, r: 0.35, label: 'palm-1' },
+  { x: 165, z:   6, r: 0.35, label: 'palm-2' },
+  { x: 178, z:  30, r: 0.35, label: 'palm-3' },
+  { x: 169, z:  52, r: 0.35, label: 'palm-4' },
+  { x: 186, z: -55, r: 0.35, label: 'palm-5' },
 ]
 
 /** Dynamically add a box collider (used by procedural chunks). */
@@ -93,6 +117,16 @@ export function removeCollidersWithPrefix(prefix) {
   }
 }
 
-export function logAllColliders() {
-  /* diagnostics removed */
+/**
+ * Collision audit: for each named place, log whether a collision box exists
+ * near its position. Run once at startup from WorldCanvas.
+ */
+export function logAllColliders(places = []) {
+  for (const p of places) {
+    const px = p.pos?.[0] ?? p.x, pz = p.pos?.[2] ?? p.z
+    if (px === undefined) continue
+    const hasCollision = boxColliders.some(b =>
+      Math.abs(b.x - px) < b.hw + 45 && Math.abs(b.z - pz) < b.hd + 45)
+    console.log(p.label || p.id, 'has collision:', hasCollision)
+  }
 }

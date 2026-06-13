@@ -1,10 +1,13 @@
 // Local + remote player avatar — now a lightweight primitive character (Avatar3D)
 // instead of the 65-bone / 49k-triangle Mixamo FBX. Same prop interface and
 // groupRef contract so vehicle entry, labels, emotes and collision all still work.
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Text } from '@react-three/drei'
 import Avatar3D from './Avatar3D'
+import Accessories from './Accessories'
+import { getEquippedRender } from '@/lib/wardrobeService'
+import { getMissionState, onMissionUpdate } from '@/lib/missionState'
 
 // One-shot emotes finish after this long, then onEmoteEnd fires (mirrors the
 // old FBX clip-finished behaviour). 'dance' loops until the emote prop clears.
@@ -15,6 +18,7 @@ export default function PlayerModel({
   running    = false,
   sitting    = false,
   swimming   = false,
+  flying     = false,
   name       = '',
   outfit     = 'casual',
   skin       = '#F4C08A',
@@ -25,6 +29,23 @@ export default function PlayerModel({
 }) {
   const groupRef = useRef()
   const bodyRef  = useRef()   // emote target (bob / tilt / sway)
+
+  // Equipped wardrobe accessories — local player only; remotes get theirs from
+  // the multiplayer payload in RemotePlayer.
+  const [accessories, setAccessories] = useState(() => (visibleRef ? null : getEquippedRender()))
+  useEffect(() => {
+    if (visibleRef) return                       // remote players: not from local wardrobe
+    const onChange = () => setAccessories(getEquippedRender())
+    window.addEventListener('wardrobe-changed', onChange)
+    return () => window.removeEventListener('wardrobe-changed', onChange)
+  }, [visibleRef])
+
+  // Level badge (local player only) — progression visible on the character
+  const [level, setLevel] = useState(() => (visibleRef ? 0 : (getMissionState()?.level || 1)))
+  useEffect(() => {
+    if (visibleRef) return
+    return onMissionUpdate(ms => { if (ms?.level) setLevel(ms.level) })
+  }, [visibleRef])
 
   // ── Force-visible enforcement + remote cull ────────────────────────────────
   // Something was leaving the avatar's solid (toon) materials at ~0 opacity so
@@ -91,6 +112,14 @@ export default function PlayerModel({
       b.position.y = Math.sin(t * 4) * 0.05
       return
     }
+    // Flying pose: superman lean + gentle hover bob, overrides emotes.
+    if (flying) {
+      const t = state.clock.elapsedTime
+      b.rotation.x += (-1.2 - b.rotation.x) * Math.min(1, delta * 8)
+      b.rotation.z = Math.sin(t * 2.5) * 0.06
+      b.position.y = 0.4 + Math.sin(t * 3) * 0.08
+      return
+    }
     if (b.rotation.x !== 0) b.rotation.x += (0 - b.rotation.x) * Math.min(1, delta * 8)
     const e = emoteRef.current
     if (!e) {
@@ -124,12 +153,13 @@ export default function PlayerModel({
           hair={hair}
           isPlayer={!visibleRef}
         />
+        {accessories && <Accessories items={accessories} />}
       </group>
       {name ? (
         <Billboard position={[0, 2.4, 0]}>
           <Text fontSize={0.2} color="#facc15" anchorX="center" anchorY="middle">★ {name}</Text>
           {!visibleRef && (
-            <Text fontSize={0.12} color="#facc15" anchorX="center" anchorY="middle" position={[0, -0.27, 0]}>• You</Text>
+            <Text fontSize={0.12} color="#facc15" anchorX="center" anchorY="middle" position={[0, -0.27, 0]}>{`• You · Lv ${level}`}</Text>
           )}
         </Billboard>
       ) : null}

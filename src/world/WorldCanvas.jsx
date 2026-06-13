@@ -35,9 +35,12 @@ import PostFX from './PostFX'
 import { isMobileDevice, setBloom } from '@/lib/renderQuality'
 import { getSpeedMultiplier } from '@/lib/liveEventState'
 import { POOL, POOL_DIVE, nearPool } from '@/lib/locations'
+import { groundHeightAt } from '@/lib/groundHeight'
 import ToonStyle, { Clouds, SkyDome } from './ToonStyle'
 import Companion3D from './Companion3D'
 import ChallengeScene from './ChallengeScene'
+import IntroCameraRig from './IntroCameraRig'
+import { introState } from '@/lib/introState'
 import LiveEvents from './LiveEvents'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
@@ -48,6 +51,40 @@ import { getHouseState } from '@/lib/houseService'
 
 // Shared empty array for missing parked-vehicle wheel/dust refs (avoids per-frame alloc).
 const EMPTY_REFS = []
+
+// ── Fly-mode sparkle trail — 8 fading spheres trailing the player ─────────────
+// Shared material born transparent (opacity never toggled at runtime).
+const trailMat = new THREE.MeshBasicMaterial({ color: '#ffd98a', transparent: true, opacity: 0.65, depthWrite: false })
+function FlyTrail() {
+  const refs = useRef([])
+  const pts  = useRef([])
+  const acc  = useRef(0)
+  useFrame((_, delta) => {
+    acc.current += delta
+    if (acc.current > 0.05) {
+      acc.current = 0
+      pts.current.unshift({ x: minimapState.playerX, y: (minimapState.playerY ?? 0) + 0.9, z: minimapState.playerZ })
+      if (pts.current.length > 8) pts.current.pop()
+    }
+    refs.current.forEach((m, i) => {
+      if (!m) return
+      const p = pts.current[i]
+      if (!p) { m.visible = false; return }
+      m.visible = true
+      m.position.set(p.x, p.y, p.z)
+      m.scale.setScalar(Math.max(0.05, 0.22 * (1 - i / 9)))
+    })
+  })
+  return (
+    <group userData={{ noMerge: true }}>
+      {Array.from({ length: 8 }, (_, i) => (
+        <mesh key={i} ref={el => { refs.current[i] = el }} material={trailMat} visible={false}>
+          <sphereGeometry args={[1, 6, 5]} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
 
 // ── Collision system ──────────────────────────────────────────────────────────
 const CHAR_R = 0.28
@@ -497,7 +534,7 @@ function PlayerController({
   avatar, myUserId,
   onNearVehicle, onDrivingChange, onSpeedChange,
   onNearBuilding, onEnterBuilding, onPassengerChange,
-  onNearParkedVehicle, onVehicleLabel,
+  onNearParkedVehicle, onVehicleLabel, onFlyChange,
 }) {
   const { camera, gl, scene } = useThree()
   const setPlayerPos = useStore(s => s.setPlayerPos)
@@ -563,6 +600,31 @@ function PlayerController({
   const lastDive   = useRef(0)
   const [isSwimming, setIsSwimming] = useState(false)
 
+  // ── Jump + Fly (Issue 5) + height-aware ground (Issue 4) ──────────────────
+  const vy        = useRef(0)            // vertical velocity (jump/gravity)
+  const groundedR = useRef(true)
+  const flyMode   = useRef(false)
+  const [isFlying, setIsFlying] = useState(false)
+  const jumpReq   = useRef(false)        // set by mobile Jump button
+  const toggleFly = useCallback(() => {
+    if (activeVeh.current || passengerVeh.current || activeParkedIdx.current !== null) return
+    if (swimming.current) { swimming.current = false; setIsSwimming(false) }
+    flyMode.current = !flyMode.current
+    setIsFlying(flyMode.current)
+    onFlyChange?.(flyMode.current)
+    if (!flyMode.current) vy.current = 0   // exit → gravity glides you down
+  }, [onFlyChange])
+  useEffect(() => {
+    const onFlyToggle = () => toggleFly()
+    const onJump = () => { jumpReq.current = true }
+    window.addEventListener('toggle-fly', onFlyToggle)
+    window.addEventListener('mobile-jump', onJump)
+    return () => {
+      window.removeEventListener('toggle-fly', onFlyToggle)
+      window.removeEventListener('mobile-jump', onJump)
+    }
+  }, [toggleFly])
+
   const [inVehicle,   setInVehicle]   = useState(false)
   const [isPassenger, setIsPassenger] = useState(false)
 
@@ -613,6 +675,7 @@ function PlayerController({
 
       // ── Emote shortcuts (1-4) ─────────────────────────────────────────
       if (!activeVeh.current && !passengerVeh.current && activeParkedIdx.current === null) {
+        if (e.code === 'KeyG' && gameControls.enabled) { toggleFly(); return }   // fly mode (F is taken by jobs/dive/claims)
         if (e.code === 'Digit1' && !emoteRef.current) { triggerEmote('greet');     return }
         if (e.code === 'Digit2' && !emoteRef.current) { triggerEmote('dance');     return }
         if (e.code === 'Digit3' && !emoteRef.current) { triggerEmote('laughing');  return }
@@ -1010,19 +1073,21 @@ function PlayerController({
       vst.pos.x = THREE.MathUtils.clamp(vx, -BOUNDS, BOUNDS)
       vst.pos.z = THREE.MathUtils.clamp(vz, -BOUNDS, BOUNDS)
 
-      if (vGroup) { vGroup.position.set(vst.pos.x, 0, vst.pos.z); vGroup.rotation.y = vst.facing }
+      // Height-aware: vehicles climb the flyover ramps and ride the deck
+      const vGroundY = groundHeightAt(vst.pos.x, vst.pos.z, vGroup ? vGroup.position.y : 0)
+      if (vGroup) { vGroup.position.set(vst.pos.x, vGroundY, vst.pos.z); vGroup.rotation.y = vst.facing }
 
-      // Pin player character to vehicle seat every frame
+      // Pin player character to vehicle seat every frame (deck-height aware)
       if (playerGroupRef.current) {
         const cos = Math.cos(vst.facing), sin = Math.sin(vst.facing)
         if (isCar) {
           playerGroupRef.current.position.set(
             vst.pos.x + sin * 0.1,
-            -0.1,
+            vGroundY - 0.1,
             vst.pos.z + cos * 0.1
           )
         } else {
-          playerGroupRef.current.position.set(vst.pos.x, 0.2, vst.pos.z)
+          playerGroupRef.current.position.set(vst.pos.x, vGroundY + 0.2, vst.pos.z)
         }
         playerGroupRef.current.rotation.y = vst.facing
         playerGroupRef.current.visible = true
@@ -1076,8 +1141,8 @@ function PlayerController({
 
       const px = vst.pos.x, pz = vst.pos.z
       const d  = camDist.current, p = camPitch.current, y = camYaw.current
-      camera.position.set(px + d * Math.sin(y) * Math.cos(p), d * Math.sin(p), pz + d * Math.cos(y) * Math.cos(p))
-      camera.lookAt(px, 0.9, pz)
+      camera.position.set(px + d * Math.sin(y) * Math.cos(p), vGroundY + d * Math.sin(p), pz + d * Math.cos(y) * Math.cos(p))
+      camera.lookAt(px, vGroundY + 0.9, pz)
 
       charPos.current.copy(vst.pos)
       minimapState.playerX      = vst.pos.x
@@ -1159,19 +1224,21 @@ function PlayerController({
       vst.pos.x = THREE.MathUtils.clamp(vx, -BOUNDS, BOUNDS)
       vst.pos.z = THREE.MathUtils.clamp(vz, -BOUNDS, BOUNDS)
 
-      if (vGroup) { vGroup.position.set(vst.pos.x, 0, vst.pos.z); vGroup.rotation.y = vst.facing }
+      // Height-aware: vehicles climb the flyover ramps and ride the deck
+      const vGroundY = groundHeightAt(vst.pos.x, vst.pos.z, vGroup ? vGroup.position.y : 0)
+      if (vGroup) { vGroup.position.set(vst.pos.x, vGroundY, vst.pos.z); vGroup.rotation.y = vst.facing }
 
-      // Pin player character to vehicle seat every frame
+      // Pin player character to vehicle seat every frame (deck-height aware)
       if (playerGroupRef.current) {
         const cos = Math.cos(vst.facing), sin = Math.sin(vst.facing)
         if (isCar) {
           playerGroupRef.current.position.set(
             vst.pos.x + sin * 0.1,
-            -0.1,
+            vGroundY - 0.1,
             vst.pos.z + cos * 0.1
           )
         } else {
-          playerGroupRef.current.position.set(vst.pos.x, 0.2, vst.pos.z)
+          playerGroupRef.current.position.set(vst.pos.x, vGroundY + 0.2, vst.pos.z)
         }
         playerGroupRef.current.rotation.y = vst.facing
         playerGroupRef.current.visible = true
@@ -1224,8 +1291,8 @@ function PlayerController({
 
       const pvx = vst.pos.x, pvz = vst.pos.z
       const pvd = camDist.current, pvp = camPitch.current, pvy = camYaw.current
-      camera.position.set(pvx + pvd * Math.sin(pvy) * Math.cos(pvp), pvd * Math.sin(pvp), pvz + pvd * Math.cos(pvy) * Math.cos(pvp))
-      camera.lookAt(pvx, 0.9, pvz)
+      camera.position.set(pvx + pvd * Math.sin(pvy) * Math.cos(pvp), vGroundY + pvd * Math.sin(pvp), pvz + pvd * Math.cos(pvy) * Math.cos(pvp))
+      camera.lookAt(pvx, vGroundY + 0.9, pvz)
 
       charPos.current.copy(vst.pos)
       minimapState.playerX      = vst.pos.x
@@ -1355,8 +1422,10 @@ function PlayerController({
         }
         const px = charPos.current.x, pz = charPos.current.z
         const d  = camDist.current, p = camPitch.current, y = camYaw.current
-        camera.position.set(px + d * Math.sin(y) * Math.cos(p), d * Math.sin(p), pz + d * Math.cos(y) * Math.cos(p))
-        camera.lookAt(px, 0.9, pz)
+        if (!introState.active) {   // cinematic intro rig owns the camera
+          camera.position.set(px + d * Math.sin(y) * Math.cos(p), d * Math.sin(p), pz + d * Math.cos(y) * Math.cos(p))
+          camera.lookAt(px, 0.9, pz)
+        }
         return
       }
     }
@@ -1384,18 +1453,26 @@ function PlayerController({
       }
     }
 
-    const isRunNow = moving && boost && !swimming.current
+    const isRunNow = moving && boost && !swimming.current && !flyMode.current
     const swimFactor = swimming.current ? 0.6 : 1   // swim at 60% speed
+    const flyFactor  = flyMode.current ? 3 : 1      // superman speed
     if (moving) {
       _move.current.normalize()
-      const step = SPEED * swimFactor * moveSpeed * (isRunNow ? 1.6 : 1) * delta
+      const step = SPEED * swimFactor * flyFactor * moveSpeed * (isRunNow ? 1.6 : 1) * delta
       charFacing.current = Math.atan2(_move.current.x, _move.current.z)
       const ox = charPos.current.x, oz = charPos.current.z
-      const [rx] = resolveCollisions(ox + _move.current.x * step, oz)
-      charPos.current.x = THREE.MathUtils.clamp(rx, -BOUNDS, BOUNDS)
-      const [, rz] = resolveCollisions(charPos.current.x, oz + _move.current.z * step)
-      charPos.current.z = THREE.MathUtils.clamp(rz, -BOUNDS, BOUNDS)
-    } else {
+      if (flyMode.current || charPos.current.y > 2.5) {
+        // Airborne (fly mode, or high above ground e.g. on the flyover edge):
+        // skip ground collision for the smoothest flight (spec choice)
+        charPos.current.x = THREE.MathUtils.clamp(ox + _move.current.x * step, -BOUNDS, BOUNDS)
+        charPos.current.z = THREE.MathUtils.clamp(oz + _move.current.z * step, -BOUNDS, BOUNDS)
+      } else {
+        const [rx] = resolveCollisions(ox + _move.current.x * step, oz)
+        charPos.current.x = THREE.MathUtils.clamp(rx, -BOUNDS, BOUNDS)
+        const [, rz] = resolveCollisions(charPos.current.x, oz + _move.current.z * step)
+        charPos.current.z = THREE.MathUtils.clamp(rz, -BOUNDS, BOUNDS)
+      }
+    } else if (!flyMode.current && charPos.current.y <= 2.5) {
       const [cx, cz] = resolveCollisions(charPos.current.x, charPos.current.z)
       charPos.current.x = THREE.MathUtils.clamp(cx, -BOUNDS, BOUNDS)
       charPos.current.z = THREE.MathUtils.clamp(cz, -BOUNDS, BOUNDS)
@@ -1417,7 +1494,39 @@ function PlayerController({
         swimLapEnd.current = end
       }
     }
-    charPos.current.y = swimming.current ? POOL.surfaceY : 0
+    // ── Vertical: fly mode > jump/gravity > flyover-aware ground (Issue 4+5) ──
+    const groundY = swimming.current
+      ? POOL.surfaceY
+      : groundHeightAt(charPos.current.x, charPos.current.z, charPos.current.y)
+    if (flyMode.current) {
+      let dy = 0
+      if (keys.current.has('Space'))                              dy += 18
+      if (keys.current.has('ShiftLeft') || keys.current.has('ShiftRight')) dy -= 18
+      charPos.current.y = THREE.MathUtils.clamp(charPos.current.y + dy * delta, groundY, 120)
+      vy.current = 0
+      groundedR.current = false
+    } else if (!swimming.current) {
+      const wantJump = (keys.current.has('Space') && gameControls.enabled) || jumpReq.current
+      jumpReq.current = false
+      if (wantJump && groundedR.current) {       // v₀ = √(2·g·h) → 3-unit apex
+        vy.current = 12
+        groundedR.current = false
+      }
+      vy.current -= 24 * delta                   // gravity
+      charPos.current.y += vy.current * delta
+      if (charPos.current.y <= groundY + 0.001) {
+        charPos.current.y = groundY
+        vy.current = 0
+        groundedR.current = true
+      } else {
+        groundedR.current = false
+      }
+    } else {
+      charPos.current.y = POOL.surfaceY
+      vy.current = 0
+      groundedR.current = true
+    }
+    minimapState.playerY = charPos.current.y   // read by FlyTrail
     minimapState.playerX     = charPos.current.x
     minimapState.playerZ     = charPos.current.z
     minimapState.playerFacing = charFacing.current
@@ -1431,7 +1540,7 @@ function PlayerController({
     audioSystem.updateLocation(charPos.current.x, charPos.current.z, false)
 
     if (playerGroupRef.current) {
-      playerGroupRef.current.position.set(charPos.current.x, 0, charPos.current.z)
+      playerGroupRef.current.position.set(charPos.current.x, charPos.current.y, charPos.current.z)
       playerGroupRef.current.rotation.y = charFacing.current
       playerGroupRef.current.visible    = true
     }
@@ -1460,8 +1569,11 @@ function PlayerController({
     }
     const effectiveDist = Math.max(2, d * (1 - wallPush * 0.65))
 
-    camera.position.set(px + effectiveDist * Math.sin(y) * Math.cos(p), effectiveDist * Math.sin(p), pz + effectiveDist * Math.cos(y) * Math.cos(p))
-    camera.lookAt(px, 0.9, pz)
+    const py = charPos.current.y
+    if (!introState.active) {   // cinematic intro rig owns the camera
+      camera.position.set(px + effectiveDist * Math.sin(y) * Math.cos(p), py + effectiveDist * Math.sin(p), pz + effectiveDist * Math.cos(y) * Math.cos(p))
+      camera.lookAt(px, py + 0.9, pz)
+    }
 
     // ── Building occlusion transparency ──────────────────────────────────
     // Restore all previously faded materials first
@@ -1600,7 +1712,7 @@ function PlayerController({
     <>
       {/* Player avatar — hidden while driving or in passenger seat */}
       <group ref={playerGroupRef} position={[0, 0, 6]}>
-        <PlayerModel walking={isWalking} running={isRunning} sitting={inVehicle} swimming={isSwimming} name={avatar.name} outfit={avatar.outfit} skin={avatar.skin} emote={emote} onEmoteEnd={handleEmoteEnd} />
+        <PlayerModel walking={isWalking} running={isRunning} sitting={inVehicle} swimming={isSwimming} flying={isFlying} name={avatar.name} outfit={avatar.outfit} skin={avatar.skin} emote={emote} onEmoteEnd={handleEmoteEnd} />
       </group>
 
       {/* Car — hidden when a remote player is driving it (handled in useFrame) */}
@@ -1627,6 +1739,9 @@ function PlayerController({
 
       {/* No separate "driven parked" mesh — the parked vehicle's own mesh is
           driven directly (see ParkedVehicles + the registry in parkedVehicleState). */}
+
+      {/* Fly-mode sparkle trail */}
+      {isFlying && <FlyTrail />}
     </>
   )
 }
@@ -1665,6 +1780,9 @@ const PLACES = [
   { id: 'pool',        pos: [300, 0,-300], emoji: '🏊', label: 'Swimming Pool', color: '#38bdf8' },
   { id: 'airport',     pos: [-600,0,-600], emoji: '✈️', label: 'Airport',       color: '#94a3b8' },
 ]
+
+// One-time collision audit (Issue 2) — logs "<building> has collision: true/false"
+if (typeof window !== 'undefined') setTimeout(() => logAllColliders(PLACES), 4000)
 
 const NPCS = [
   // All start on plaza island (r<7) or footpaths — never inside a building
@@ -1972,6 +2090,8 @@ function WorldLoadingOverlay() {
     _wlDone = true
     setOpacity(0)
     setTimeout(() => setRemoved(true), 1000)
+    // Signal the rest of the app that the 3D world has finished streaming in.
+    try { window.dispatchEvent(new CustomEvent('city-scene-ready')) } catch {}
   }
 
   useEffect(() => {
@@ -2035,7 +2155,7 @@ function WorldLoadingOverlay() {
 // This is one of the single biggest FPS wins on hi-DPI screens.
 const DPR = 1
 
-export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerIds = [], onPlayerClick, onPlayerContextMenu }) {
+export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerIds = [], onPlayerClick, onPlayerContextMenu, introPlaying = false, onIntroDone }) {
   const avatar  = useStore(s => s.avatar)
   const { user } = useUser()
   const myUserId = user?.id
@@ -2043,6 +2163,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
   const [nearVeh,       setNearVeh]       = useState(null)
   const [drivingType,   setDrivingType]   = useState(null)
   const [drivingLabel,  setDrivingLabel]  = useState(null)  // human label of driven vehicle
+  const [flyHud,        setFlyHud]        = useState(false) // fly-mode indicator
   const [isPassenger,   setIsPassenger]   = useState(false)
   const [speedKmh,      setSpeedKmh]      = useState(0)
   const [nearBuilding,  setNearBuilding]  = useState(null)
@@ -2055,6 +2176,14 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
   // later once the scene is consistently above 60 FPS.
   const [postFxOn,     setPostFxOn]     = useState(false)
   const [bloomOn,      setBloomOn]      = useState(false)
+  // Freeze the city render loop while a full-screen 3D mini-game is open — it fully
+  // covers the screen, so rendering the city behind it just wastes GPU.
+  const [cityFrozen,   setCityFrozen]   = useState(false)
+  useEffect(() => {
+    const onMini = (e) => setCityFrozen(!!e.detail?.active)
+    window.addEventListener('minigame-3d', onMini)
+    return () => window.removeEventListener('minigame-3d', onMini)
+  }, [])
 
   useEffect(() => {
     const onKey = (e) => { if (e.code === 'F3') { e.preventDefault(); setShowFps(s => !s) } }
@@ -2103,6 +2232,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
       <WorldLoadingOverlay />
       <Canvas
         dpr={DPR}
+        frameloop={cityFrozen ? 'never' : 'always'}
         camera={{ position: [0, 10, 18], fov: 55, near: 0.1, far: 600 }}
         gl={{ antialias: !postFxOn, toneMapping: THREE.NoToneMapping, outputColorSpace: THREE.SRGBColorSpace, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
         onCreated={({ gl }) => {
@@ -2121,6 +2251,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
             onPlayerContextMenu={onPlayerContextMenu}
             myUserId={myUserId}
           />
+          <IntroCameraRig playing={introPlaying} onDone={onIntroDone} />
           {postFxOn && <PostFX bloom={bloomOn} />}
           <PlayerController
             avatar={avatar}
@@ -2128,6 +2259,7 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
             onNearVehicle={setNearVeh}
             onDrivingChange={setDrivingType}
             onVehicleLabel={setDrivingLabel}
+            onFlyChange={setFlyHud}
             onSpeedChange={setSpeedKmh}
             onNearBuilding={setNearBuilding}
             onEnterBuilding={onEnterBuilding}
@@ -2203,6 +2335,29 @@ export default function WorldCanvas({ onNPCChat, onEnterBuilding, remotePlayerId
           )}
           <Speedometer kmh={speedKmh} />
         </>
+      )}
+
+      {/* Fly-mode indicator + toggle button */}
+      {flyHud && (
+        <div style={{
+          position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(56,189,248,0.85)', color: '#04121f', padding: '6px 16px',
+          borderRadius: 8, fontFamily: 'monospace', fontSize: 13, pointerEvents: 'none', fontWeight: 700,
+        }}>
+          ✈ FLY MODE — <strong>Space</strong> up · <strong>Shift</strong> down · <strong>G</strong> to land
+        </div>
+      )}
+      {!drivingType && !isPassenger && (
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('toggle-fly'))}
+          title="Toggle fly mode (G)"
+          style={{
+            position: 'absolute', bottom: 86, right: 16, width: 46, height: 46,
+            borderRadius: 14, border: `1.5px solid ${flyHud ? 'rgba(56,189,248,0.9)' : 'rgba(56,189,248,0.4)'}`,
+            background: flyHud ? 'rgba(56,189,248,0.85)' : 'rgba(8,8,16,0.7)',
+            fontSize: 20, cursor: 'pointer', zIndex: 60,
+          }}
+        >✈️</button>
       )}
 
       {/* Passenger HUD */}

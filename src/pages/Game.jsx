@@ -15,10 +15,13 @@ import ProfilePanel from '@/components/ProfilePanel'
 import GlobalChat from '@/components/GlobalChat'
 import OnlinePlayersHUD from '@/components/OnlinePlayersHUD'
 import DirectChat from '@/components/DirectChat'
+import LiveChallengeManager from '@/components/LiveChallengeManager'
+import { initLiveChallenges } from '@/lib/liveChallengeService'
 import MsgToast, { toastStyle } from '@/components/MsgToast'
 import { useMultiplayer } from '@/hooks/useMultiplayer'
 import { useVoiceChat } from '@/hooks/useVoiceChat'
 import { chatState, minimapState } from '@/lib/minimapState'
+import { gameControls } from '@/lib/gameControls'
 import { onChatNotification } from '@/lib/chatNotifications'
 import { audioSystem } from '@/lib/audioSystem'
 import GameMenu from '@/games/GameMenu'
@@ -27,7 +30,7 @@ import { LOCATION_GAMES } from '@/games/index'
 import { useMobile } from '@/lib/useMobile'
 import MissionPanel from '@/components/MissionPanel'
 import BossHealthBar from '@/components/BossHealthBar'
-import { initMissions, recordNPCTalk, completeMission, completeDailyMission } from '@/lib/missionState'
+import { initMissions, recordNPCTalk, completeMission, completeDailyMission, onMissionUpdate } from '@/lib/missionState'
 import { initBoss, attackBoss, spawnBoss } from '@/lib/bossState'
 import { initEconomy, addCoins, addGems, onEconomyUpdate, getEconomyState, startPassiveIncome, stopPassiveIncome } from '@/lib/economyState'
 import FastTravel from '@/components/FastTravel'
@@ -37,6 +40,8 @@ import { usePhone } from '@/hooks/usePhone'
 import PlayerRadar from '@/components/PlayerRadar'
 import { initGameState, GAME_NAMES, GAME_EMOJIS } from '@/lib/gameState'
 import { showSpeechBubble } from '@/world/RemotePlayer'
+import { remotePlayersRef } from '@/lib/multiplayerState'
+import { itemById } from '@/lib/wardrobeService'
 import Shop, { ShopButton } from '@/components/Shop'
 import HousePanel, { HouseQuickButton } from '@/components/HousePanel'
 import HouseInterior from '@/world/HouseInterior'
@@ -56,10 +61,13 @@ import JobStatusBadge from '@/components/JobStatusBadge'
 import { initRelationships, sendRose, getRelationshipState, onRelationshipUpdate } from '@/lib/relationshipService'
 import RelationshipPanel, { HeartButton } from '@/components/RelationshipPanel'
 import VoiceHUD from '@/components/VoiceHUD'
-import { initCompanions } from '@/lib/companionService'
+import { initCompanions, hasCompanion } from '@/lib/companionService'
 import CompanionSetup from '@/components/CompanionSetup'
 import CompanionChat, { CompanionButton } from '@/components/CompanionChat'
 import { initCompanionChallenges, setChallengeInCity } from '@/lib/companionChallenges'
+import { initWardrobe, checkLevelUnlocks } from '@/lib/wardrobeService'
+import WardrobePanel, { WardrobeButton } from '@/components/WardrobePanel'
+import IntroCinematic from '@/components/IntroCinematic'
 import ChallengePopup from '@/components/ChallengePopup'
 import { initPhotoAlbum } from '@/lib/photoAlbum'
 
@@ -84,6 +92,57 @@ export default function Game() {
   const [relState,        setRelState]        = useState(getRelationshipState)
   const [showCompanionSetup, setShowCompanionSetup] = useState(false)
   const [showCompanionChat,  setShowCompanionChat]  = useState(false)
+  const [showWardrobe,       setShowWardrobe]       = useState(false)
+
+  // ── Cinematic intro ────────────────────────────────────────────────────────
+  const [introActive,  setIntroActive]  = useState(false)
+  const [introSettled, setIntroSettled] = useState(false)
+  const pendingCompanionSetup = useRef(false)
+  const finishIntro = useCallback(() => {
+    try { localStorage.setItem('clu_intro_seen', 'true') } catch {}
+    console.log('Cinematic done, spawning player in city')
+    setIntroActive(false)
+    setIntroSettled(false)
+    gameControls.enabled = true
+    // Popup queue: companion setup waits until the cinematic is over
+    if (pendingCompanionSetup.current) { pendingCompanionSetup.current = false; setShowCompanionSetup(true) }
+  }, [])
+  const onIntroSettled = useCallback(() => {
+    setIntroSettled(true)
+    gameControls.enabled = true   // player gains control; CTA card stays up
+    // Companion walks up with a welcome line
+    window.dispatchEvent(new CustomEvent('companion-say', {
+      detail: { text: `Welcome to Cartoon City, ${avatar?.name || 'dost'}! Chal, ghoomte hain! 🎉` },
+    }))
+  }, [avatar?.name])
+  useEffect(() => {
+    const onReplay = () => { setIntroSettled(false); setIntroActive(true) }
+    window.addEventListener('replay-intro', onReplay)
+    return () => window.removeEventListener('replay-intro', onReplay)
+  }, [])
+  // Trace: the city scene signals when its 3D world has finished streaming in.
+  useEffect(() => {
+    const onReady = () => console.log('City scene ready')
+    window.addEventListener('city-scene-ready', onReady)
+    return () => window.removeEventListener('city-scene-ready', onReady)
+  }, [])
+  // Room interactions (E on furniture) open the matching panels.
+  useEffect(() => {
+    const onWardrobe = () => setShowWardrobe(true)
+    const onProfile  = () => setShowProfile(true)
+    const onGameZone = () => setShowGameHub(true)
+    window.addEventListener('open-wardrobe', onWardrobe)
+    window.addEventListener('open-profile',  onProfile)
+    window.addEventListener('open-game-zone', onGameZone)
+    return () => {
+      window.removeEventListener('open-wardrobe', onWardrobe)
+      window.removeEventListener('open-profile',  onProfile)
+      window.removeEventListener('open-game-zone', onGameZone)
+    }
+  }, [])
+  useEffect(() => {
+    if (introActive) { gameControls.enabled = false; audioSystem.playLevelUp?.() }
+  }, [introActive])
   const [showHouse,       setShowHouse]       = useState(false)
   const [showHouseInterior, setShowHouseInterior] = useState(false)
   const [houseAction,    setHouseAction]     = useState(null)   // 'rest'|'sleep'|null
@@ -199,14 +258,27 @@ export default function Game() {
     }
   }, [user?.id])
 
+  const didInitRef = useRef(null)
   useEffect(() => {
     if (!user?.id) return
+    // Ref guard: full init runs exactly ONCE per user. Prevents StrictMode's
+    // double-invoke from re-running every init (which thrashed state and made the
+    // city loading screen flash/reload one or two extra times). Issue 2.
+    if (didInitRef.current === user.id) return
+    didInitRef.current = user.id
+
+    console.log('Login complete')
+    // First ever login = cinematic has never been seen.
+    const firstLogin = !localStorage.getItem('clu_intro_seen')
+    console.log('First login?', firstLogin)
+
     initEconomy(user.id).then(bonus => { if (bonus?.given) setDailyBonus(bonus) })
     initHouse(user.id, avatar.name).then(hs => {
       if (!hs) return
       const { unpaid, status } = hs
-      // Issue 6: spawn inside house on first session login
-      if (hs.position && !spawnedInHouse) {
+      // Returning players resume INSIDE their house. First-time players must NOT —
+      // they watch the cinematic and then spawn in the open city near the plaza. (Issue 1)
+      if (hs.position && !spawnedInHouse && !firstLogin) {
         setSpawnedInHouse(true)
         setShowHouseInterior(true)
         setHouseAction(null)
@@ -229,16 +301,36 @@ export default function Game() {
     initLiveEvents(user.id, avatar.name)
     initJobs(user.id, avatar.name)
     initRelationships(user.id, avatar.name)
+    // Cinematic intro — auto-plays once ever (replayable from Profile). The black
+    // opening fade covers the brief tail of city streaming; camera sweep plays over
+    // the loaded golden-hour city. (Issue 1)
+    if (firstLogin) {
+      console.log('Playing cinematic')
+      setIntroActive(true)
+    }
+
     initCompanions(user.id, avatar.name).then(c => {
       // Show setup ONLY if: no companion anywhere AND never completed AND never skipped.
       const companionDone    = localStorage.getItem('clu_companion_done')
       const companionSkipped = localStorage.getItem('clu_companion_skipped')
       const shouldShow = !c && !companionDone && !companionSkipped
       console.log('Companion check - done:', companionDone, 'skipped:', companionSkipped, 'will show:', shouldShow)
-      if (shouldShow) setShowCompanionSetup(true)
+      if (shouldShow) {
+        // One popup at a time: if the intro is playing, queue setup for after it
+        if (firstLogin) pendingCompanionSetup.current = true
+        else setShowCompanionSetup(true)
+      }
     })
     initCompanionChallenges()
     initPhotoAlbum(user.id)
+    initWardrobe(user.id)
+    initLiveChallenges(user.id, avatar.name)
+  }, [user?.id])
+
+  // Passive income lifecycle — kept separate from the one-time init guard so its
+  // cleanup always pairs with its start (the ref-guarded effect above can early-return).
+  useEffect(() => {
+    if (!user?.id) return
     startPassiveIncome()
     return () => stopPassiveIncome()
   }, [user?.id])
@@ -482,6 +574,25 @@ export default function Game() {
 
   // Gate companion challenges to the open city (never inside a building interior).
   useEffect(() => { setChallengeInCity(mode === 'city' && !showHouseInterior) }, [mode, showHouseInterior])
+
+  // Level-up → celebrate newly unlocked wardrobe cosmetics ("You unlocked: …")
+  const lastLevelRef = useRef(0)
+  useEffect(() => onMissionUpdate((ms) => {
+    if (!ms?.level) return
+    if (lastLevelRef.current && ms.level > lastLevelRef.current) {
+      const fresh = checkLevelUnlocks()
+      fresh.forEach(item => {
+        const id = ++toastIdRef.current
+        setMsgToasts(prev => [...prev.slice(-2), {
+          id, type: 'global', fromName: `🎉 Level ${ms.level}!`,
+          text: `You unlocked: ${item.label} ${item.emoji} — open the Wardrobe!`,
+          duration: 9000, onClick: () => setShowWardrobe(true),
+        }])
+      })
+      audioSystem.playLevelUp?.()
+    }
+    lastLevelRef.current = ms.level
+  }), [])
   const [fading,         setFading]         = useState(false)
   const [chatNpc,        setChatNpc]        = useState(null)
   const [showGameMenu,   setShowGameMenu]   = useState(false)
@@ -631,10 +742,22 @@ export default function Game() {
       <GameAnnouncementBanner />
 
       {/* City-wide live events — banner, HUD badge, next-event countdown */}
-      <LiveEventBanner />
+      {!introActive && <LiveEventBanner />}
+
+      {/* Cinematic intro overlay (camera rig lives inside WorldCanvas) */}
+      {introActive && (
+        <IntroCinematic
+          playerName={avatar?.name}
+          settled={introSettled}
+          onSkip={finishIntro}
+          onStart={finishIntro}
+        />
+      )}
 
       {mode === 'city' && (
         <WorldCanvas
+          introPlaying={introActive && !introSettled}
+          onIntroDone={onIntroSettled}
           onNPCChat={npc => { window.dispatchEvent(new CustomEvent('tutorial-npc-chat')); setActiveNPC(npc) }}
           onEnterBuilding={enterBuilding}
           remotePlayerIds={remotePlayerIds}
@@ -652,10 +775,10 @@ export default function Game() {
         />
       )}
 
-      <HUD onOpenShop={() => setShowShop(true)} />
+      {!introActive && <HUD onOpenShop={() => setShowShop(true)} />}
       <BossHealthBar />
       <MissionPanel open={showMissions} onClose={() => setShowMissions(false)} />
-      {mode === 'city' && <PlayerRadar />}
+      {mode === 'city' && !introActive && <PlayerRadar />}
 
       {/* DM screen flash */}
       {dmFlash && (
@@ -721,7 +844,7 @@ export default function Game() {
       )}
 
       {/* Left quick buttons */}
-      {mode === 'city' && !showMissions && !showFastTravel && !showHouse && (
+      {mode === 'city' && !showMissions && !showFastTravel && !showHouse && !introActive && (
         <div className="fixed left-3 top-1/2 -translate-y-1/2 z-40 flex flex-col gap-2">
           <button
             data-tutorial="missions"
@@ -740,7 +863,15 @@ export default function Game() {
           <ShopButton onClick={() => setShowShop(true)} />
           <JobsButton onClick={() => setShowJobs(true)} />
           <HeartButton onClick={() => setShowRelationship(true)} hasRose={relState.incomingRoses.length > 0} />
-          <CompanionButton onClick={() => setShowCompanionChat(true)} />
+          <WardrobeButton onClick={() => setShowWardrobe(true)} />
+          <CompanionButton onClick={() => {
+            // CompanionChat renders null without a companion — players who skipped
+            // setup clicked into nothing. Route them to the setup wizard instead.
+            const has = hasCompanion()
+            console.log('Companion chat toggled:', has ? 'open chat' : 'open setup (no companion yet)')
+            if (has) setShowCompanionChat(true)
+            else setShowCompanionSetup(true)
+          }} />
         </div>
       )}
 
@@ -807,16 +938,18 @@ export default function Game() {
         }
       </button>
 
-      <TimeWeatherHUD />
+      {!introActive && <TimeWeatherHUD />}
 
-      <OnlinePlayersHUD
-        onlinePlayers={onlinePlayers}
-        mutePlayer={voice.mutePlayer}
-        unmutePlayer={voice.unmutePlayer}
-        isPlayerMuted={voice.isPlayerMuted}
-      />
+      {!introActive && (
+        <OnlinePlayersHUD
+          onlinePlayers={onlinePlayers}
+          mutePlayer={voice.mutePlayer}
+          unmutePlayer={voice.unmutePlayer}
+          isPlayerMuted={voice.isPlayerMuted}
+        />
+      )}
 
-      {mode === 'city' && <Minimap isMobile={isMobile} />}
+      {mode === 'city' && !introActive && <Minimap isMobile={isMobile} />}
 
       {/* Player context menu */}
       {playerCtxMenu && (
@@ -831,12 +964,26 @@ export default function Game() {
             boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
           }}
         >
-          <div
-            className="text-violet-400 text-[12px] font-bold"
-            style={{ padding: '8px 14px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            {playerCtxMenu.name}
-          </div>
+          {(() => {
+            // Identity card: name, level, companion, style summary (synced data)
+            const d = remotePlayersRef.current.get(playerCtxMenu.uid)
+            const styleNames = d?.equipped_items
+              ? Object.values(d.equipped_items).map(it => itemById(it.id)?.label).filter(Boolean).slice(0, 3)
+              : []
+            return (
+              <div style={{ padding: '8px 14px 6px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="text-violet-400 text-[12px] font-bold">
+                  {playerCtxMenu.name} <span className="text-amber-400">· Lv {d?.level || 1}</span>
+                </div>
+                {d?.companion_name && (
+                  <div className="text-slate-400 text-[10px] mt-0.5">🤖 with {d.companion_name}</div>
+                )}
+                {styleNames.length > 0 && (
+                  <div className="text-slate-500 text-[10px] mt-0.5">👕 {styleNames.join(' · ')}</div>
+                )}
+              </div>
+            )
+          })()}
           {[
             {
               label: '💬 Chat',
@@ -1017,11 +1164,12 @@ export default function Game() {
       <Shop open={showShop} onClose={() => setShowShop(false)} />
 
       <JobsPanel open={showJobs} onClose={() => setShowJobs(false)} playerName={avatar?.name} />
-      <JobStatusBadge />
+      {!introActive && <JobStatusBadge />}
 
       <RelationshipPanel open={showRelationship} onClose={() => setShowRelationship(false)} />
+      <WardrobePanel open={showWardrobe} onClose={() => setShowWardrobe(false)} />
 
-      {mode === 'city' && <VoiceHUD voice={voice} />}
+      {mode === 'city' && !introActive && <VoiceHUD voice={voice} />}
 
       {showCompanionSetup && <CompanionSetup onDone={() => setShowCompanionSetup(false)} />}
       <CompanionChat open={showCompanionChat} onClose={() => setShowCompanionChat(false)} />
@@ -1093,6 +1241,9 @@ export default function Game() {
         className="absolute inset-0 bg-black z-[1000] transition-opacity duration-[350ms]"
         style={{ opacity: fading ? 1 : 0, pointerEvents: fading ? 'all' : 'none' }}
       />
+
+      {/* Live 1v1 challenge system (picker, incoming, split-screen arena, result) */}
+      <LiveChallengeManager />
 
       {/* First-time player onboarding tutorial */}
       <TutorialOverlay />

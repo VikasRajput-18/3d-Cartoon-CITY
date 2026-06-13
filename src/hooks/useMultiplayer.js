@@ -8,6 +8,8 @@ import { emitChatNotification } from '@/lib/chatNotifications'
 import { appendDmCache, getDmCache } from '@/lib/chatCache'
 import { companionState } from '@/lib/companionState'
 import { getCompanion } from '@/lib/companionService'
+import { getEquippedRender } from '@/lib/wardrobeService'
+import { getMissionState } from '@/lib/missionState'
 
 const BROADCAST_MS   = 80     // position broadcast interval (ms) — WebSocket only, not HTTP
 const OFFLINE_MS     = 15000  // prune players silent for 15 s
@@ -257,6 +259,8 @@ export function useMultiplayer({ userId, avatar }) {
         companion_skin:  payload.companion_skin  || '#FDBCB4',
         companion_x:     payload.companion_x ?? payload.x,
         companion_z:     payload.companion_z ?? payload.z,
+        equipped_items:  payload.equipped_items || null,
+        level:           payload.level || 1,
         x:      existing.x      ?? payload.x,
         z:      existing.z      ?? payload.z,
         facing: existing.facing ?? payload.facing,
@@ -406,6 +410,9 @@ export function useMultiplayer({ userId, avatar }) {
           companion_skin:  getCompanion()?.skinColor || null,
           companion_x:     companionState.x,
           companion_z:     companionState.z,
+          // wardrobe accessories + level so others see your style & progression
+          equipped_items:  getEquippedRender(),
+          level:           getMissionState()?.level || 1,
         },
       })
 

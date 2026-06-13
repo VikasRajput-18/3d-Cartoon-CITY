@@ -140,10 +140,18 @@ export default function DirectChat({ myId, myName, targetId, targetName, onClose
           <span className="text-blue-400 font-extrabold text-[13px]">{targetName}</span>
           <span className="text-slate-600 text-[10px]">DM</span>
         </div>
-        <button
-          onClick={() => { gameControls.enabled = true; onClose() }}
-          className="bg-transparent border-0 text-slate-500 cursor-pointer text-lg leading-none"
-        >×</button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('live-challenge-picker', { detail: { opponentId: targetId, opponentName: targetName, isNpc: false } }))}
+            title="Challenge to a game"
+            className="rounded-lg text-[11px] font-bold cursor-pointer text-pink-300 font-body"
+            style={{ background: 'rgba(236,72,153,0.18)', border: '1px solid rgba(236,72,153,0.4)', padding: '3px 8px' }}
+          >⚔️ Challenge</button>
+          <button
+            onClick={() => { gameControls.enabled = true; onClose() }}
+            className="bg-transparent border-0 text-slate-500 cursor-pointer text-lg leading-none"
+          >×</button>
+        </div>
       </div>
 
       {/* Messages */}

@@ -345,6 +345,12 @@ export default function ChatPanel({ npc, onClose }) {
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button
+              onClick={() => window.dispatchEvent(new CustomEvent('live-challenge-picker', { detail: { opponentId: 'npc:' + npc.name, opponentName: npc.name, isNpc: true } }))}
+              title="Challenge to a game"
+              className="px-2 py-1 rounded-xl text-sm hover:bg-white/10 transition-all"
+              style={{ border: '1px solid rgba(236,72,153,0.5)' }}
+            >⚔️</button>
+            <button
               onClick={handleSendRose}
               title="Send a rose (🪙10)"
               className="px-2 py-1 rounded-xl text-sm hover:bg-white/10 transition-all"

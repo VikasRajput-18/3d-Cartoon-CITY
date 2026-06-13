@@ -105,8 +105,11 @@ export default function DayNightCycle() {
 
   useFrame(() => {
     // ── Real-world time — update every frame so sun/moon track smoothly ──
+    // hourOverride: the cinematic intro forces golden hour (17.8), then blends
+    // back to real time before clearing the override.
     const now  = new Date()
-    const hour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600
+    const realHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600
+    const hour = timeWeatherState.hourOverride ?? realHour
 
     // ── Shared time state ─────────────────────────────────────────────
     timeWeatherState.timeOfDay = hour

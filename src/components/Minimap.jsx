@@ -72,6 +72,20 @@ export default function Minimap({ isMobile = false }) {
   const exCanvasRef = useRef()
   const [visible,  setVisible]  = useState(true)
   const [expanded, setExpanded] = useState(false)
+
+  // ── Pan/zoom view for the expanded map (GTA style) ────────────────────────
+  // {x,z} = world coords at canvas centre. Mutated by drag/wheel, read by the
+  // RAF draw loop — no React re-render needed per frame.
+  const viewRef  = useRef({ x: 0, z: 0, zoom: 1 })
+  const dragRef  = useRef(null)        // { sx, sy, vx, vz } while dragging
+  const movedRef = useRef(false)       // true if the pointer moved >5px (suppress click)
+  // World bounds with padding — covers airport(-600), pool(300,-300), shore(420)
+  const clampView = () => {
+    const v = viewRef.current
+    v.x = Math.max(-680, Math.min(460, v.x))
+    v.z = Math.max(-680, Math.min(330, v.z))
+    v.zoom = Math.max(0.3, Math.min(3, v.zoom))
+  }
   const [navTarget, setNavTarget] = useState(null)    // mirrors navState.target for render
   const [navDist,   setNavDist]   = useState(null)
   const [homeDist,  setHomeDist]  = useState(null)    // distance to own house
@@ -306,7 +320,7 @@ export default function Minimap({ isMobile = false }) {
     return () => cancelAnimationFrame(rafId)
   }, [visible, expanded, SIZE])
 
-  // ── Expanded map RAF draw loop ────────────────────────────────────────────
+  // ── Expanded map RAF draw loop — pannable + zoomable (GTA style) ──────────
   useEffect(() => {
     if (!expanded) return
     const canvas = exCanvasRef.current
@@ -314,31 +328,52 @@ export default function Minimap({ isMobile = false }) {
     const ctx = canvas.getContext('2d')
     const W = canvas.width
     const H = canvas.height
-    const SCALE = Math.min(W, H) / (EX_RANGE * 2)
     let rafId
+
+    // Open centred on the player at default zoom
+    viewRef.current = { x: minimapState.playerX, z: minimapState.playerZ, zoom: 1 }
 
     function draw() {
       rafId = requestAnimationFrame(draw)
       const { playerX, playerZ } = minimapState
 
+      // View-aware world→canvas (shadows the module-level ex/ey — every existing
+      // draw call below pans/zooms automatically; extra args are ignored).
+      const v = viewRef.current
+      const SCALE = (Math.min(W, H) / (EX_RANGE * 2)) * v.zoom
+      const ex = (wx) => W / 2 + (wx - v.x) * SCALE
+      const ey = (wz) => H / 2 - (wz - v.z) * SCALE
+
       ctx.clearRect(0, 0, W, H)
       ctx.fillStyle = 'rgba(8,6,18,0.97)'
       ctx.fillRect(0, 0, W, H)
 
-      // Grid lines
+      // Grid lines — covering the visible world window
       ctx.strokeStyle = 'rgba(51,65,85,0.3)'
       ctx.lineWidth = 0.5
-      for (let i = -EX_RANGE; i <= EX_RANGE; i += 20) {
-        const xi = ex(i, W, SCALE)
-        const yi = ey(i, H, SCALE)
+      const halfWorldW = W / 2 / SCALE
+      const halfWorldH = H / 2 / SCALE
+      const gx0 = Math.floor((v.x - halfWorldW) / 20) * 20
+      const gz0 = Math.floor((v.z - halfWorldH) / 20) * 20
+      for (let i = gx0; i <= v.x + halfWorldW; i += 20) {
+        const xi = ex(i)
         ctx.beginPath(); ctx.moveTo(xi, 0); ctx.lineTo(xi, H); ctx.stroke()
-        ctx.beginPath(); ctx.moveTo(0, yi); ctx.lineTo(W, yi); ctx.stroke()
       }
-
-      // Roads (main city roads near origin)
+      for (let j = gz0; j <= v.z + halfWorldH; j += 20) {
+        const yj = ey(j)
+        ctx.beginPath(); ctx.moveTo(0, yj); ctx.lineTo(W, yj); ctx.stroke()
+      }
+      // Roads — the actual network: E-W highway x −290…150, N-S highway z ±250,
+      // secondary roads at z=±50 / x=±50 (each ±150 long)
       ctx.fillStyle = 'rgba(51,65,85,0.8)'
-      ctx.fillRect(0, ey(4.5, H, SCALE), W, 9 * SCALE)          // E-W
-      ctx.fillRect(ex(-4.5, W, SCALE), 0, 9 * SCALE, H)         // N-S
+      ctx.fillRect(ex(-290), ey(6), 440 * SCALE, 12 * SCALE)            // E-W main
+      ctx.fillRect(ex(-6), ey(250), 12 * SCALE, 500 * SCALE)            // N-S main
+      ctx.fillStyle = 'rgba(51,65,85,0.6)'
+      for (const sz of [-50, 50]) ctx.fillRect(ex(-150), ey(sz + 4), 300 * SCALE, 8 * SCALE)
+      for (const sx of [-50, 50]) ctx.fillRect(ex(sx - 4), ey(150), 8 * SCALE, 300 * SCALE)
+      // Sunset Shore water hint
+      ctx.fillStyle = 'rgba(46,143,184,0.35)'
+      ctx.fillRect(ex(212), ey(160), 200 * SCALE, 320 * SCALE)
 
       // Trees
       ctx.fillStyle = '#15803d'
@@ -478,8 +513,9 @@ export default function Minimap({ isMobile = false }) {
     return () => cancelAnimationFrame(rafId)
   }, [expanded])
 
-  // ── Click on expanded canvas → select building ────────────────────────────
+  // ── Click on expanded canvas → select building (view-aware) ───────────────
   const onExpandedClick = useCallback((e) => {
+    if (movedRef.current) return   // it was a drag, not a click
     const canvas = exCanvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
@@ -487,7 +523,10 @@ export default function Minimap({ isMobile = false }) {
     const cy = e.clientY - rect.top
     const W = canvas.width
     const H = canvas.height
-    const SCALE = Math.min(W, H) / (EX_RANGE * 2)
+    const v = viewRef.current
+    const SCALE = (Math.min(W, H) / (EX_RANGE * 2)) * v.zoom
+    const ex = (wx) => W / 2 + (wx - v.x) * SCALE
+    const ey = (wz) => H / 2 - (wz - v.z) * SCALE
 
     // Find building that was clicked
     let hit = null
@@ -582,7 +621,7 @@ export default function Minimap({ isMobile = false }) {
               <span className="text-slate-500 text-[11px]">
                 {navState.target
                   ? `→ ${navState.target.name}  [Esc to cancel]`
-                  : 'Click a building to navigate · Esc to close'}
+                  : 'Drag to pan · Scroll to zoom · Click to navigate · Esc closes'}
               </span>
               <button
                 onClick={() => setExpanded(false)}
@@ -590,14 +629,61 @@ export default function Minimap({ isMobile = false }) {
               >×</button>
             </div>
 
-            {/* Canvas */}
-            <canvas
-              ref={exCanvasRef}
-              width={exSize}
-              height={exSize}
-              onClick={onExpandedClick}
-              className="block cursor-crosshair"
-            />
+            {/* Canvas — drag to pan, wheel to zoom, click to navigate */}
+            <div className="relative">
+              <canvas
+                ref={exCanvasRef}
+                width={exSize}
+                height={exSize}
+                onClick={onExpandedClick}
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture?.(e.pointerId)
+                  dragRef.current = { sx: e.clientX, sy: e.clientY, vx: viewRef.current.x, vz: viewRef.current.z }
+                  movedRef.current = false
+                }}
+                onPointerMove={(e) => {
+                  const d = dragRef.current
+                  if (!d) return
+                  const dx = e.clientX - d.sx
+                  const dy = e.clientY - d.sy
+                  if (Math.abs(dx) + Math.abs(dy) > 5) movedRef.current = true
+                  const canvas = exCanvasRef.current
+                  const SCALE = (Math.min(canvas.width, canvas.height) / (EX_RANGE * 2)) * viewRef.current.zoom
+                  viewRef.current.x = d.vx - dx / SCALE
+                  viewRef.current.z = d.vz + dy / SCALE
+                  clampView()
+                }}
+                onPointerUp={() => { dragRef.current = null; setTimeout(() => { movedRef.current = false }, 0) }}
+                onPointerLeave={() => { dragRef.current = null }}
+                onWheel={(e) => {
+                  viewRef.current.zoom *= e.deltaY < 0 ? 1.15 : 0.87
+                  clampView()
+                }}
+                className="block touch-none"
+                style={{ cursor: dragRef.current ? 'grabbing' : 'grab' }}
+              />
+              {/* Map controls — zoom + recenter */}
+              <div className="absolute bottom-3 left-3 flex flex-col gap-[6px]">
+                {[
+                  ['+', () => { viewRef.current.zoom *= 1.25; clampView() }],
+                  ['−', () => { viewRef.current.zoom *= 0.8; clampView() }],
+                  ['⌖', () => { viewRef.current.x = minimapState.playerX; viewRef.current.z = minimapState.playerZ; viewRef.current.zoom = 1 }],
+                ].map(([label, fn]) => (
+                  <button
+                    key={label}
+                    onClick={fn}
+                    title={label === '⌖' ? 'Recenter on player' : label === '+' ? 'Zoom in' : 'Zoom out'}
+                    className="w-8 h-8 rounded-lg text-[15px] font-bold cursor-pointer"
+                    style={{
+                      background: 'rgba(8,6,18,0.85)',
+                      border: '1px solid rgba(124,58,237,0.5)',
+                      color: '#a78bfa',
+                      lineHeight: 1,
+                    }}
+                  >{label}</button>
+                ))}
+              </div>
+            </div>
 
             {/* Legend */}
             <div
