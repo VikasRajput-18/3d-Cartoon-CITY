@@ -1,13 +1,13 @@
 import { supabase } from './supabase'
 import { addCoins } from './economyState'
 
-export const GAME_IDS   = ['snake', 'flappy', 'tictactoe', 'memory', 'dodge', 'cricket']
+export const GAME_IDS   = ['snake', 'flappy', 'tictactoe', 'memory', 'dodge', 'cricket', 'hangman']
 export const GAME_NAMES = {
   snake: 'Snake', flappy: 'Flappy Bird', tictactoe: 'Tic Tac Toe',
-  memory: 'Memory Match', dodge: 'Dodge Ball', cricket: 'Cricket',
+  memory: 'Memory Match', dodge: 'Dodge Ball', cricket: 'Cricket', hangman: 'Hangman',
 }
 export const GAME_EMOJIS = {
-  snake: '🐍', flappy: '🐦', tictactoe: '⭕', memory: '🃏', dodge: '💣', cricket: '🏏',
+  snake: '🐍', flappy: '🐦', tictactoe: '⭕', memory: '🃏', dodge: '💣', cricket: '🏏', hangman: '🔤',
 }
 
 // ── Ranks ──────────────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ export function getMyChallenges() { return _s.challenges }
 function emptyStats() {
   return {
     player_uid: _s.myUid, total_wins: 0, total_losses: 0, total_games: 0,
-    best_snake: 0, best_flappy: 0, best_tictactoe: 0, best_memory: 0, best_dodge: 0, best_cricket: 0,
+    best_snake: 0, best_flappy: 0, best_tictactoe: 0, best_memory: 0, best_dodge: 0, best_cricket: 0, best_hangman: 0,
     coins_earned_from_games: 0,
   }
 }
@@ -326,7 +326,14 @@ export async function submitScore(gameId, score, powerUpMultiplier = 1) {
       player_uid: _s.myUid, player_name: _s.myName, game_id: gameId,
       score: effectiveScore, result,
     })
-    await supabase.from('game_stats').upsert({ player_uid: _s.myUid, ...stats })
+    // Resilient upsert: if a newer best_* column (e.g. best_hangman) doesn't exist
+    // in this DB yet, retry without it so the rest of the stats still persist.
+    const payload = { player_uid: _s.myUid, ...stats }
+    const { error: statsErr } = await supabase.from('game_stats').upsert(payload)
+    if (statsErr) {
+      const { best_hangman, ...rest } = payload
+      await supabase.from('game_stats').upsert(rest)
+    }
   } else {
     localStorage.setItem(`gs_stats_${_s.myUid}`, JSON.stringify(stats))
     const lb = [...(_s.scores[gameId] || []), { player_uid: _s.myUid, player_name: _s.myName, score: effectiveScore }]

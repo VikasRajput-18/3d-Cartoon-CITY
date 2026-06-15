@@ -205,6 +205,70 @@ function PlaceMarker({ position, emoji, label, color, onClick }) {
   )
 }
 
+// ── Floating building name labels (billboard, distance-faded) ────────────────
+// Clear "🏥 Hospital" style tags above the major buildings so players can tell
+// what's what. Only shown within range of the player; fades out far away.
+const BUILDING_LABELS = [
+  { id: 'arcade',    text: '🎮 Arcade Center',  y: 7.5 },
+  { id: 'police',    text: '🚓 Police Station',  y: 7.0 },
+  { id: 'cafe',      text: '☕ City Cafe',       y: 6.5 },
+  { id: 'hospital',  text: '🏥 Hospital',        y: 10.0 },
+  { id: 'cityhall',  text: '🏛️ City Hall',       y: 12.0 },
+  { id: 'musicroom', text: '🎵 Music Room',      y: 7.5 },
+  { id: 'park',      text: '🌳 City Park',       y: 6.0 },
+  { id: 'mall',      text: '🛍️ Shopping Mall',   y: 9.0 },
+  { id: 'beach',     text: '🌅 Sunset Shore',    y: 6.5 },
+  { id: 'gamearea',  text: '🏆 Game Zone',       y: 7.5 },
+  { id: 'bank',      text: '🏦 City Bank',       y: 7.5 },
+  { id: 'school',    text: '🏫 School',          y: 9.0 },
+  { id: 'gym',       text: '💪 Gym',             y: 7.0 },
+]
+
+function BuildingLabel({ pos, text }) {
+  const grpRef = useRef()
+  const bgRef  = useRef()
+  const txtRef = useRef()
+  const w = text.length * 0.26 + 0.7   // bg sized to the text
+  useFrame(() => {
+    const g = grpRef.current; if (!g) return
+    const dx = pos[0] - minimapState.playerX, dz = pos[2] - minimapState.playerZ
+    const d = Math.hypot(dx, dz)
+    const op = d > 95 ? 0 : d < 60 ? 1 : 1 - (d - 60) / 35
+    g.visible = op > 0.02
+    if (!g.visible) return
+    if (bgRef.current) bgRef.current.material.opacity = op * 0.7
+    if (txtRef.current) { txtRef.current.fillOpacity = op; txtRef.current.outlineOpacity = op }
+  })
+  return (
+    <group ref={grpRef} position={[pos[0], 0, pos[2]]} visible={false}>
+      <Billboard position={[0, 0, 0]}>
+        <group position={[0, 0, 0]}>
+          <mesh ref={bgRef} position={[0, 0, -0.02]}>
+            <planeGeometry args={[w, 0.95]} />
+            <meshBasicMaterial color="#0a0a16" transparent opacity={0.7} depthWrite={false} />
+          </mesh>
+          <Text ref={txtRef} fontSize={0.46} color="#ffffff" anchorX="center" anchorY="middle"
+            outlineWidth={0.02} outlineColor="#000000">
+            {text}
+          </Text>
+        </group>
+      </Billboard>
+    </group>
+  )
+}
+
+function BuildingLabels() {
+  return (
+    <>
+      {BUILDING_LABELS.map(l => {
+        const p = PLACES.find(pl => pl.id === l.id)
+        if (!p) return null
+        return <group key={l.id} position={[0, l.y, 0]}><BuildingLabel pos={p.pos} text={l.text} /></group>
+      })}
+    </>
+  )
+}
+
 // ── FPS tracker ──────────────────────────────────────────────────────────────
 const _fps = { value: 0 }
 function FpsTracker() {
@@ -260,7 +324,7 @@ function CityMerger() {
         let o = obj
         while (o) {
           const ud = o.userData || {}
-          if (ud.dynamic || ud.isPlayer || ud.isNPC || ud.isVehicle || ud.noMerge) return true
+          if (ud.dynamic || ud.isPlayer || ud.isRemotePlayer || ud.isNPC || ud.isCompanion || ud.isVehicle || ud.noMerge) return true
           const nm = (o.name || '').toLowerCase()
           if (nm && MERGE_SKIP_NAMES.some(s => nm.includes(s))) return true
           o = o.parent
@@ -282,11 +346,21 @@ function CityMerger() {
 
       const geosByColor = new Map()
       const toHide = []
+      let skippedProtected = 0
 
       scene.traverse(child => {
         if (!child.isMesh || child.isInstancedMesh || !child.geometry || !child.material) return
         if (child.name?.startsWith('MergedCity')) return
-        if (shouldSkip(child)) return
+        if (shouldSkip(child)) {
+          // Diagnostic: confirm character/player meshes are being PROTECTED, not eaten.
+          let o = child
+          while (o) {
+            const ud = o.userData || {}
+            if (ud.isRemotePlayer || ud.isPlayer || ud.isCompanion) { skippedProtected++; break }
+            o = o.parent
+          }
+          return
+        }
 
         const mat = Array.isArray(child.material) ? child.material[0] : child.material
         const colorKey = mat.color.getHexString()
@@ -359,6 +433,7 @@ function CityMerger() {
         if (child.parent) child.parent.remove(child)
       })
       void totalOriginal; void mergedCount   // (merge complete)
+      console.log(`[CityMerger] merged ${mergedCount} batches from ${totalOriginal} meshes · protected ${skippedProtected} player/companion meshes (should be >0 if players are in view)`)
     }, 3000)
 
     return () => clearTimeout(timer)
@@ -1597,11 +1672,21 @@ function PlayerController({
       while (o) { if (o === playerGroupRef.current) return true; o = o.parent }
       return false
     }
+    // Never fade a character (remote players / companions / NPCs) as an "occluder".
+    const isCharacter = (obj) => {
+      let o = obj
+      while (o) {
+        const ud = o.userData || {}
+        if (ud.isPlayer || ud.isRemotePlayer || ud.isCompanion || ud.isNPC) return true
+        o = o.parent
+      }
+      return false
+    }
 
     const hits = occlusionRay.current.intersectObjects(scene.children, true)
     for (const hit of hits) {
       const mat = hit.object.material
-      if (!mat || isPlayerOwn(hit.object)) continue
+      if (!mat || isPlayerOwn(hit.object) || isCharacter(hit.object)) continue
       // Only fade building-like meshes (boxes with significant size)
       const geom = hit.object.geometry
       if (!geom?.boundingBox) geom?.computeBoundingBox()
@@ -2018,6 +2103,8 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
       {PLACES.map(p => (
         <PlaceMarker key={p.id} position={p.pos} emoji={p.emoji} label={p.label} color={p.color} />
       ))}
+
+      <BuildingLabels />
 
       {NPCS.map(npc => (
         <NPC

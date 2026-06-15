@@ -24,15 +24,16 @@ const TicTacToe  = lazy(() => import('@/games/TicTacToeGame'))
 const MemoryGame = lazy(() => import('@/games/MemoryGame'))
 const DodgeGame  = lazy(() => import('@/games/DodgeGame'))
 const CricketGame = lazy(() => import('@/games/CricketGame'))
+const HangmanGame = lazy(() => import('@/games/HangmanGame'))
 
-const GAME_COMPONENTS = { snake: SnakeGame, flappy: FlappyGame, tictactoe: TicTacToe, memory: MemoryGame, dodge: DodgeGame, cricket: CricketGame }
+const GAME_COMPONENTS = { snake: SnakeGame, flappy: FlappyGame, tictactoe: TicTacToe, memory: MemoryGame, dodge: DodgeGame, cricket: CricketGame, hangman: HangmanGame }
 const GAME_DESC = {
   snake: 'Eat food, grow longer. WASD / Arrows.', flappy: 'Tap to fly. Space / Tap.',
   tictactoe: 'Best of 3 vs AI.', memory: '60s to match all 12 pairs.', dodge: 'Dodge falling objects.',
-  cricket: 'Time your swing — hit sixes & fours!',
+  cricket: 'Time your swing — hit sixes & fours!', hangman: 'Guess the word before he hangs!',
 }
-const STATION_COLORS = ['#7c3aed','#ec4899','#f59e0b','#10b981','#3b82f6','#16a34a']
-const NEON_ZONE = { snake:'#16a34a', flappy:'#38bdf8', memory:'#8b5cf6', dodge:'#ef4444', tictactoe:'#92400e', cricket:'#15803d' }
+const STATION_COLORS = ['#7c3aed','#ec4899','#f59e0b','#10b981','#3b82f6','#16a34a','#06b6d4']
+const NEON_ZONE = { snake:'#16a34a', flappy:'#38bdf8', memory:'#8b5cf6', dodge:'#ef4444', tictactoe:'#92400e', cricket:'#15803d', hangman:'#06b6d4' }
 
 // Power-ups
 const POWER_UPS = [

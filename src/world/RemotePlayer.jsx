@@ -58,6 +58,8 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
 
   const longPressTimerRef    = useRef(null)
   const longPressTriggeredRef = useRef(false)
+  const diagRef    = useRef(0)   // diagnostic: log body opacity/scale for first ~6s
+  const lastLogRef = useRef(-2)
 
   useEffect(() => {
     return () => {
@@ -77,6 +79,30 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
       groupRef.current.visible = false
       return
     }
+
+    // ── CityMerger protection + force-opaque body (same fix as the local player
+    // and companion). Runs every frame regardless of view so the merger NEVER
+    // disposes / batches the remote body — that bug left only the floating head.
+    // Skips depthWrite===false (glow/hover rings, hitbox, glow auras) and the
+    // troika name-label text so those keep their intended transparency.
+    diagRef.current += delta
+    const doLog = diagRef.current < 6 && diagRef.current - lastLogRef.current > 1.5
+    if (doLog) lastLogRef.current = diagRef.current
+    groupRef.current.traverse(c => {
+      if (!c.isMesh || !c.material) return
+      c.userData._keepPBR = true
+      c.userData.isPlayer = true
+      c.userData.noMerge  = true
+      c.userData.dynamic  = true
+      const mats = Array.isArray(c.material) ? c.material : [c.material]
+      mats.forEach(m => {
+        if (m.depthWrite === false || m.isTroikaTextMaterial) return
+        if (m.opacity !== 1 || m.transparent) { m.transparent = false; m.opacity = 1; m.depthWrite = true; m.needsUpdate = true }
+      })
+      if (doLog && c.geometry?.type?.includes('Capsule')) {
+        console.log('[RemotePlayer] body mesh opacity:', c.material.opacity, 'transparent:', c.material.transparent, 'worldScale:', c.getWorldScale(new THREE.Vector3()).x.toFixed(3))
+      }
+    })
 
     // ── Distance culling ──────────────────────────────────────────────────
     const dToPx  = data.x - minimapState.playerX
@@ -231,7 +257,11 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
 
   return (
    <>
-    <group ref={groupRef} visible={false}>
+    {/* STATIC userData at creation → CityMerger's ancestor-chain check skips every
+        descendant (body, limbs, accessories) from frame 0, before its 3s timer.
+        This is the real fix: the per-frame traverse was gated on network `data`,
+        which often arrives AFTER the merge, so unflagged body meshes got eaten. */}
+    <group ref={groupRef} visible={false} userData={{ isRemotePlayer: true, isPlayer: true, noMerge: true, dynamic: true }}>
       {/* Invisible hitbox */}
       <mesh
         position={[0, 1.2, 0]}
@@ -252,10 +282,10 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
         <meshBasicMaterial color="#00e5ff" transparent opacity={0.3} depthWrite={false} />
       </mesh>
 
-      {/* Hover glow ring */}
+      {/* Hover glow ring — depthWrite:false so the force-opaque pass skips it */}
       <mesh ref={hoverRingRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
         <ringGeometry args={[0.5, 0.82, 32]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0} depthWrite={false} />
       </mesh>
 
       {/* Click name popup */}
@@ -308,8 +338,7 @@ function RemotePlayer({ uid, onPlayerClick, onPlayerContextMenu }) {
         labelColor="#ffd700"
         sublabel={`● Online · Lv ${level}`}
         sublabelColor="#00e5ff"
-        npcScale={0.01}
-        visibleRef={visRef}
+        npcScale={1}
       />
       {/* Their wardrobe style — synced equipped accessories */}
       {gear && <Accessories items={gear} />}
@@ -349,7 +378,7 @@ function RemoteCompanion({ uid }) {
     }
   })
   return (
-    <group ref={ref} visible={false}>
+    <group ref={ref} visible={false} userData={{ isCompanion: true, noMerge: true, dynamic: true }}>
       {disp && <Avatar3D externalControl skin={disp.skin} outfitColorOverride={disp.color} />}
       {disp && (
         <Billboard position={[0, 2.2, 0]}>

@@ -1451,6 +1451,59 @@ function CenterBuildings() {
   )
 }
 
+// ── Building identity decorations ─────────────────────────────────────────
+// Adds iconic signage to buildings that read as generic, plus a couple of the
+// requested touches (police flag, gym dumbbell). Pure decoration — no colliders,
+// static so CityMerger batches them. World-absolute positions; front faces +z.
+function BuildingDecor() {
+  return (
+    <group>
+      {/* Cafe (-80,-16): striped awning + coffee-cup sign */}
+      <group position={[-80, 0, -13.6]}>
+        <mesh position={[0, 2.8, 0]} rotation={[0.5, 0, 0]}><boxGeometry args={[4.6, 0.12, 1.3]} /><meshStandardMaterial color="#b91c1c" roughness={0.7} /></mesh>
+        <mesh position={[0, 3.55, 0.42]}><boxGeometry args={[1.5, 0.95, 0.12]} /><meshStandardMaterial color="#fff7ed" roughness={0.6} /></mesh>
+        <mesh position={[-0.12, 3.5, 0.52]}><cylinderGeometry args={[0.22, 0.18, 0.42, 10]} /><meshStandardMaterial color="#7c3a12" roughness={0.6} /></mesh>
+        <mesh position={[0.18, 3.5, 0.52]} rotation={[0, 0, Math.PI / 2]}><torusGeometry args={[0.12, 0.04, 6, 12]} /><meshStandardMaterial color="#7c3a12" roughness={0.6} /></mesh>
+      </group>
+
+      {/* Arcade (80,-16): neon marquee with bright glowing panels */}
+      <group position={[80, 0, -13.6]}>
+        <mesh position={[0, 3.7, 0]}><boxGeometry args={[4.4, 1.1, 0.22]} /><meshStandardMaterial color="#1e1b4b" roughness={0.5} /></mesh>
+        {[-1.4, 0, 1.4].map((x, i) => (
+          <mesh key={i} position={[x, 3.7, 0.14]}>
+            <boxGeometry args={[1.05, 0.74, 0.06]} />
+            <meshStandardMaterial color={['#22d3ee', '#f472b6', '#a3e635'][i]} emissive={['#06b6d4', '#ec4899', '#65a30d'][i]} emissiveIntensity={0.85} roughness={0.4} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* Music Room (18,-160): musical note sign + speaker stacks */}
+      <group position={[18, 0, -157.6]}>
+        <mesh position={[0, 3.5, 0]}><boxGeometry args={[1.7, 1.7, 0.12]} /><meshStandardMaterial color="#1f2937" roughness={0.5} /></mesh>
+        <mesh position={[-0.22, 3.25, 0.1]}><sphereGeometry args={[0.27, 10, 10]} /><meshStandardMaterial color="#f9a8d4" roughness={0.5} /></mesh>
+        <mesh position={[0.12, 3.6, 0.1]}><boxGeometry args={[0.11, 0.95, 0.11]} /><meshStandardMaterial color="#f9a8d4" roughness={0.5} /></mesh>
+        {[-1.9, 1.9].map((x, i) => (
+          <mesh key={i} position={[x, 1.1, 0.2]}><boxGeometry args={[0.85, 2.2, 0.6]} /><meshStandardMaterial color="#111827" roughness={0.6} /></mesh>
+        ))}
+      </group>
+
+      {/* Police (120,-16): flag on the roof */}
+      <group position={[120, 5.2, 0]}>
+        <mesh position={[1.6, 1.2, 0]}><cylinderGeometry args={[0.06, 0.06, 2.6, 6]} /><meshStandardMaterial color="#cbd5e1" roughness={0.5} /></mesh>
+        <mesh position={[2.1, 2.0, 0]}><planeGeometry args={[0.95, 0.6]} /><meshStandardMaterial color="#1d4ed8" side={THREE.DoubleSide} roughness={0.6} /></mesh>
+      </group>
+
+      {/* Gym (-18,-140): big dumbbell over the entrance */}
+      <group position={[-18, 3.1, -136.6]}>
+        <mesh rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.11, 0.11, 1.7, 8]} /><meshStandardMaterial color="#0b0b14" roughness={0.5} /></mesh>
+        {[-0.95, 0.95].map((x, i) => (
+          <mesh key={i} position={[x, 0, 0]}><boxGeometry args={[0.38, 0.78, 0.78]} /><meshStandardMaterial color="#1f2937" roughness={0.5} /></mesh>
+        ))}
+      </group>
+    </group>
+  )
+}
+
 // ── Dynamic window + lamp lighting ────────────────────────────────────────
 function DynamicLighting() {
   useFrame(() => {
@@ -1500,6 +1553,7 @@ const CityMap = React.memo(function CityMap() {
       <ParkArea />
 
       <CenterBuildings />
+      <BuildingDecor />
 
       {/* New far-flung locations */}
       <SwimmingPool />
