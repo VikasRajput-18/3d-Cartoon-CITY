@@ -7,6 +7,7 @@ import { registerChunk, unregisterChunk } from '@/lib/buildingColliders'
 import { addCollider, removeCollidersWithPrefix } from '@/lib/playerColliders'
 import { registerChunkTrees, unregisterChunkTrees } from '@/lib/chunkTreeState'
 import { gradientMap } from './ToonStyle'
+import { BBOX as TRACK_BBOX } from '@/lib/raceCircuit'
 
 const CHUNK_SIZE = 80   // larger chunks (was 60) — more world per chunk, fewer regenerations
 const HALF       = CHUNK_SIZE / 2
@@ -68,6 +69,16 @@ function buildChunkMesh(cx, cz) {
   group.add(ground)
 
   if (inShore) {
+    group.userData.birthTime = -1
+    return { group, colliders: [], trees: [] }
+  }
+
+  // Race circuit exclusion — the dedicated track (north) gets bare grass ground
+  // and NOTHING else, so no procedural building/road/tree/collider ever lands on
+  // the circuit (that would block racers or fight the track containment).
+  const inTrack = (wx + HALF > TRACK_BBOX.minX) && (wx - HALF < TRACK_BBOX.maxX) &&
+                  (wz + HALF > TRACK_BBOX.minZ) && (wz - HALF < TRACK_BBOX.maxZ)
+  if (inTrack) {
     group.userData.birthTime = -1
     return { group, colliders: [], trees: [] }
   }

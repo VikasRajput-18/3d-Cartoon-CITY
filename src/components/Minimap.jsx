@@ -4,9 +4,12 @@ import { remotePlayersRef } from '@/lib/multiplayerState'
 import { gameControls } from '@/lib/gameControls'
 import { navState } from '@/lib/navState'
 import { getHouseState, onHouseUpdate } from '@/lib/houseService'
+import { raceLive } from '@/lib/raceState'
+import { MINIMAP_PATH, START as CIRCUIT_START } from '@/lib/raceCircuit'
 
 const SMALL_SCALE = 1.8   // px per world unit on small map
 const EX_RANGE   = 70     // world units shown each side in expanded map
+const TRACK_MM_WIDTH = 20 // race circuit track width (world units) for minimap stroke
 
 // Named buildings — used for both small and expanded map drawing + click nav
 const NAMED_BUILDINGS = [
@@ -163,6 +166,19 @@ export default function Minimap({ isMobile = false }) {
       ctx.fillRect(-500, my(4.5, playerZ), 1000, 9 * SMALL_SCALE)
       ctx.fillRect(mx(-4.5, playerX), -500, 9 * SMALL_SCALE, 1000)
 
+      // Race circuit outline (thick track + cyan centre line)
+      ctx.strokeStyle = 'rgba(100,116,139,0.9)'
+      ctx.lineWidth = 5 * SMALL_SCALE
+      ctx.beginPath()
+      MINIMAP_PATH.forEach((p, i) => {
+        const X = mx(p.x, playerX), Y = my(p.z, playerZ)
+        i === 0 ? ctx.moveTo(X, Y) : ctx.lineTo(X, Y)
+      })
+      ctx.closePath(); ctx.stroke()
+      ctx.strokeStyle = 'rgba(34,211,238,0.7)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+
       // Fountain
       ctx.fillStyle = '#38bdf8'
       ctx.beginPath()
@@ -228,6 +244,19 @@ export default function Minimap({ isMobile = false }) {
         ctx.lineTo(tx, tz)
         ctx.stroke()
         ctx.setLineDash([])
+      }
+
+      // Active race checkpoint flag
+      if (raceLive.nextCheckpoint) {
+        const cx = mx(raceLive.nextCheckpoint.x, playerX)
+        const cz = my(raceLive.nextCheckpoint.z, playerZ)
+        ctx.fillStyle = '#4ade80'
+        ctx.shadowColor = '#4ade80'
+        ctx.shadowBlur = 7
+        ctx.beginPath()
+        ctx.arc(cx, cz, 4, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.shadowBlur = 0
       }
 
       // NPCs
@@ -375,6 +404,24 @@ export default function Minimap({ isMobile = false }) {
       ctx.fillStyle = 'rgba(46,143,184,0.35)'
       ctx.fillRect(ex(212), ey(160), 200 * SCALE, 320 * SCALE)
 
+      // Race circuit outline (thick track + cyan centre line + 🏁 label)
+      ctx.strokeStyle = 'rgba(100,116,139,0.95)'
+      ctx.lineWidth = Math.max(3, TRACK_MM_WIDTH * SCALE)
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      MINIMAP_PATH.forEach((p, i) => {
+        const X = ex(p.x, W, SCALE), Y = ey(p.z, H, SCALE)
+        i === 0 ? ctx.moveTo(X, Y) : ctx.lineTo(X, Y)
+      })
+      ctx.closePath(); ctx.stroke()
+      ctx.strokeStyle = 'rgba(34,211,238,0.8)'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.fillStyle = '#fde047'
+      ctx.font = 'bold 11px Nunito, sans-serif'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+      ctx.fillText('🏁 Racing Circuit', ex(CIRCUIT_START.x, W, SCALE), ey(CIRCUIT_START.z, H, SCALE) - 6)
+
       // Trees
       ctx.fillStyle = '#15803d'
       for (const [tx, tz] of TREES) {
@@ -445,6 +492,24 @@ export default function Minimap({ isMobile = false }) {
         ctx.lineTo(tx2, tz2)
         ctx.stroke()
         ctx.setLineDash([])
+      }
+
+      // Active race checkpoint flag
+      if (raceLive.nextCheckpoint) {
+        const cx = ex(raceLive.nextCheckpoint.x, W, SCALE)
+        const cz = ey(raceLive.nextCheckpoint.z, H, SCALE)
+        ctx.fillStyle = '#4ade80'
+        ctx.shadowColor = '#4ade80'
+        ctx.shadowBlur = 10
+        ctx.beginPath()
+        ctx.arc(cx, cz, 6, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.shadowBlur = 0
+        ctx.font = 'bold 10px Nunito, sans-serif'
+        ctx.fillStyle = '#4ade80'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'top'
+        ctx.fillText('🏁 Checkpoint', cx, cz + 8)
       }
 
       // NPCs

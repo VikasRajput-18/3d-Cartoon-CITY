@@ -11,6 +11,13 @@ export const parkedVehicles = [
   { id:'pv2', type:'car',  x:-23, z: 40, facing: Math.PI,   color:'#f97316', driverId:null },
   { id:'pv3', type:'bike', x: 40, z: 21, facing:-Math.PI/2, color:'#34d399', driverId:null },
   { id:'pv4', type:'bike', x:-40, z: 12, facing: 0,         color:'#a855f7', driverId:null },
+
+  // ── Race cars parked on the starting grid of the City Speedway (north) ──────
+  // The player's grid slot is at the BACK of the grid (x ≈ -18 on the bottom
+  // straight, START ≈ (0,335)); the AI racers (raceState.js) line up ahead, so
+  // you start last and chase the pack. Both face +x (the travel direction).
+  { id:'race-car-1',  type:'car',  x:-18, z:332, facing: Math.PI/2, color:'#ef4444', driverId:null },
+  { id:'race-bike-1', type:'bike', x:-18, z:338, facing: Math.PI/2, color:'#22d3ee', driverId:null },
 ]
 
 // Live registry of the actual three.js refs for each parked vehicle, keyed by

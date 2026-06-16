@@ -42,6 +42,9 @@ import ChallengeScene from './ChallengeScene'
 import IntroCameraRig from './IntroCameraRig'
 import { introState } from '@/lib/introState'
 import LiveEvents from './LiveEvents'
+import RaceCircuit from './RaceCircuit'
+import RaceAIRacers from './RaceAIRacers'
+import { applyTrackContainment } from '@/lib/raceState'
 import { bossActiveFlag } from '@/lib/bossState'
 import { orbActiveFlag, getMissionStatus, completeMission } from '@/lib/missionState'
 import { teleportRequest } from '@/lib/teleportState'
@@ -1148,6 +1151,11 @@ function PlayerController({
       vst.pos.x = THREE.MathUtils.clamp(vx, -BOUNDS, BOUNDS)
       vst.pos.z = THREE.MathUtils.clamp(vz, -BOUNDS, BOUNDS)
 
+      // Race-track barrier containment (only active during a race — no effect on
+      // normal city driving). Hitting a barrier nudges you back + soft slowdown.
+      const tcA = applyTrackContainment(vst.pos.x, vst.pos.z)
+      if (tcA && tcA.hit) { vst.pos.x = tcA.x; vst.pos.z = tcA.z; vst.speed *= 0.55 }
+
       // Height-aware: vehicles climb the flyover ramps and ride the deck
       const vGroundY = groundHeightAt(vst.pos.x, vst.pos.z, vGroup ? vGroup.position.y : 0)
       if (vGroup) { vGroup.position.set(vst.pos.x, vGroundY, vst.pos.z); vGroup.rotation.y = vst.facing }
@@ -1298,6 +1306,10 @@ function PlayerController({
       const BOUNDS = 800
       vst.pos.x = THREE.MathUtils.clamp(vx, -BOUNDS, BOUNDS)
       vst.pos.z = THREE.MathUtils.clamp(vz, -BOUNDS, BOUNDS)
+
+      // Race-track barrier containment (only active during a race).
+      const tcP = applyTrackContainment(vst.pos.x, vst.pos.z)
+      if (tcP && tcP.hit) { vst.pos.x = tcP.x; vst.pos.z = tcP.z; vst.speed *= 0.55 }
 
       // Height-aware: vehicles climb the flyover ramps and ride the deck
       const vGroundY = groundHeightAt(vst.pos.x, vst.pos.z, vGroup ? vGroup.position.y : 0)
@@ -2145,6 +2157,10 @@ const WorldScene = React.memo(function WorldScene({ onNPCChat, remotePlayerIds =
 
       {/* City-wide live events (meteor shower, snow, flash mob, treasure, stranger) */}
       <LiveEvents />
+
+      {/* Racing championship — permanent dedicated circuit north of the city */}
+      <RaceCircuit />
+      <RaceAIRacers />
     </>
   )
 })

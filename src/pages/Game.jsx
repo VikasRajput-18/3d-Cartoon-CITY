@@ -46,6 +46,11 @@ import Shop, { ShopButton } from '@/components/Shop'
 import HousePanel, { HouseQuickButton } from '@/components/HousePanel'
 import HouseInterior from '@/world/HouseInterior'
 import { initHouse, getHouseState, onHouseUpdate } from '@/lib/houseService'
+import { initDesign } from '@/lib/houseDesignService'
+import { initRaceState } from '@/lib/raceState'
+import RaceMenu from '@/components/RaceMenu'
+import RaceHUD from '@/components/RaceHUD'
+import RaceResults from '@/components/RaceResults'
 import GameAnnouncementBanner from '@/components/GameAnnouncementBanner'
 import { initGameSettings, getSettingBool } from '@/lib/gameSettings'
 import { isAdminUser } from '@/lib/adminConfig'
@@ -143,6 +148,7 @@ export default function Game() {
   useEffect(() => {
     if (introActive) { gameControls.enabled = false; audioSystem.playLevelUp?.() }
   }, [introActive])
+  const [showRaceMenu,    setShowRaceMenu]    = useState(false)
   const [showHouse,       setShowHouse]       = useState(false)
   const [showHouseInterior, setShowHouseInterior] = useState(false)
   const [houseAction,    setHouseAction]     = useState(null)   // 'rest'|'sleep'|null
@@ -273,6 +279,8 @@ export default function Game() {
     console.log('First login?', firstLogin)
 
     initEconomy(user.id).then(bonus => { if (bonus?.given) setDailyBonus(bonus) })
+    initDesign(user.id)
+    initRaceState(user.id, avatar.name)
     initHouse(user.id, avatar.name).then(hs => {
       if (!hs) return
       const { unpaid, status } = hs
@@ -859,6 +867,12 @@ export default function Game() {
             className="w-[42px] h-[42px] rounded-xl cursor-pointer text-xl flex items-center justify-center font-body border-0"
             style={{ background: 'rgba(251,191,36,0.2)', border: '1.5px solid rgba(251,191,36,0.4)', boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
           >📍</button>
+          <button
+            onClick={() => setShowRaceMenu(true)}
+            title="Racing"
+            className="w-[42px] h-[42px] rounded-xl cursor-pointer text-xl flex items-center justify-center font-body border-0"
+            style={{ background: 'rgba(239,68,68,0.2)', border: '1.5px solid rgba(239,68,68,0.4)', boxShadow: '0 2px 12px rgba(0,0,0,0.3)' }}
+          >🏁</button>
           <HouseQuickButton onClick={() => setShowHouse(true)} />
           <ShopButton onClick={() => setShowShop(true)} />
           <JobsButton onClick={() => setShowJobs(true)} />
@@ -1174,6 +1188,10 @@ export default function Game() {
       {showCompanionSetup && <CompanionSetup onDone={() => setShowCompanionSetup(false)} />}
       <CompanionChat open={showCompanionChat} onClose={() => setShowCompanionChat(false)} />
       {mode === 'city' && <ChallengePopup playerName={avatar?.name} />}
+
+      <RaceMenu open={showRaceMenu} onClose={() => setShowRaceMenu(false)} />
+      <RaceHUD />
+      <RaceResults />
 
       <HousePanel
         open={showHouse}

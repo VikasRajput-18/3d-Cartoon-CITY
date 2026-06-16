@@ -4,6 +4,7 @@ import { spendCoins, getEconomyState, onEconomyUpdate } from '@/lib/economyState
 import { teleportRequest } from '@/lib/teleportState'
 import { COSTS } from '@/lib/costs'
 import { getHouseState, onHouseUpdate } from '@/lib/houseService'
+import { START as CIRCUIT_START } from '@/lib/raceCircuit'
 
 const COST       = COSTS.fastTravel
 const HOUSE_COST = COSTS.houseTravel
@@ -26,6 +27,7 @@ const LOCATIONS = [
   { id: 'pool',       pos: [300, 0,-300], emoji: '🏊', label: 'Swimming Pool', cost: 15 },
   { id: 'airport',    pos: [-600,0,-600], emoji: '✈️', label: 'Airport',       cost: 30 },
   { id: 'shore',      pos: [185, 0, 0],   emoji: '🌅', label: 'Sunset Shore',  cost: 15 },
+  { id: 'circuit',    pos: [CIRCUIT_START.x - 18, 0, CIRCUIT_START.z], emoji: '🏁', label: 'Racing Circuit', cost: 15 },
 ]
 
 function walkTime(x, z) {
